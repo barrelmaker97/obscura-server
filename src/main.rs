@@ -1,16 +1,9 @@
-// Minimal Signal-like Server Prototype in Rust
-// Dependencies (add to Cargo.toml):
-// axum = "0.7"
-// serde = { version = "1.0", features = ["derive"] }
-// serde_json = "1.0"
-// uuid = { version = "1", features = ["serde", "v4"] }
-// tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-
-use axum::{extract::Json, routing::post, Router};
+use axum::{extract::Json, routing::post, Router, extract::State, serve};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
+use tokio::net::TcpListener;
 
 // In-memory DB types
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,24 +51,27 @@ async fn main() {
         .with_state(state);
 
     println!("Running on http://localhost:3000");
-    axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+
+    let listener = TcpListener::bind("0.0.0.0:3000").await.unwrap();
+
+    serve(listener, app.into_make_service()).await.unwrap();
+
 }
 
+#[axum::debug_handler]
 async fn upload_keys(
+    State(state): State<Arc<AppState>>,
     Json(req): Json<UploadKeysRequest>,
-    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
 ) -> &'static str {
     let mut keys = state.keys.lock().unwrap();
     keys.insert(req.user_id, req.keys);
     "OK"
 }
 
+#[axum::debug_handler]
 async fn send_message(
+    State(state): State<Arc<AppState>>,
     Json(req): Json<SendMessageRequest>,
-    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
 ) -> &'static str {
     let mut messages = state.messages.lock().unwrap();
     messages.push(Message {
@@ -91,14 +87,20 @@ struct FetchMessagesRequest {
     user_id: Uuid,
 }
 
+#[axum::debug_handler]
 async fn fetch_messages(
+    State(state): State<Arc<AppState>>,
     Json(req): Json<FetchMessagesRequest>,
-    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
 ) -> Json<Vec<Message>> {
     let mut messages = state.messages.lock().unwrap();
     let user_msgs: Vec<_> = messages
-        .drain_filter(|msg| msg.to == req.user_id)
+        .iter()
+        .filter(|msg| msg.to == req.user_id)
+        .cloned()
         .collect();
+
+    messages.retain(|msg| msg.to != req.user_id);
+
     Json(user_msgs)
 }
 
