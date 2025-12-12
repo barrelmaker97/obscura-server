@@ -90,6 +90,21 @@
 - **FR-004**: System MUST [data requirement, e.g., "persist user preferences"]
 - **FR-005**: System MUST [behavior, e.g., "log all security events"]
 
+### Constitution Alignment (mandatory)
+
+Every spec MUST include a short "Constitution Alignment" section that lists which
+Constitution principles the feature affects and how the design meets those
+principles. At minimum, indicate applicability for:
+
+- Code Quality
+- Testing Standards (include the test types and locations)
+- Security (include threat modeling notes if relevant)
+- User Privacy (include privacy impact and retention policy if PII is involved)
+- Performance & Reliability (include goals or budgets for critical paths)
+
+This alignment will be used by reviewers to validate compliance with project
+governance during PR reviews.
+
 *Example of marking unclear requirements:*
 
 - **FR-006**: System MUST authenticate users via [NEEDS CLARIFICATION: auth method not specified - email/password, SSO, OAuth?]

@@ -8,7 +8,10 @@ description: "Task list template for feature implementation"
 **Input**: Design documents from `/specs/[###-feature-name]/`
 **Prerequisites**: plan.md (required), spec.md (required for user stories), research.md, data-model.md, contracts/
 
-**Tests**: The examples below include test tasks. Tests are OPTIONAL - only include them if explicitly requested in the feature specification.
+**Tests**: The Constitution requires test-first practices for new features. Plans
+and tasks MUST include tests for production-impacting work. For Priority P1
+stories tests MUST be included and added to the repository as failing tests
+before implementation begins. CI MUST run tests for all task-related changes.
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
@@ -79,7 +82,7 @@ Examples of foundational tasks (adjust based on your project):
 
 **Independent Test**: [How to verify this story works on its own]
 
-### Tests for User Story 1 (OPTIONAL - only if tests requested) ⚠️
+### Tests for User Story 1 (required for P1 stories) ⚠️
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 

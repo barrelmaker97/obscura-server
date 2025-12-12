@@ -31,7 +31,25 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+This project enforces the repository Constitution (see
+`.specify/memory/constitution.md`). Before Phase 0 research completes, the
+plan MUST include evidence for the following gates (one-line confirmations are
+acceptable with links to details):
+
+- Code Quality: coding standards, linting configuration, and any public API
+  contracts relevant to the feature.
+- Testing Standards: list of tests to be added (unit/integration/contract) and
+  where failing tests will live; coverage expectations for critical modules.
+- Security: threat model notes for changes affecting auth, secrets, or data
+  flows; any dependency additions called out for security review.
+- Privacy: privacy impact statement if the feature handles PII and data
+  retention/processing notes.
+- Performance: performance goals or benchmarks for critical paths and
+  monitoring guidance for production validation.
+
+The plan MUST link to the spec sections or issues that demonstrate how each
+gate will be satisfied. If a gate cannot be satisfied before Phase 0, provide
+justification and a mitigation path.
 
 ## Project Structure
 
