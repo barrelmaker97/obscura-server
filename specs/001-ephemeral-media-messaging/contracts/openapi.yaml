@@ -1,0 +1,190 @@
+openapi: 3.0.3
+info:
+  title: Obscura Ephemeral Media Messaging API (MVP)
+  version: 0.1.0
+paths:
+  /register:
+    post:
+      summary: Register user + device (username, password, device_public_key)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - password
+                - device_public_key
+              properties:
+                username:
+                  type: string
+                  minLength: 3
+                  maxLength: 30
+                  pattern: '^[A-Za-z0-9_]+$'
+                password:
+                  type: string
+                  minLength: 8
+                device_public_key:
+                  type: string
+                  description: Base64-encoded public key (Ed25519 or similar)
+      responses:
+        '201':
+          description: User and device registered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: string
+                    format: uuid
+                  device_id:
+                    type: string
+                    format: uuid
+        '400':
+          description: Invalid input (username format, duplicate username, etc.)
+        '409':
+          description: Username already exists
+  /auth/token:
+    post:
+      summary: Exchange username/password for short-lived access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - password
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Access token issued successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                    description: JWT or opaque bearer token (expires in 1 hour)
+                  token_type:
+                    type: string
+                    default: Bearer
+                  expires_in:
+                    type: integer
+                    description: Token lifetime in seconds
+        '401':
+          description: Invalid username or password
+        '400':
+          description: Missing required fields
+  /presign-upload:
+    post:
+      summary: Request presigned S3 upload URL for an encrypted blob (device-signed)
+      security:
+        - deviceSig: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - filename
+                - content_length
+                - message_id
+              properties:
+                filename:
+                  type: string
+                  description: Original filename (for metadata only; not used for storage)
+                content_length:
+                  type: integer
+                  description: Size of encrypted file in bytes
+                  minimum: 1
+                message_id:
+                  type: string
+                  format: uuid
+                  description: Unique message ID (correlates with DB message record)
+      responses:
+        '200':
+          description: Presigned upload URL issued successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  upload_url:
+                    type: string
+                    format: uri
+                    description: S3 presigned POST or PUT URL (valid for 15 minutes)
+                  storage_pointer:
+                    type: string
+                    description: S3 object key where file will be stored
+                  fields:
+                    type: object
+                    description: (for POST) Additional form fields required by presigned URL
+        '400':
+          description: Invalid request (missing fields, invalid message_id, etc.)
+        '401':
+          description: Missing or invalid device signature
+        '403':
+          description: Device not authorized or user mismatch
+  /messages/{id}/read:
+    post:
+      summary: Mark message as read and trigger burn (device-signed by recipient)
+      security:
+        - deviceSig: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Message ID to mark as read
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                timestamp:
+                  type: string
+                  format: date-time
+                  description: Optional timestamp of read event (for audit)
+      responses:
+        '200':
+          description: Message marked read; server initiated S3 deletion and will emit read receipt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - read
+                  message_id:
+                    type: string
+                    format: uuid
+        '400':
+          description: Invalid message ID format
+        '401':
+          description: Missing or invalid device signature
+        '403':
+          description: Not authorized to read this message (not recipient)
+        '404':
+          description: Message not found or already deleted
+components:
+  securitySchemes:
+    deviceSig:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
