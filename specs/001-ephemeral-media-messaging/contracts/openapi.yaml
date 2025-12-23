@@ -1,14 +1,29 @@
 openapi: 3.0.3
 info:
-  title: Obscura Ephemeral Media Messaging API (MVP)
+  title: Obscura Ephemeral Media Messaging API
+  description: |
+    Backend service for the Obscura messaging system. 
+    This API acts as a "blind courier" for end-to-end encrypted media.
+    
+    ### Key Concepts:
+    * **Zero-Knowledge**: The server never sees plaintext or decryption keys.
+    * **Signal Protocol**: Uses X3DH for key agreement. Client must fetch a 'bundle' to start a session.
+    * **Burn-on-View**: Messages are deleted from the server immediately after the `/read` endpoint is called.
+    * **WebSockets**: Used exclusively for the server to push new messages and receipts to the client.
   version: 0.1.0
+
 servers:
-  - url: /
+  - url: /v1
+    description: Production API v1
+
 paths:
-  /v1/devices/register:
+  # --- IDENTITY & REGISTRATION ---
+  /devices/register:
     post:
-      summary: Register user + device and upload Signal key material
-      description: Client registers account and device key material (registration_id, identity_key, signed_pre_key, and one-time pre-keys). Server returns an initial access token for the device to use.
+      tags:
+        - Identity
+      summary: Register account and initial device
+      description: Registers a unique username and the initial Signal key material for the user's single device.
       requestBody:
         required: true
         content:
@@ -31,7 +46,7 @@ paths:
                   type: integer
                 identity_key:
                   type: string
-                  description: Base64-encoded identity public key
+                  description: Base64 identity public key
                 signed_pre_key:
                   type: object
                   properties:
@@ -52,30 +67,20 @@ paths:
                         type: string
       responses:
         '201':
-          description: Device and key material registered; initial session token issued
+          description: Registered successfully. Returns initial session token.
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  user_id:
-                    type: string
-                    format: uuid
-                  device_id:
-                    type: string
-                    format: uuid
-                  access_token:
-                    type: string
-                  expires_in:
-                    type: integer
-        '400':
-          description: Invalid request
+                $ref: '#/components/schemas/AuthResponse'
         '409':
-          description: Username already exists or duplicate keys
+          description: Username or keys already in use.
 
+  # --- AUTHENTICATION ---
   /auth/token:
     post:
-      summary: Exchange username/password for short-lived access token
+      tags:
+        - Auth
+      summary: Refresh session token
       requestBody:
         required: true
         content:
@@ -92,230 +97,28 @@ paths:
                   type: string
       responses:
         '200':
-          description: Access token issued successfully
+          description: Token issued.
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  access_token:
-                    type: string
-                    description: JWT or opaque bearer token (expires in 1 hour)
-                  token_type:
-                    type: string
-                    default: Bearer
-                  expires_in:
-                    type: integer
-        '401':
-          description: Invalid username or password
-        '400':
-          description: Missing required fields
+                $ref: '#/components/schemas/AuthResponse'
 
-  /presign-upload:
-    post:
-      summary: Request presigned S3 upload URL for an encrypted blob
-      security:
-        - bearerAuth: []
-        - deviceSig: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - filename
-                - content_length
-                - message_id
-              properties:
-                filename:
-                  type: string
-                content_length:
-                  type: integer
-                message_id:
-                  type: string
-                  format: uuid
-      responses:
-        '200':
-          description: Presigned upload URL issued successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  upload_url:
-                    type: string
-                    format: uri
-                  storage_pointer:
-                    type: string
-                  fields:
-                    type: object
-        '400':
-          description: Invalid request
-        '401':
-          description: Missing or invalid auth/signature
-
-  /v1/messages:
-    post:
-      summary: Create a message intent and associated ciphertext blob placeholder
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - recipient_username
-              properties:
-                recipient_username:
-                  type: string
-                metadata:
-                  type: object
-      responses:
-        '201':
-          description: Message intent created
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message_id:
-                    type: string
-                    format: uuid
-                  ciphertext_blob_id:
-                    type: string
-                    format: uuid
-        '400':
-          description: Invalid request
-        '404':
-          description: Recipient not found
-
-  /v1/messages/{id}/ready:
-    post:
-      summary: Notify server that S3 upload completed and release message for delivery
-      security:
-        - bearerAuth: []
-        - deviceSig: []
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                storage_pointer:
-                  type: string
-                size_bytes:
-                  type: integer
-                checksum:
-                  type: string
-      responses:
-        '200':
-          description: Message released and queued for delivery; NEW_MESSAGE event will be emitted to recipient
-        '400':
-          description: Invalid request or missing upload
-        '401':
-          description: Missing or invalid auth/signature
-
-  /v1/messages/{id}/delivered:
-    post:
-      summary: Recipient notifies server that a message was delivered to device (update status to delivered)
-      security:
-        - bearerAuth: []
-        - deviceSig: []
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                timestamp:
-                  type: string
-                  format: date-time
-      responses:
-        '200':
-          description: Message marked as delivered and sender will receive a delivered receipt
-        '400':
-          description: Invalid request
-        '401':
-          description: Missing or invalid auth/signature
-
-  /v1/messages/{id}/read:
-    post:
-      summary: Mark message as read and trigger burn (device-signed by recipient)
-      security:
-        - bearerAuth: []
-        - deviceSig: []
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                timestamp:
-                  type: string
-                  format: date-time
-      responses:
-        '200':
-          description: Message marked read; server initiated S3 deletion and will emit read receipt
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    enum:
-                      - read
-                  message_id:
-                    type: string
-                    format: uuid
-        '400':
-          description: Invalid message ID format
-        '401':
-          description: Missing or invalid auth/signature
-        '403':
-          description: Not authorized to read this message (not recipient)
-        '404':
-          description: Message not found or already deleted
-
-  /v1/users/{username}/bundle:
+  # --- KEY EXCHANGE (X3DH) ---
+  /users/{username}/bundle:
     get:
-      summary: Retrieve PreKey bundle for a user (atomic pop of one-time pre-key)
+      tags:
+        - Handshake
+      summary: Fetch PreKey bundle for a recipient
+      description: Used by a sender to establish an E2EE session. The server atomically "pops" one One-Time PreKey.
       parameters:
-        - in: path
-          name: username
+        - name: username
+          in: path
           required: true
           schema:
             type: string
       responses:
         '200':
-          description: PreKey bundle returned
+          description: Bundle retrieved.
           content:
             application/json:
               schema:
@@ -323,7 +126,6 @@ paths:
                 properties:
                   identity_key:
                     type: string
-                    description: Base64-encoded identity public key
                   registration_id:
                     type: integer
                   signed_pre_key:
@@ -343,8 +145,155 @@ paths:
                         type: integer
                       public_key:
                         type: string
-        '404':
-          description: User not found or no available pre-keys
+
+  # --- MESSAGING PIPELINE ---
+  /messages:
+    post:
+      tags:
+        - Messaging
+      summary: Initialize a message intent
+      security:
+        - bearerAuth: []
+        - deviceSig: []
+      description: The first step in sending. Reserves IDs for the message and the blob.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - recipient_username
+              properties:
+                recipient_username:
+                  type: string
+      responses:
+        '201':
+          description: Intent created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message_id:
+                    type: string
+                    format: uuid
+                  ciphertext_blob_id:
+                    type: string
+                    format: uuid
+
+  /messages/{id}/ready:
+    post:
+      tags:
+        - Messaging
+      summary: Finalize and release message
+      security:
+        - bearerAuth: []
+        - deviceSig: []
+      description: Called after the S3 upload is successful to trigger delivery to the recipient.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - storage_pointer
+                - size_bytes
+              properties:
+                storage_pointer:
+                  type: string
+                size_bytes:
+                  type: integer
+                checksum:
+                  type: string
+      responses:
+        '200':
+          description: Message released.
+
+  /messages/{id}/delivered:
+    post:
+      tags:
+        - Messaging
+      summary: Confirm delivery
+      security:
+        - bearerAuth: []
+        - deviceSig: []
+      description: Recipient device calls this when it receives the push via WebSocket.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Status updated.
+
+  /messages/{id}/read:
+    post:
+      tags:
+        - Messaging
+      summary: Mark as read and trigger burn
+      security:
+        - bearerAuth: []
+        - deviceSig: []
+      description: Triggers the immediate deletion of the S3 blob and DB record.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Burn initiated.
+
+  # --- STORAGE ---
+  /attachments/presign:
+    post:
+      tags:
+        - Storage
+      summary: Get S3 upload URL
+      security:
+        - bearerAuth: []
+        - deviceSig: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - message_id
+                - content_length
+              properties:
+                message_id:
+                  type: string
+                  format: uuid
+                content_length:
+                  type: integer
+      responses:
+        '200':
+          description: URL issued.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  upload_url:
+                    type: string
+                  storage_pointer:
+                    type: string
 
 components:
   securitySchemes:
@@ -355,4 +304,17 @@ components:
     deviceSig:
       type: apiKey
       in: header
-      name: X-SecureSnap-Signature
+      name: X-Obscura-Signature
+  
+  schemas:
+    AuthResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+          example: 3600

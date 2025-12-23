@@ -100,39 +100,11 @@ This file extracts entities from the feature spec and maps them to DB tables, fi
 - Use `sqlx` migrations under `migrations/` with up/down SQL files.
 
 ## Signal Key Store (Signal Protocol Requirements)
-
 To support the official Signal protocol (X3DH + Double Ratchet) the server
 must store a small set of public key material per registered device: a
 registration id, the long-term identity public key, one active signed pre-key,
 and a set of disposable one-time pre-keys. The server never stores private
-keys. The following SQL snippets capture the required schema additions.
-
-```sql
--- 1. Updated Devices Table
-ALTER TABLE devices
-ADD COLUMN registration_id INTEGER NOT NULL,
-ADD COLUMN identity_key BYTEA NOT NULL; -- The 33-byte public key
-
--- 2. Signed Pre-Keys Table
-CREATE TABLE signed_pre_keys (
-    id SERIAL PRIMARY KEY,
-    device_id UUID REFERENCES devices(id) ON DELETE CASCADE,
-    key_id INTEGER NOT NULL,
-    public_key BYTEA NOT NULL,
-    signature BYTEA NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
-    UNIQUE(device_id, key_id)
-);
-
--- 3. One-Time Pre-Keys Table
-CREATE TABLE one_time_pre_keys (
-    id SERIAL PRIMARY KEY,
-    device_id UUID REFERENCES devices(id) ON DELETE CASCADE,
-    key_id INTEGER NOT NULL,
-    public_key BYTEA NOT NULL,
-    UNIQUE(device_id, key_id)
-);
-```
+keys.
 
 Notes:
 - One-time pre-keys are intended to be consumed (deleted) when a client
