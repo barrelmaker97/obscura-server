@@ -17,11 +17,44 @@ This file extracts entities from the feature spec and maps them to DB tables, fi
   - `id` UUID PRIMARY KEY
   - `user_id` UUID REFERENCES users(id) ON DELETE CASCADE
   - `device_public_key` TEXT NOT NULL -- base64 or PEM
+  - `registration_id` INTEGER NOT NULL -- Signal registration id
+  - `identity_key` BYTEA NOT NULL -- long-term identity public key (raw bytes)
   - `registered_at` TIMESTAMP WITH TIME ZONE DEFAULT now()
   - `active` BOOLEAN DEFAULT TRUE
-- Notes: MVP enforces one active device per user.
+ - Notes: MVP enforces one active device per user. The `registration_id` and
+   `identity_key` are required to support Signal protocol bundles and to
+   verify device-signed requests. `identity_key` is stored as raw bytes; API
+   surfaces should accept/return Base64 when convenient.
 
-3. CiphertextBlob
+3. SignedPreKey
+- Table: `signed_pre_keys`
+- Fields:
+  - `id` SERIAL PRIMARY KEY
+  - `device_id` UUID REFERENCES devices(id) ON DELETE CASCADE
+  - `key_id` INTEGER NOT NULL
+  - `public_key` BYTEA NOT NULL
+  - `signature` BYTEA NOT NULL
+  - `created_at` TIMESTAMP WITH TIME ZONE DEFAULT now()
+  - UNIQUE(device_id, key_id)
+
+  Notes: Each device holds one active signed pre-key; the server stores the
+  public key and its signature. The server must not hold any private key
+  material.
+
+4. OneTimePreKey
+- Table: `one_time_pre_keys`
+- Fields:
+  - `id` SERIAL PRIMARY KEY
+  - `device_id` UUID REFERENCES devices(id) ON DELETE CASCADE
+  - `key_id` INTEGER NOT NULL
+  - `public_key` BYTEA NOT NULL
+  - UNIQUE(device_id, key_id)
+
+  Notes: One-time pre-keys are intended to be consumed (deleted) when a
+  client fetches a PreKey bundle for initiating a session. The server must
+  perform the fetch-and-delete atomically to ensure keys are not reused.
+
+5. CiphertextBlob
 - Table: `ciphertext_blobs`
 - Fields:
   - `id` UUID PRIMARY KEY
@@ -65,3 +98,47 @@ This file extracts entities from the feature spec and maps them to DB tables, fi
 
 ## Migrations
 - Use `sqlx` migrations under `migrations/` with up/down SQL files.
+
+## Signal Key Store (Signal Protocol Requirements)
+
+To support the official Signal protocol (X3DH + Double Ratchet) the server
+must store a small set of public key material per registered device: a
+registration id, the long-term identity public key, one active signed pre-key,
+and a set of disposable one-time pre-keys. The server never stores private
+keys. The following SQL snippets capture the required schema additions.
+
+```sql
+-- 1. Updated Devices Table
+ALTER TABLE devices
+ADD COLUMN registration_id INTEGER NOT NULL,
+ADD COLUMN identity_key BYTEA NOT NULL; -- The 33-byte public key
+
+-- 2. Signed Pre-Keys Table
+CREATE TABLE signed_pre_keys (
+    id SERIAL PRIMARY KEY,
+    device_id UUID REFERENCES devices(id) ON DELETE CASCADE,
+    key_id INTEGER NOT NULL,
+    public_key BYTEA NOT NULL,
+    signature BYTEA NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    UNIQUE(device_id, key_id)
+);
+
+-- 3. One-Time Pre-Keys Table
+CREATE TABLE one_time_pre_keys (
+    id SERIAL PRIMARY KEY,
+    device_id UUID REFERENCES devices(id) ON DELETE CASCADE,
+    key_id INTEGER NOT NULL,
+    public_key BYTEA NOT NULL,
+    UNIQUE(device_id, key_id)
+);
+```
+
+Notes:
+- One-time pre-keys are intended to be consumed (deleted) when a client
+  fetches a PreKey bundle for initiating a session. The server must perform
+  the fetch-and-delete atomically to ensure keys are not reused.
+- `identity_key` and `registration_id` are required to verify device-signed
+  requests and to construct PreKey bundles returned to initiating clients.
+- All public keys are stored as `BYTEA` (raw bytes). Use Base64 on API
+  surfaces where convenient.

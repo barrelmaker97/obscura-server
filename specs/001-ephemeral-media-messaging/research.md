@@ -31,10 +31,9 @@ Decision: Authentication & Device Model
 Decision: End-to-End Encryption (Cryptography)
 - Chosen: Signal protocol model: X3DH for initial key agreement and Double Ratchet for message sequencing and forward secrecy. For attachments (large blobs), derive a symmetric content encryption key from the ratchet and use it to encrypt the file; then encrypt that symmetric key for the recipient's ratchet state.
 - Rationale: Signal's model provides strong forward secrecy, plausible deniability, and established security properties.
-- Implementation note: Prefer using existing, audited implementations rather than inventing crypto. Options include:
-  - `libsignal-protocol-c` with a safe Rust wrapper (FFI) if the wrapper and FFI surface pass security review.
-  - Audit pure-Rust crates like `vodozemac` (Matrix's Double Ratchet / Megolm crates) or existing community crates implementing X3DH/Double Ratchet if they are production-audited.
-- Mitigation path: If no satisfactory Rust-native audited crate exists for X3DH+Double Ratchet, treat the cryptographic subsystem as a gated dependency requiring an explicit security review and potentially using FFI-bound C library maintained by the Signal project.
+- Implementation note: Use the official Signal project's Rust implementation `signalapp/libsignal` (https://github.com/signalapp/libsignal). This crate provides a maintained, first-party Rust implementation of X3DH and Double Ratchet and removes the need for FFI to C libraries for the core protocol primitives.
+- Security posture: By adopting `signalapp/libsignal` we depend on the official implementation used by Signal's clients; this materially reduces the audit burden. Nonetheless, the integration surface (how keys/IDs are serialized, API handling, and any FFI boundaries if used elsewhere) still requires a brief integration review.
+- Migration note: If future requirements demand different primitives or multi-device session stores, the `crypto/` integration layer should be designed so the `libsignal` usage is abstracted behind a small API boundary.
 
 Decision: Attachment Encryption & Upload Flow
 - Flow:

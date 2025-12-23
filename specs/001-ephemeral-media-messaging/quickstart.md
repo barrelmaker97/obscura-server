@@ -61,3 +61,18 @@ Notes
 
 - The server expects client-side encryption using X3DH + Double Ratchet; presigned upload flow is implemented for encrypted blobs.
 - See `specs/001-ephemeral-media-messaging/research.md` for design rationale and `specs/001-ephemeral-media-messaging/data-model.md` for DB layout.
+
+## Registration (Signal key material)
+
+Clients must generate Signal key material before registering a device:
+
+1. Generate an `IdentityKeyPair` and `RegistrationID`.
+2. Generate a `SignedPreKey` and sign it with the `IdentityKeyPair`.
+3. Generate a batch of `OneTimePreKeys` (e.g., 100) and upload them.
+
+Example using the official Rust library `signalapp/libsignal`:
+
+1. Generate keys and pre-keys in the client using `libsignal`.
+2. POST the registration payload to `/v1/devices/register` with `username`, `password`, `registration_id`, `identity_key`, `signed_pre_key`, and `one_time_pre_keys`.
+
+Note: One-time pre-keys are deleted by the server when a bundle is fetched. See `specs/001-ephemeral-media-messaging/contracts/openapi.yaml` for the `bundle` endpoint and payload format.

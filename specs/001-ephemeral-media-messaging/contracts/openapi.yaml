@@ -2,10 +2,13 @@ openapi: 3.0.3
 info:
   title: Obscura Ephemeral Media Messaging API (MVP)
   version: 0.1.0
+servers:
+  - url: /
 paths:
-  /register:
+  /v1/devices/register:
     post:
-      summary: Register user + device (username, password, device_public_key)
+      summary: Register user + device and upload Signal key material
+      description: Client registers account and device key material (registration_id, identity_key, signed_pre_key, and one-time pre-keys). Server returns an initial access token for the device to use.
       requestBody:
         required: true
         content:
@@ -15,22 +18,41 @@ paths:
               required:
                 - username
                 - password
-                - device_public_key
+                - registration_id
+                - identity_key
+                - signed_pre_key
+                - one_time_pre_keys
               properties:
                 username:
                   type: string
-                  minLength: 3
-                  maxLength: 30
-                  pattern: '^[A-Za-z0-9_]+$'
                 password:
                   type: string
-                  minLength: 8
-                device_public_key:
+                registration_id:
+                  type: integer
+                identity_key:
                   type: string
-                  description: Base64-encoded public key (Ed25519 or similar)
+                  description: Base64-encoded identity public key
+                signed_pre_key:
+                  type: object
+                  properties:
+                    key_id:
+                      type: integer
+                    public_key:
+                      type: string
+                    signature:
+                      type: string
+                one_time_pre_keys:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      key_id:
+                        type: integer
+                      public_key:
+                        type: string
       responses:
         '201':
-          description: User and device registered successfully
+          description: Device and key material registered; initial session token issued
           content:
             application/json:
               schema:
@@ -42,10 +64,15 @@ paths:
                   device_id:
                     type: string
                     format: uuid
+                  access_token:
+                    type: string
+                  expires_in:
+                    type: integer
         '400':
-          description: Invalid input (username format, duplicate username, etc.)
+          description: Invalid request
         '409':
-          description: Username already exists
+          description: Username already exists or duplicate keys
+
   /auth/token:
     post:
       summary: Exchange username/password for short-lived access token
@@ -79,15 +106,16 @@ paths:
                     default: Bearer
                   expires_in:
                     type: integer
-                    description: Token lifetime in seconds
         '401':
           description: Invalid username or password
         '400':
           description: Missing required fields
+
   /presign-upload:
     post:
-      summary: Request presigned S3 upload URL for an encrypted blob (device-signed)
+      summary: Request presigned S3 upload URL for an encrypted blob
       security:
+        - bearerAuth: []
         - deviceSig: []
       requestBody:
         required: true
@@ -102,15 +130,11 @@ paths:
               properties:
                 filename:
                   type: string
-                  description: Original filename (for metadata only; not used for storage)
                 content_length:
                   type: integer
-                  description: Size of encrypted file in bytes
-                  minimum: 1
                 message_id:
                   type: string
                   format: uuid
-                  description: Unique message ID (correlates with DB message record)
       responses:
         '200':
           description: Presigned upload URL issued successfully
@@ -122,23 +146,57 @@ paths:
                   upload_url:
                     type: string
                     format: uri
-                    description: S3 presigned POST or PUT URL (valid for 15 minutes)
                   storage_pointer:
                     type: string
-                    description: S3 object key where file will be stored
                   fields:
                     type: object
-                    description: (for POST) Additional form fields required by presigned URL
         '400':
-          description: Invalid request (missing fields, invalid message_id, etc.)
+          description: Invalid request
         '401':
-          description: Missing or invalid device signature
-        '403':
-          description: Device not authorized or user mismatch
-  /messages/{id}/read:
+          description: Missing or invalid auth/signature
+
+  /v1/messages:
     post:
-      summary: Mark message as read and trigger burn (device-signed by recipient)
+      summary: Create a message intent and associated ciphertext blob placeholder
       security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - recipient_username
+              properties:
+                recipient_username:
+                  type: string
+                metadata:
+                  type: object
+      responses:
+        '201':
+          description: Message intent created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message_id:
+                    type: string
+                    format: uuid
+                  ciphertext_blob_id:
+                    type: string
+                    format: uuid
+        '400':
+          description: Invalid request
+        '404':
+          description: Recipient not found
+
+  /v1/messages/{id}/ready:
+    post:
+      summary: Notify server that S3 upload completed and release message for delivery
+      security:
+        - bearerAuth: []
         - deviceSig: []
       parameters:
         - in: path
@@ -147,7 +205,40 @@ paths:
           schema:
             type: string
             format: uuid
-          description: Message ID to mark as read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                storage_pointer:
+                  type: string
+                size_bytes:
+                  type: integer
+                checksum:
+                  type: string
+      responses:
+        '200':
+          description: Message released and queued for delivery; NEW_MESSAGE event will be emitted to recipient
+        '400':
+          description: Invalid request or missing upload
+        '401':
+          description: Missing or invalid auth/signature
+
+  /v1/messages/{id}/delivered:
+    post:
+      summary: Recipient notifies server that a message was delivered to device (update status to delivered)
+      security:
+        - bearerAuth: []
+        - deviceSig: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
       requestBody:
         required: false
         content:
@@ -158,7 +249,37 @@ paths:
                 timestamp:
                   type: string
                   format: date-time
-                  description: Optional timestamp of read event (for audit)
+      responses:
+        '200':
+          description: Message marked as delivered and sender will receive a delivered receipt
+        '400':
+          description: Invalid request
+        '401':
+          description: Missing or invalid auth/signature
+
+  /v1/messages/{id}/read:
+    post:
+      summary: Mark message as read and trigger burn (device-signed by recipient)
+      security:
+        - bearerAuth: []
+        - deviceSig: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                timestamp:
+                  type: string
+                  format: date-time
       responses:
         '200':
           description: Message marked read; server initiated S3 deletion and will emit read receipt
@@ -177,14 +298,61 @@ paths:
         '400':
           description: Invalid message ID format
         '401':
-          description: Missing or invalid device signature
+          description: Missing or invalid auth/signature
         '403':
           description: Not authorized to read this message (not recipient)
         '404':
           description: Message not found or already deleted
+
+  /v1/users/{username}/bundle:
+    get:
+      summary: Retrieve PreKey bundle for a user (atomic pop of one-time pre-key)
+      parameters:
+        - in: path
+          name: username
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: PreKey bundle returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  identity_key:
+                    type: string
+                    description: Base64-encoded identity public key
+                  registration_id:
+                    type: integer
+                  signed_pre_key:
+                    type: object
+                    properties:
+                      key_id:
+                        type: integer
+                      public_key:
+                        type: string
+                      signature:
+                        type: string
+                  one_time_pre_key:
+                    type: object
+                    nullable: true
+                    properties:
+                      key_id:
+                        type: integer
+                      public_key:
+                        type: string
+        '404':
+          description: User not found or no available pre-keys
+
 components:
   securitySchemes:
-    deviceSig:
+    bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    deviceSig:
+      type: apiKey
+      in: header
+      name: X-SecureSnap-Signature
