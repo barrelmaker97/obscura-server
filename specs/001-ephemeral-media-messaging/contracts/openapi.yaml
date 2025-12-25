@@ -9,7 +9,7 @@ info:
     * **Zero-Knowledge**: The server never sees plaintext or decryption keys.
     * **Signal Protocol**: Uses X3DH for key agreement. Client must fetch a 'bundle' to start a session.
     * **Burn-on-View**: Messages are deleted from the server immediately after the `/read` endpoint is called.
-    * **WebSockets**: Used exclusively for the server to push new messages and receipts to the client.
+    * **WebSockets**: Used exclusively for the server to push new messages and receipts to the client. See `websockets.md`.
   version: 0.1.0
 
 servers:
@@ -75,11 +75,10 @@ paths:
         '409':
           description: Username or keys already in use.
 
-  # --- AUTHENTICATION ---
   /auth/token:
     post:
       tags:
-        - Auth
+        - Identity
       summary: Refresh session token
       requestBody:
         required: true
@@ -103,7 +102,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
 
-  # --- KEY EXCHANGE (X3DH) ---
+  # --- KEY EXCHANGE & MANAGEMENT (X3DH) ---
   /users/{username}/bundle:
     get:
       tags:
@@ -122,82 +121,38 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  identity_key:
-                    type: string
-                  registration_id:
-                    type: integer
-                  signed_pre_key:
-                    type: object
-                    properties:
-                      key_id:
-                        type: integer
-                      public_key:
-                        type: string
-                      signature:
-                        type: string
-                  one_time_pre_key:
-                    type: object
-                    nullable: true
-                    properties:
-                      key_id:
-                        type: integer
-                      public_key:
-                        type: string
+                $ref: '#/components/schemas/PreKeyBundle'
+        '404':
+          description: User not found.
 
-  # --- MESSAGING PIPELINE ---
-  /messages:
-    post:
+  /devices/me/one-time-pre-keys/count:
+    get:
       tags:
-        - Messaging
-      summary: Initialize a message intent
+        - Handshake
+      summary: Get the count of remaining OTPKs for the authenticated device
       security:
         - bearerAuth: []
-        - deviceSig: []
-      description: The first step in sending. Reserves IDs for the message and the blob.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - recipient_username
-              properties:
-                recipient_username:
-                  type: string
       responses:
-        '201':
-          description: Intent created.
+        '200':
+          description: The remaining key count.
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  message_id:
-                    type: string
-                    format: uuid
-                  ciphertext_blob_id:
-                    type: string
-                    format: uuid
+                  count:
+                    type: integer
 
-  /messages/{id}/ready:
+  /devices/me/one-time-pre-keys:
     post:
       tags:
-        - Messaging
-      summary: Finalize and release message
+        - Handshake
+      summary: Upload new One-Time Pre-Keys for the authenticated device
       security:
         - bearerAuth: []
         - deviceSig: []
-      description: Called after the S3 upload is successful to trigger delivery to the recipient.
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+        - $ref: '#/components/parameters/DeviceTimestamp'
       requestBody:
         required: true
         content:
@@ -205,68 +160,28 @@ paths:
             schema:
               type: object
               required:
-                - storage_pointer
-                - size_bytes
+                - one_time_pre_keys
               properties:
-                storage_pointer:
-                  type: string
-                size_bytes:
-                  type: integer
-                checksum:
-                  type: string
-      responses:
-        '200':
-          description: Message released.
-
-  /messages/{id}/delivered:
-    post:
-      tags:
-        - Messaging
-      summary: Confirm delivery
-      security:
-        - bearerAuth: []
-        - deviceSig: []
-      description: Recipient device calls this when it receives the push via WebSocket.
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '200':
-          description: Status updated.
-
-  /messages/{id}/read:
-    post:
-      tags:
-        - Messaging
-      summary: Mark as read and trigger burn
-      security:
-        - bearerAuth: []
-        - deviceSig: []
-      description: Triggers the immediate deletion of the S3 blob and DB record.
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+                one_time_pre_keys:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/OneTimePreKey'
       responses:
         '204':
-          description: Burn initiated.
+          description: One-Time Pre-Keys uploaded successfully.
 
-  # --- STORAGE ---
+  # --- MESSAGING PIPELINE ---
   /attachments/presign:
     post:
       tags:
-        - Storage
-      summary: Get S3 upload URL
+        - Messaging
+      summary: Get a presigned URL for a new attachment
+      description: Step 1 of sending. Get a temporary, one-time URL to upload an encrypted blob to S3.
       security:
         - bearerAuth: []
         - deviceSig: []
+      parameters:
+        - $ref: '#/components/parameters/DeviceTimestamp'
       requestBody:
         required: true
         content:
@@ -274,14 +189,11 @@ paths:
             schema:
               type: object
               required:
-                - message_id
                 - content_length
               properties:
-                message_id:
-                  type: string
-                  format: uuid
                 content_length:
                   type: integer
+                  description: The exact size of the file to be uploaded, in bytes.
       responses:
         '200':
           description: URL issued.
@@ -295,7 +207,101 @@ paths:
                   storage_pointer:
                     type: string
 
+  /messages:
+    post:
+      tags:
+        - Messaging
+      summary: Send a message
+      description: Step 2 of sending. Called after the client has successfully uploaded the encrypted blob to S3 using the presigned URL. This action creates the message record and triggers delivery.
+      security:
+        - bearerAuth: []
+        - deviceSig: []
+      parameters:
+        - $ref: '#/components/parameters/DeviceTimestamp'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - recipient_username
+                - storage_pointer
+                - size_bytes
+              properties:
+                recipient_username:
+                  type: string
+                storage_pointer:
+                  type: string
+                size_bytes:
+                  type: integer
+                checksum:
+                  type: string
+      responses:
+        '202':
+          description: Message accepted for delivery. Returns the new message ID.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message_id:
+                    type: string
+                    format: uuid
+  
+  /messages/{id}/delivered:
+    post:
+      tags:
+        - Messaging
+      summary: Confirm message delivery (recipient)
+      description: Recipient's device calls this after receiving the message via WebSocket to confirm receipt.
+      security:
+        - bearerAuth: []
+        - deviceSig: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/DeviceTimestamp'
+      responses:
+        '204':
+          description: Status updated.
+
+  /messages/{id}/read:
+    post:
+      tags:
+        - Messaging
+      summary: Mark message as read and trigger burn (recipient)
+      description: Recipient's device calls this after the user views the message. Triggers the immediate and irreversible deletion of the S3 blob and all server-side message records.
+      security:
+        - bearerAuth: []
+        - deviceSig: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/DeviceTimestamp'
+      responses:
+        '204':
+          description: Burn initiated.
+
 components:
+  parameters:
+    DeviceTimestamp:
+      name: X-Obscura-Timestamp
+      in: header
+      required: true
+      schema:
+        type: string
+        format: date-time
+      description: ISO 8601 UTC timestamp for the device signature.
+
   securitySchemes:
     bearerAuth:
       type: http
@@ -305,6 +311,7 @@ components:
       type: apiKey
       in: header
       name: X-Obscura-Signature
+      description: A signature of the request body and timestamp, proving device key ownership. The server expects an `X-Obscura-Timestamp` header to be sent alongside this signature. The signature is calculated as `HMAC-SHA256(device_private_key, SHA256(request_body) + "|" + timestamp_string)`.
   
   schemas:
     AuthResponse:
@@ -318,3 +325,34 @@ components:
         expires_in:
           type: integer
           example: 3600
+    
+    SignedPreKey:
+      type: object
+      properties:
+        key_id:
+          type: integer
+        public_key:
+          type: string
+        signature:
+          type: string
+
+    OneTimePreKey:
+      type: object
+      properties:
+        key_id:
+          type: integer
+        public_key:
+          type: string
+
+    PreKeyBundle:
+      type: object
+      properties:
+        identity_key:
+          type: string
+        registration_id:
+          type: integer
+        signed_pre_key:
+          $ref: '#/components/schemas/SignedPreKey'
+        one_time_pre_key:
+          nullable: true
+          $ref: '#/components/schemas/OneTimePreKey'

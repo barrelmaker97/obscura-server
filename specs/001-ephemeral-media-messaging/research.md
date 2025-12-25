@@ -20,12 +20,17 @@ Decision: Object Storage
 - Alternatives: Server-mediated uploads (proxying through backend) — rejected because it increases server bandwidth and memory.
 
 Decision: Real-time Delivery
-- Chosen: WebSockets (Axum's WebSocket support) per connected device for real-time notifications and receipts. For cross-instance delivery, use a message broker or Postgres pub/sub (Phase 2: Redis streams or Kafka recommended for higher scale). For MVP, Postgres NOTIFY / LISTEN or a simple in-memory broker with sticky sessions can be used.
-- Rationale: WebSockets provide low-latency, bidirectional comms suitable for delivery/receipt events.
+- Chosen: WebSockets (Axum's WebSocket support) per connected device for real-time notifications and receipts. For the MVP, a single-server deployment is assumed. Therefore, cross-instance communication is not required. A simple, in-process message bus (e.g., `tokio::sync::broadcast`) will be used to deliver events to clients connected to the single instance.
+- Rationale: This dramatically simplifies the MVP implementation by removing the need for external dependencies like Redis or the complexity of Postgres `LISTEN/NOTIFY`. It meets the immediate requirement and can be scaled out with a proper message broker in a future phase.
 
 Decision: Authentication & Device Model
-- Chosen: Username/password registration issues a short-lived access token (JWT or opaque token) to the device. Each device registers a public key (device_public_key) on account creation. For each request that requires device authenticity (e.g., message registration, presign request), the client attaches a signature created with the device private key. Server verifies signature against stored device_public_key for that user.
-- Rationale: Matches spec clarifications: server verifies device signatures for critical operations.
+- Chosen: Username/password registration issues a short-lived access token (JWT or opaque token). Each device registers a public key. For each request that requires device authenticity, the client must provide a signature.
+- **Device Signature Scheme**: The chosen scheme is a simple body-plus-timestamp signature.
+    - The client must include two headers:
+        1. `X-Obscura-Timestamp`: An ISO 8601 UTC timestamp of when the request was created.
+        2. `X-Obscura-Signature`: The signature, calculated as `HMAC-SHA256(device_private_key, SHA256(request_body) + "|" + timestamp_string)`.
+    - The server verifies that the timestamp is recent (e.g., within 30 seconds of server time) to prevent replay attacks, then re-calculates the signature to authenticate the request.
+- Rationale: Matches spec clarifications for verifying device signatures. The chosen scheme is simple to implement and protects against both basic replay attacks and request body tampering.
 - Alternatives: OAuth2 flows — considered but too heavyweight for MVP.
 
 Decision: End-to-End Encryption (Cryptography)
@@ -37,13 +42,14 @@ Decision: End-to-End Encryption (Cryptography)
 
 Decision: Attachment Encryption & Upload Flow
 - Flow:
-  1. Sender derives a compact symmetric file key from the sender's Double Ratchet state for this message.
-  2. Sender uses the symmetric key to encrypt the file client-side (AES-GCM or XChaCha20-Poly1305).
-  3. Sender requests a presigned S3 upload URL from server, including an authenticated, signed request proving ownership.
-  4. Server verifies the request signature (device signature) and returns a presigned URL with a short TTL, storing only an expected storage pointer and metadata (size, checksum, message_id) in Postgres.
-  5. Client uploads ciphertext directly to S3 using the presigned URL.
-  6. The server publishes delivery metadata to recipient's connected device (or queues for offline delivery).
-- Rationale: Keeps encryption client-side, S3 handles binary storage, and server only sees ciphertext.
+  1. Sender's client derives a symmetric encryption key from its Double Ratchet state.
+  2. Client encrypts the photo locally using this key (e.g., AES-GCM).
+  3. Client requests a presigned S3 upload URL from the server (`POST /attachments/presign`). This request is authenticated.
+  4. Server returns a short-lived presigned URL.
+  5. Client uploads the encrypted blob directly to S3 using the URL. The URL resolves to a unique object key (`storage_pointer`).
+  6. After a successful upload, the client sends the final message by calling `POST /messages`, including the recipient's username and the `storage_pointer`.
+  7. The server receives this call, creates the `message` record, and triggers a real-time push to the recipient's device.
+- Rationale: This flow removes the "dangling intent" problem from the database. It can, however, create orphaned S3 objects if the client uploads but fails to send the message. This will be managed by a bucket lifecycle policy that deletes objects in the upload prefix after a short period (e.g., 24 hours).
 
 Decision: Message Lifecycle & Burn
 - The server exposes a `mark_read` or implicit read event via the WebSocket open/view event from recipient device; when the server receives a verified read event:

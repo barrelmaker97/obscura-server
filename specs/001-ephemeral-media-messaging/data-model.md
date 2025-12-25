@@ -53,6 +53,8 @@ This file extracts entities from the feature spec and maps them to DB tables, fi
   Notes: One-time pre-keys are intended to be consumed (deleted) when a
   client fetches a PreKey bundle for initiating a session. The server must
   perform the fetch-and-delete atomically to ensure keys are not reused.
+  **Replenishment**: The client is responsible for periodically checking its
+  remaining key count and uploading new keys to the server via the API.
 
 5. CiphertextBlob
 - Table: `ciphertext_blobs`
@@ -62,6 +64,12 @@ This file extracts entities from the feature spec and maps them to DB tables, fi
   - `size_bytes` BIGINT
   - `checksum` TEXT
   - `created_at` TIMESTAMP WITH TIME ZONE DEFAULT now()
+
+  Notes: With the redesigned send flow, it is possible for a client to
+  upload a blob but fail to send the associated message, resulting in an
+  orphaned S3 object. An S3 bucket lifecycle policy should be configured to
+  automatically delete objects in the upload prefix after a short time
+  (e.g., 24 hours) to mitigate this.
 
 4. PhotoMessage
 - Table: `messages`
@@ -88,8 +96,10 @@ This file extracts entities from the feature spec and maps them to DB tables, fi
 - `ciphertext_blobs.size_bytes`: non-negative and validated on upload.
 
 ## State Transitions
-- messages.status: `queued` -> `delivered` -> `read`.
-- On `read`: server issues deletion of S3 object and removes `ciphertext_blob` record (or marks it deleted and purges later).
+- A `messages` record is created only after the client has successfully uploaded the ciphertext blob to S3.
+- The initial status is `queued`.
+- `messages.status`: `queued` -> `delivered` -> `read`.
+- On `read`: server issues deletion of the S3 object associated with the `ciphertext_blob` and removes the database records.
 
 ## Indexes
 - `messages(recipient_id, status, created_at)` for fast scan of queued messages

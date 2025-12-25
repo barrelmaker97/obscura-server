@@ -7,7 +7,7 @@
 
 ## Summary
 
-Implement an Ephemeral Media Messaging backend that acts as a blind courier for end-to-end encrypted photo messages. The service is implemented in Rust using async foundations (Tokio) and an HTTP/WebSocket framework (Axum). The server persists only encrypted ciphertext blobs in S3-compatible object storage and minimal routing metadata in PostgreSQL. Real-time delivery and receipts are provided via WebSockets; presigned S3 URLs are used for direct encrypted media uploads from clients.
+Implement an Ephemeral Media Messaging backend that acts as a blind courier for end-to-end encrypted photo messages. The service is implemented in Rust using async foundations (Tokio) and an HTTP/WebSocket framework (Axum). The server persists only encrypted ciphertext blobs in S3-compatible object storage and minimal routing metadata in PostgreSQL. For the single-instance MVP, real-time delivery and receipts are provided via WebSockets backed by a simple in-process message bus. Presigned S3 URLs are used for direct encrypted media uploads from clients.
 
 ## Technical Context
 
@@ -20,12 +20,13 @@ Implement an Ephemeral Media Messaging backend that acts as a blind courier for 
 **Language/Version**: Rust (stable toolchain; minimum Rust 1.70; target latest stable)  
 **Primary Dependencies**: `tokio` (async runtime), `axum` (HTTP + WebSocket endpoints), `sqlx` (Postgres async DB access with compile-time checks), `aws-sdk-s3` (S3-compatible object storage with endpoint override) or `rusoto` alternative if needed, `serde`/`serde_json` for serialization, `tracing` for structured logging. Cryptography: use vetted Signal-like libraries or explicit integration notes (X3DH + Double Ratchet primitives implemented in audited crates; more in `research.md`).  
 **Storage**: PostgreSQL for routing metadata and indices (`users`, `devices`, `messages`, `receipts`); S3-compatible object storage for encrypted ciphertext blobs (presigned upload URLs from server).  
+**Real-time Delivery**: For the single-instance MVP, notifications (new messages, receipts) will be pushed to clients over WebSockets. A simple in-process fan-out message bus (e.g., `tokio::sync::broadcast`) will be used to distribute events to connected clients. This avoids the need for external dependencies like Redis or complex database features for the initial implementation.
 **Testing**: `cargo test` for unit tests; `tokio::test` for async tests; integration tests under `tests/` that exercise REST and WebSocket flows; contract tests to validate OpenAPI endpoints. Use testcontainers / ephemeral Postgres instances for integration tests where applicable.  
 **Target Platform**: Linux server (x86_64/amd64 or ARM64 for cloud deployment).  
 **Project Type**: Backend service (single Rust crate or workspace with `server/` crate).  
 **Performance Goals**: 95% of online deliveries within 2s under baseline load; support 10k concurrent connected users (one device each) in MVP; message burn operation observable within 1s of view.  
 **Constraints**: Zero-knowledge server (no plaintext stored or derivable), one device per user in MVP, secrets must be stored in an external secret manager, no server-side media transforms or thumbnails, message retention: immediate burn on view or automatic deletion after 30 days.  
-**Scale/Scope**: MVP targets 10k concurrent users; design components should be horizontally scalable (DB connection pooling, S3 storage, stateless app servers behind a load balancer).
+**Scale/Scope**: MVP targets 10k concurrent users on a single server instance. Design components should be horizontally scalable where possible (e.g. stateless request handlers) to facilitate future scaling.
 
 ## Constitution Check
 
