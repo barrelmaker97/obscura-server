@@ -5,6 +5,14 @@
 **Status**: Draft
 **Input**: User description: "Build an implementation of a server for the signal protocol, covering the basic features of sending and receiving messages. It is a minimalist, zero-knowledge relay to allow async E2EE messaging between users."
 
+## Clarifications
+
+### Session 2025-12-26
+- Q: How are User IDs generated and users authenticated? → A: Users identify via a chosen **Username** and authenticate with a **Password**.
+- Q: How to handle offline storage limits? → A: Enforce **both** a max message count (FIFO drop) AND a strict Time-To-Live (TTL) for all messages.
+- Q: How are One-Time PreKeys uploaded? → A: **Grouped into batches** (e.g., 50 at a time).
+- Q: Transport protocol strategy? → A: **Hybrid**: HTTP for Users/Keys, WebSocket for Message Relay.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - User Registration & Key Publishing (Priority: P1)
@@ -17,7 +25,7 @@ Users must be able to register with the server to establish an inbox and publish
 
 **Acceptance Scenarios**:
 
-1. **Given** a new user with a generated key pair, **When** they POST their Identity Key and PreKeys to the registration endpoint, **Then** the server responds with success (200 OK) and stores the keys.
+1. **Given** a new user with a generated key pair, **When** they POST their Username, Password, Identity Key, and PreKeys (in a batch) to the registration endpoint, **Then** the server responds with success (200 OK) and stores the keys.
 2. **Given** a registered user, **When** another user requests their PreKey bundle, **Then** the server returns the Identity Key, Signed PreKey, and one One-Time PreKey (removing it from storage).
 3. **Given** a registration request, **When** the payload is missing required keys, **Then** the server returns a validation error (400 Bad Request).
 
@@ -33,8 +41,8 @@ Users must be able to send encrypted messages to offline users, which the server
 
 **Acceptance Scenarios**:
 
-1. **Given** a registered User B, **When** User A sends an encrypted message payload addressed to User B, **Then** the server accepts it and stores it in User B's inbox.
-2. **Given** User B has pending messages, **When** User B requests their messages, **Then** the server returns the list of encrypted payloads.
+1. **Given** a registered User B, **When** User A sends an encrypted message payload addressed to User B via WebSocket, **Then** the server accepts it and stores it in User B's inbox.
+2. **Given** User B has pending messages, **When** User B connects and requests their messages, **Then** the server pushes the encrypted payloads.
 3. **Given** User B has retrieved their messages, **When** they request messages again, **Then** the inbox is empty (messages are deleted/acknowledged).
 
 ---
@@ -42,21 +50,22 @@ Users must be able to send encrypted messages to offline users, which the server
 ### Edge Cases
 
 - What happens when a user runs out of One-Time PreKeys? (Server should return just the Signed PreKey or an error indicator, protocol fallback).
-- How does the system handle message storage limits for a user who never comes online?
+- How does the system handle message storage limits for a user who never comes online? (See FR-009: Cap & TTL)
 - What happens if two users try to register the same User ID?
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
-- **FR-001**: System MUST allow users to register an account identified by a unique User ID and authenticate via Ed25519 signature verification (no passwords).
-- **FR-002**: System MUST allow users to upload and update their "PreKey Bundles" (Identity Key, Signed PreKey, One-Time PreKeys).
-- **FR-003**: System MUST provide an endpoint to retrieve a targeted user's PreKey Bundle (handing out One-Time PreKeys atomically).
-- **FR-004**: System MUST allow authenticated users to send encrypted binary payloads to another user's inbox.
-- **FR-005**: System MUST allow authenticated users to list and fetch encrypted messages from their own inbox.
+- **FR-001**: System MUST allow users to register an account identified by a unique **Username** and authenticate via **Password** (securely hashed) over HTTP.
+- **FR-002**: System MUST allow users to upload and update their "PreKey Bundles" (Identity Key, Signed PreKey, and batches of One-Time PreKeys) via HTTP.
+- **FR-003**: System MUST provide an HTTP endpoint to retrieve a targeted user's PreKey Bundle (handing out One-Time PreKeys atomically).
+- **FR-004**: System MUST allow authenticated users to send encrypted binary payloads to another user's inbox via WebSocket.
+- **FR-005**: System MUST allow authenticated users to list and fetch encrypted messages from their own inbox via WebSocket.
 - **FR-006**: System MUST delete messages from storage immediately after they are successfully retrieved/acknowledged by the recipient.
-- **FR-007**: System MUST use WebSocket (Push) for message transport.
+- **FR-007**: System MUST use a **Hybrid Transport** model: HTTP for user/key management, and WebSocket for real-time message sending/receiving.
 - **FR-008**: System MUST NOT store any message content in plaintext or retain keys that would allow decryption (Zero-Knowledge).
+- **FR-009**: System MUST enforce storage limits: strict Time-To-Live (TTL) for all messages AND a maximum message count per inbox (oldest messages dropped first if full).
 
 ### Constitution Alignment (mandatory)
 
@@ -64,14 +73,14 @@ Users must be able to send encrypted messages to offline users, which the server
 - **Testing Standards**: Integration tests must verify the full "upload keys -> fetch keys -> send message -> fetch message" cycle.
 - **Security**: 
     - No plaintext storage of messages.
-    - Authentication via digital signatures (e.g., X-Auth-Token derived from signing a challenge or JWT signed by Identity Key).
+    - Authentication via Password (bcrypt/argon2 hashing required) and standard session management (e.g., JWT).
     - Rate limiting on API endpoints to prevent DOS.
 - **User Privacy**: Server stores metadata (sender/receiver IDs, timestamps) but zero content. Logs must not contain message payloads or key material.
 - **Performance & Reliability**: Database interactions for message storage should be optimized for high write/delete churn.
 
 ### Key Entities
 
-- **User**: Represents an identity (Public Key / UUID).
+- **User**: Represents an identity (Username, PasswordHash).
 - **PreKeyBundle**: Collection of public keys (Identity, Signed, One-Time) stored for a User.
 - **Message**: Encrypted blob, Timestamp, SenderID, stored in a User's Inbox.
 
