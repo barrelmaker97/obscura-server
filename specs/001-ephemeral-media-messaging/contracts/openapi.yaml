@@ -1,343 +1,244 @@
 openapi: 3.0.3
 info:
-  title: Obscura Ephemeral Media Messaging API
+  title: Obscura Server API
   description: |
-    Backend service for the Obscura messaging system. 
-    This API acts as a "blind broker" for end-to-end encrypted media.
-    
-    ### Key Concepts:
-    * **Zero-Knowledge**: The server never sees plaintext or decryption keys.
-    * **Signal Protocol**: Uses X3DH for key agreement. Client must fetch a 'bundle' to start a session.
-    * **Burn-on-Delivery**: Messages are deleted from the server immediately after the recipient ACKs them (via `DELETE /messages/{id}`).
-    * **WebSockets**: Used exclusively for the server to push new message notifications to the client.
-  version: 0.2.0
-
-servers:
-  - url: /v1
-    description: Production API v1
-
+    A Blind Broker API for Ephemeral Media Messaging.
+    Implements the Signal-like "Queue" model where delivery = deletion.
+  version: 0.1.0
 paths:
-  # --- IDENTITY & REGISTRATION ---
-  /devices/register:
+  # --- Account & Identity ---
+  /v1/accounts/register:
     post:
-      tags:
-        - Identity
-      summary: Register account and initial device
-      description: Registers a unique username and the initial Signal key material for the user's single device.
+      summary: Register a new user and primary device.
       requestBody:
-        required: true
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - username
-                - password
-                - registration_id
-                - identity_key
-                - signed_pre_key
-                - one_time_pre_keys
-              properties:
-                username:
-                  type: string
-                password:
-                  type: string
-                registration_id:
-                  type: integer
-                identity_key:
-                  type: string
-                  description: Base64 identity public key
-                signed_pre_key:
-                  type: object
-                  properties:
-                    key_id:
-                      type: integer
-                    public_key:
-                      type: string
-                    signature:
-                      type: string
-                one_time_pre_keys:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      key_id:
-                        type: integer
-                      public_key:
-                        type: string
+              $ref: '#/components/schemas/RegistrationRequest'
       responses:
         '201':
-          description: Registered successfully. Returns initial session token.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AuthResponse'
-        '409':
-          description: Username or keys already in use.
+          description: Account created.
 
-  /auth/token:
-    post:
-      tags:
-        - Identity
-      summary: Refresh session token
+  # --- Keys (X3DH) ---
+  /v1/keys:
+    put:
+      summary: Upload PreKeys (Signed and One-Time) for the current device.
+      security:
+        - bearerAuth: []
       requestBody:
-        required: true
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - username
-                - password
-              properties:
-                username:
-                  type: string
-                password:
-                  type: string
+              $ref: '#/components/schemas/PreKeyUpload'
       responses:
         '200':
-          description: Token issued.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AuthResponse'
+          description: Keys updated.
 
-  # --- KEY EXCHANGE & MANAGEMENT (X3DH) ---
-  /users/{username}/bundle:
+  /v1/keys/{userId}/devices/{deviceId}:
     get:
-      tags:
-        - Handshake
-      summary: Fetch PreKey bundle for a recipient
-      description: Used by a sender to establish an E2EE session. The server atomically "pops" one One-Time PreKey.
+      summary: Fetch a PreKey Bundle to establish a session with a target device.
+      description: Returns Identity Key, Signed PreKey, and one One-Time PreKey (which is then deleted from server).
       parameters:
-        - name: username
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Bundle retrieved.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PreKeyBundle'
-        '404':
-          description: User not found.
-
-  /devices/me/one-time-pre-keys/count:
-    get:
-      tags:
-        - Handshake
-      summary: Get the count of remaining OTPKs for the authenticated device
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: The remaining key count.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  count:
-                    type: integer
-
-  /devices/me/one-time-pre-keys:
-    post:
-      tags:
-        - Handshake
-      summary: Upload new One-Time Pre-Keys for the authenticated device
-      security:
-        - bearerAuth: []
-        - deviceSig: []
-      parameters:
-        - $ref: '#/components/parameters/DeviceTimestamp'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - one_time_pre_keys
-              properties:
-                one_time_pre_keys:
-                  type: array
-                  items:
-                    $ref: '#/components/schemas/OneTimePreKey'
-      responses:
-        '204':
-          description: One-Time Pre-Keys uploaded successfully.
-
-  # --- MESSAGING PIPELINE ---
-  /attachments/presign:
-    post:
-      tags:
-        - Messaging
-      summary: Get a presigned URL for a new attachment
-      description: Step 1 of sending media. Get a temporary, one-time URL to upload an encrypted blob to S3.
-      security:
-        - bearerAuth: []
-        - deviceSig: []
-      parameters:
-        - $ref: '#/components/parameters/DeviceTimestamp'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - content_length
-              properties:
-                content_length:
-                  type: integer
-                  description: The exact size of the file to be uploaded, in bytes.
-      responses:
-        '200':
-          description: URL issued.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  upload_url:
-                    type: string
-                  blob_id:
-                    type: string
-                    format: uuid
-                    description: The UUID handle for the blob. Use this in the POST /messages call.
-
-  /messages:
-    post:
-      tags:
-        - Messaging
-      summary: Send a message
-      description: |
-        Step 2 of sending. 
-        - For **Media Messages**: Call this AFTER uploading the blob to S3 using the `blob_id`.
-        - For **Text/Receipt Messages**: Call this directly with `blob_id: null`.
-      security:
-        - bearerAuth: []
-        - deviceSig: []
-      parameters:
-        - $ref: '#/components/parameters/DeviceTimestamp'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - recipient_username
-                - content
-              properties:
-                recipient_username:
-                  type: string
-                content:
-                  type: string
-                  description: Base64-encoded Signal Protocol envelope (headers + encrypted metadata).
-                blob_id:
-                  type: string
-                  format: uuid
-                  nullable: true
-                  description: Optional. The ID of the S3 blob uploaded in Step 1.
-      responses:
-        '202':
-          description: Message accepted for delivery.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message_id:
-                    type: string
-                    format: uuid
-  
-  /messages/{id}:
-    delete:
-      tags:
-        - Messaging
-      summary: Acknowledge and Delete Message (Burn-on-Delivery)
-      description: Recipient calls this after successfully downloading/processing the message. Server deletes the message record and the associated S3 blob.
-      security:
-        - bearerAuth: []
-        - deviceSig: []
-      parameters:
-        - name: id
+        - name: userId
           in: path
           required: true
           schema:
             type: string
             format: uuid
-        - $ref: '#/components/parameters/DeviceTimestamp'
+        - name: deviceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: PreKey Bundle retrieved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreKeyBundle'
+
+  # --- Media (Blind Storage) ---
+  /v1/media:
+    post:
+      summary: Upload an encrypted media blob.
+      description: Server stores blob and returns ID. Server does not know who it is for.
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '201':
+          description: Media stored.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mediaId:
+                    type: string
+                    format: uuid
+                  expiresAt:
+                    type: integer
+
+  /v1/media/{mediaId}:
+    get:
+      summary: Download an encrypted media blob.
+      parameters:
+        - name: mediaId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Binary stream.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+  # --- Messaging (The Queue) ---
+  /v1/messages/{destinationDeviceId}:
+    post:
+      summary: Send an encrypted message to a specific device.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: destinationDeviceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+              description: Protocol Buffer Envelope (Encrypted)
+      responses:
+        '201':
+          description: Message queued.
+
+  /v1/messages:
+    get:
+      summary: List pending messages for the authenticated device.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of message envelopes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IncomingMessageEnvelope'
+
+  /v1/messages/{messageId}:
+    delete:
+      summary: Acknowledge receipt. Deletes message from queue.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
       responses:
         '204':
-          description: Message and blob deleted.
+          description: Message deleted.
 
 components:
-  parameters:
-    DeviceTimestamp:
-      name: X-Obscura-Timestamp
-      in: header
-      required: true
-      schema:
-        type: string
-        format: date-time
-      description: ISO 8601 UTC timestamp for the device signature.
-
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
-    deviceSig:
-      type: apiKey
-      in: header
-      name: X-Obscura-Signature
-      description: A signature of the request body and timestamp, proving device key ownership. The server expects an `X-Obscura-Timestamp` header to be sent alongside this signature. The signature is calculated as `HMAC-SHA256(device_private_key, SHA256(request_body) + "|" + timestamp_string)`.
-  
-  schemas:
-    AuthResponse:
-      type: object
-      properties:
-        access_token:
-          type: string
-        token_type:
-          type: string
-          example: Bearer
-        expires_in:
-          type: integer
-          example: 3600
-    
-    SignedPreKey:
-      type: object
-      properties:
-        key_id:
-          type: integer
-        public_key:
-          type: string
-        signature:
-          type: string
 
-    OneTimePreKey:
+  schemas:
+    RegistrationRequest:
       type: object
       properties:
-        key_id:
-          type: integer
-        public_key:
+        username:
           type: string
+        password:
+          type: string
+        identityKey:
+          type: string
+          format: byte
+          description: Base64 encoded public identity key.
+        registrationId:
+          type: integer
+
+    PreKeyUpload:
+      type: object
+      properties:
+        signedPreKey:
+          $ref: '#/components/schemas/SignedPreKey'
+        oneTimePreKeys:
+          type: array
+          items:
+            $ref: '#/components/schemas/OneTimePreKey'
 
     PreKeyBundle:
       type: object
       properties:
-        identity_key:
+        identityKey:
           type: string
-        registration_id:
-          type: integer
-        signed_pre_key:
+          format: byte
+        signedPreKey:
           $ref: '#/components/schemas/SignedPreKey'
-        one_time_pre_key:
-          nullable: true
+        oneTimePreKey:
           $ref: '#/components/schemas/OneTimePreKey'
+
+    SignedPreKey:
+      type: object
+      properties:
+        keyId:
+          type: integer
+        publicKey:
+          type: string
+          format: byte
+        signature:
+          type: string
+          format: byte
+
+    OneTimePreKey:
+      type: object
+      properties:
+        keyId:
+          type: integer
+        publicKey:
+          type: string
+          format: byte
+
+    IncomingMessageEnvelope:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: integer
+          description: 1=Ciphertext, 2=KeyBundle, etc.
+        sourceUserId:
+          type: string
+          format: uuid
+        timestamp:
+          type: integer
+        content:
+          type: string
+          format: byte
+          description: Encrypted body (Base64).
