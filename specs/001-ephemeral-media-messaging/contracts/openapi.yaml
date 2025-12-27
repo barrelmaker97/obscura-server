@@ -3,14 +3,14 @@ info:
   title: Obscura Ephemeral Media Messaging API
   description: |
     Backend service for the Obscura messaging system. 
-    This API acts as a "blind courier" for end-to-end encrypted media.
+    This API acts as a "blind broker" for end-to-end encrypted media.
     
     ### Key Concepts:
     * **Zero-Knowledge**: The server never sees plaintext or decryption keys.
     * **Signal Protocol**: Uses X3DH for key agreement. Client must fetch a 'bundle' to start a session.
-    * **Burn-on-View**: Messages are deleted from the server immediately after the `/read` endpoint is called.
-    * **WebSockets**: Used exclusively for the server to push new messages and receipts to the client. See `websockets.md`.
-  version: 0.1.0
+    * **Burn-on-Delivery**: Messages are deleted from the server immediately after the recipient ACKs them (via `DELETE /messages/{id}`).
+    * **WebSockets**: Used exclusively for the server to push new message notifications to the client.
+  version: 0.2.0
 
 servers:
   - url: /v1
@@ -176,7 +176,7 @@ paths:
       tags:
         - Messaging
       summary: Get a presigned URL for a new attachment
-      description: Step 1 of sending. Get a temporary, one-time URL to upload an encrypted blob to S3.
+      description: Step 1 of sending media. Get a temporary, one-time URL to upload an encrypted blob to S3.
       security:
         - bearerAuth: []
         - deviceSig: []
@@ -204,15 +204,20 @@ paths:
                 properties:
                   upload_url:
                     type: string
-                  storage_pointer:
+                  blob_id:
                     type: string
+                    format: uuid
+                    description: The UUID handle for the blob. Use this in the POST /messages call.
 
   /messages:
     post:
       tags:
         - Messaging
       summary: Send a message
-      description: Step 2 of sending. Called after the client has successfully uploaded the encrypted blob to S3 using the presigned URL. This action creates the message record and triggers delivery.
+      description: |
+        Step 2 of sending. 
+        - For **Media Messages**: Call this AFTER uploading the blob to S3 using the `blob_id`.
+        - For **Text/Receipt Messages**: Call this directly with `blob_id: null`.
       security:
         - bearerAuth: []
         - deviceSig: []
@@ -226,20 +231,21 @@ paths:
               type: object
               required:
                 - recipient_username
-                - storage_pointer
-                - size_bytes
+                - content
               properties:
                 recipient_username:
                   type: string
-                storage_pointer:
+                content:
                   type: string
-                size_bytes:
-                  type: integer
-                checksum:
+                  description: Base64-encoded Signal Protocol envelope (headers + encrypted metadata).
+                blob_id:
                   type: string
+                  format: uuid
+                  nullable: true
+                  description: Optional. The ID of the S3 blob uploaded in Step 1.
       responses:
         '202':
-          description: Message accepted for delivery. Returns the new message ID.
+          description: Message accepted for delivery.
           content:
             application/json:
               schema:
@@ -249,12 +255,12 @@ paths:
                     type: string
                     format: uuid
   
-  /messages/{id}/delivered:
-    post:
+  /messages/{id}:
+    delete:
       tags:
         - Messaging
-      summary: Confirm message delivery (recipient)
-      description: Recipient's device calls this after receiving the message via WebSocket to confirm receipt.
+      summary: Acknowledge and Delete Message (Burn-on-Delivery)
+      description: Recipient calls this after successfully downloading/processing the message. Server deletes the message record and the associated S3 blob.
       security:
         - bearerAuth: []
         - deviceSig: []
@@ -268,28 +274,7 @@ paths:
         - $ref: '#/components/parameters/DeviceTimestamp'
       responses:
         '204':
-          description: Status updated.
-
-  /messages/{id}/read:
-    post:
-      tags:
-        - Messaging
-      summary: Mark message as read and trigger burn (recipient)
-      description: Recipient's device calls this after the user views the message. Triggers the immediate and irreversible deletion of the S3 blob and all server-side message records.
-      security:
-        - bearerAuth: []
-        - deviceSig: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-        - $ref: '#/components/parameters/DeviceTimestamp'
-      responses:
-        '204':
-          description: Burn initiated.
+          description: Message and blob deleted.
 
 components:
   parameters:

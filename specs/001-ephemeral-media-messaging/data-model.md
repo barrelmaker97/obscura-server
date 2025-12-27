@@ -71,39 +71,31 @@ This file extracts entities from the feature spec and maps them to DB tables, fi
   automatically delete objects in the upload prefix after a short time
   (e.g., 24 hours) to mitigate this.
 
-4. PhotoMessage
+4. Message
 - Table: `messages`
 - Fields:
   - `id` UUID PRIMARY KEY
   - `sender_id` UUID REFERENCES users(id)
   - `recipient_id` UUID REFERENCES users(id)
-  - `ciphertext_blob_id` UUID REFERENCES ciphertext_blobs(id)
-  - `status` TEXT NOT NULL -- enum: queued/delivered/read
+  - `content` BYTEA NOT NULL -- The opaque Signal Protocol envelope (headers + encrypted metadata).
+  - `associated_blob_id` UUID -- Nullable. If present, indicates an S3 object (key=`associated_blob_id`) exists and must be deleted when this message is deleted.
   - `created_at` TIMESTAMP WITH TIME ZONE DEFAULT now()
   - `expires_at` TIMESTAMP WITH TIME ZONE -- created_at + interval '30 days'
-
-5. DeliveryReceipt
-- Table: `receipts`
-- Fields:
-  - `id` UUID PRIMARY KEY
-  - `message_id` UUID REFERENCES messages(id) ON DELETE CASCADE
-  - `status` TEXT NOT NULL -- queued/delivered/read
-  - `timestamp` TIMESTAMP WITH TIME ZONE DEFAULT now()
 
 ## Validation Rules
 - `username`: regex `^[A-Za-z0-9_]{3,30}$`; enforce uniqueness.
 - `expires_at`: default `created_at + interval '30 days'`.
-- `ciphertext_blobs.size_bytes`: non-negative and validated on upload.
+- `content`: Max size limit (e.g., 16KB) to prevent abuse of the DB for large storage.
 
 ## State Transitions
-- A `messages` record is created only after the client has successfully uploaded the ciphertext blob to S3.
-- The initial status is `queued`.
-- `messages.status`: `queued` -> `delivered` -> `read`.
-- On `read`: server issues deletion of the S3 object associated with the `ciphertext_blob` and removes the database records.
+- **Queued**: Message is created.
+- **ACK/Delete**: Client calls `DELETE /messages/:id`.
+    - Server deletes the row from `messages`.
+    - IF `associated_blob_id` is not null, Server asynchronously deletes the object from S3.
+- **Expiry**: Background sweeper deletes messages > 30 days old (and their blobs).
 
 ## Indexes
-- `messages(recipient_id, status, created_at)` for fast scan of queued messages
-- `ciphertext_blobs(created_at)` for expiry sweeper
+- `messages(recipient_id, created_at)` for fast scan of queued messages for a user
 - `users(username)` unique index
 
 ## Migrations

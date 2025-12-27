@@ -32,21 +32,12 @@ All messages from the server are JSON objects with a `type` field indicating the
       "message_id": "uuid-v4-string",
       "sender_username": "string",
       "sent_at": "string (ISO 8601 timestamp)",
-      "storage_pointer": "string",
-      "size_bytes": "integer",
-      "checksum": "string (optional)"
+      "content": "base64-string (Signal envelope)",
+      "blob_id": "uuid-string (optional)"
     }
     ```
 
-### 2. Receipt Update
-
--   **Type**: `receipt_update`
--   **Description**: Sent to the original sender of a message to notify them of a change in its delivery status.
--   **Payload**:
-    ```json
-    {
-      "message_id": "uuid-v4-string",
-      "status": "string (delivered | read)",
-      "timestamp": "string (ISO 8601 timestamp)"
-    }
-    ```
+<!-- 
+Note: The server does not push "receipt_update" events. 
+Receipts are handled as standard messages sent from Recipient -> Sender.
+-->
