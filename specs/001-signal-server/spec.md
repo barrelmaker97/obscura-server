@@ -1,0 +1,84 @@
+# Feature Specification: Signal Protocol Relay Server
+
+**Feature Branch**: `001-signal-server`
+**Created**: 2025-12-26
+**Status**: Draft
+**Input**: User description: "Build an implementation of a server for the signal protocol, covering the basic features of sending and receiving messages. It is a minimalist, zero-knowledge relay to allow async E2EE messaging between users."
+
+## User Scenarios & Testing *(mandatory)*
+
+### User Story 1 - User Registration & Key Publishing (Priority: P1)
+
+Users must be able to register with the server to establish an inbox and publish the cryptographic keys necessary for other users to initiate encrypted sessions with them.
+
+**Why this priority**: Without public keys stored on the server (PreKeys), the "asynchronous" part of the Signal Protocol is impossible; users would need to be online simultaneously to handshake.
+
+**Independent Test**: A client can upload their Identity Key, Signed PreKey, and a batch of One-Time PreKeys. A second, different client can successfully retrieve these keys by querying the first user's ID.
+
+**Acceptance Scenarios**:
+
+1. **Given** a new user with a generated key pair, **When** they POST their Identity Key and PreKeys to the registration endpoint, **Then** the server responds with success (200 OK) and stores the keys.
+2. **Given** a registered user, **When** another user requests their PreKey bundle, **Then** the server returns the Identity Key, Signed PreKey, and one One-Time PreKey (removing it from storage).
+3. **Given** a registration request, **When** the payload is missing required keys, **Then** the server returns a validation error (400 Bad Request).
+
+---
+
+### User Story 2 - Asynchronous Message Exchange (Priority: P1)
+
+Users must be able to send encrypted messages to offline users, which the server holds until the recipient retrieves them.
+
+**Why this priority**: This is the core "relay" functionality.
+
+**Independent Test**: Client A sends a message to Client B. Client B (simulating being offline initially) then requests messages and receives the payload. The payload is verified to be removed from the server after fetch.
+
+**Acceptance Scenarios**:
+
+1. **Given** a registered User B, **When** User A sends an encrypted message payload addressed to User B, **Then** the server accepts it and stores it in User B's inbox.
+2. **Given** User B has pending messages, **When** User B requests their messages, **Then** the server returns the list of encrypted payloads.
+3. **Given** User B has retrieved their messages, **When** they request messages again, **Then** the inbox is empty (messages are deleted/acknowledged).
+
+---
+
+### Edge Cases
+
+- What happens when a user runs out of One-Time PreKeys? (Server should return just the Signed PreKey or an error indicator, protocol fallback).
+- How does the system handle message storage limits for a user who never comes online?
+- What happens if two users try to register the same User ID?
+
+## Requirements *(mandatory)*
+
+### Functional Requirements
+
+- **FR-001**: System MUST allow users to register an account identified by a unique User ID and authenticate via Ed25519 signature verification (no passwords).
+- **FR-002**: System MUST allow users to upload and update their "PreKey Bundles" (Identity Key, Signed PreKey, One-Time PreKeys).
+- **FR-003**: System MUST provide an endpoint to retrieve a targeted user's PreKey Bundle (handing out One-Time PreKeys atomically).
+- **FR-004**: System MUST allow authenticated users to send encrypted binary payloads to another user's inbox.
+- **FR-005**: System MUST allow authenticated users to list and fetch encrypted messages from their own inbox.
+- **FR-006**: System MUST delete messages from storage immediately after they are successfully retrieved/acknowledged by the recipient.
+- **FR-007**: System MUST use WebSocket (Push) for message transport.
+- **FR-008**: System MUST NOT store any message content in plaintext or retain keys that would allow decryption (Zero-Knowledge).
+
+### Constitution Alignment (mandatory)
+
+- **Code Quality**: Code must be modular, separating the "Key Store" logic from the "Message Relay" logic.
+- **Testing Standards**: Integration tests must verify the full "upload keys -> fetch keys -> send message -> fetch message" cycle.
+- **Security**: 
+    - No plaintext storage of messages.
+    - Authentication via digital signatures (e.g., X-Auth-Token derived from signing a challenge or JWT signed by Identity Key).
+    - Rate limiting on API endpoints to prevent DOS.
+- **User Privacy**: Server stores metadata (sender/receiver IDs, timestamps) but zero content. Logs must not contain message payloads or key material.
+- **Performance & Reliability**: Database interactions for message storage should be optimized for high write/delete churn.
+
+### Key Entities
+
+- **User**: Represents an identity (Public Key / UUID).
+- **PreKeyBundle**: Collection of public keys (Identity, Signed, One-Time) stored for a User.
+- **Message**: Encrypted blob, Timestamp, SenderID, stored in a User's Inbox.
+
+## Success Criteria *(mandatory)*
+
+### Measurable Outcomes
+
+- **SC-001**: A complete "Hello World" exchange (Registration A & B -> A gets B's keys -> A sends -> B receives) completes successfully in tests.
+- **SC-002**: Server storage footprint for messages drops to near zero when all recipients have synced (verifying deletion).
+- **SC-003**: API response time for key retrieval is under 200ms (P95) to ensure fast session setup.
