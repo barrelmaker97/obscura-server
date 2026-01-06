@@ -5,6 +5,7 @@
 ## 1. Users
 
 Stores identity and authentication credentials.
+*Note: This MVP enforces a Single-Device Model. A 'User' corresponds to exactly one 'Device'. API parameters named `deviceId` should be treated as synonymous with `user_id`.*
 
 | Field | Type | Constraint | Description |
 |-------|------|------------|-------------|

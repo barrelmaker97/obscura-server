@@ -100,7 +100,7 @@ paths:
         **WebSocket Endpoint.**
         Clients must connect here to receive messages.
         - **Protocol:** `WebSocketFrame` (Protobuf).
-        - **Auth:** Send `Authorization: Bearer <token>` in handshake headers.
+        - **Auth:** Pass the JWT in the query string: `ws://.../v1/gateway?token=<jwt>`.
         - **Flow:** Server pushes `IncomingEnvelope`. Client responds with `AckMessage`. Server deletes message.
       tags: [Messaging]
       responses:

@@ -48,7 +48,7 @@ Users must be able to send encrypted messages to offline users, which the server
 
 **Acceptance Scenarios**:
 
-1. **Given** a registered User B, **When** User A sends an encrypted message payload addressed to User B via WebSocket, **Then** the server accepts it and stores it in User B's inbox.
+1. **Given** a registered User B, **When** User A sends an encrypted message payload addressed to User B via HTTP POST, **Then** the server accepts it and stores it in User B's inbox.
 2. **Given** User B has pending messages, **When** User B connects and requests their messages, **Then** the server pushes the encrypted payloads.
 3. **Given** User B has retrieved their messages, **When** they request messages again, **Then** the inbox is empty (messages are deleted immediately upon push).
 
@@ -67,10 +67,10 @@ Users must be able to send encrypted messages to offline users, which the server
 - **FR-001**: System MUST allow users to register an account identified by a unique **Username** and authenticate via **Password** (securely hashed) over HTTP.
 - **FR-002**: System MUST allow users to upload and update their "PreKey Bundles" (Identity Key, Signed PreKey, and batches of One-Time PreKeys) via HTTP.
 - **FR-003**: System MUST provide an HTTP endpoint to retrieve a targeted user's PreKey Bundle. It MUST consume one One-Time PreKey per request and fail with an error if none are available.
-- **FR-004**: System MUST allow authenticated users to send encrypted binary payloads to another user's inbox via WebSocket.
+- **FR-004**: System MUST allow authenticated users to send encrypted binary payloads to another user's inbox via HTTP POST (REST).
 - **FR-005**: System MUST allow authenticated users to list and fetch encrypted messages from their own inbox via WebSocket.
 - **FR-006**: System MUST delete messages from storage immediately after they are written to the WebSocket (Fire-and-Forget).
-- **FR-007**: System MUST use a **Hybrid Transport** model: HTTP for user/key management, and WebSocket for real-time message sending/receiving.
+- **FR-007**: System MUST use a **Hybrid Transport** model: HTTP for user/key management and sending messages, and WebSocket for real-time message receiving.
 - **FR-008**: System MUST NOT store any message content in plaintext or retain keys that would allow decryption (Zero-Knowledge).
 - **FR-009**: System MUST enforce storage limits: **30-Day TTL** for all messages AND a **maximum of 1000 messages** per inbox (oldest messages dropped first if full).
 - **FR-010**: WebSocket connections MUST be authenticated via a **Query Parameter** (e.g., `?token=...`).
