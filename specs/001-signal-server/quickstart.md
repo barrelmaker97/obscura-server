@@ -38,31 +38,17 @@ Server will start on `http://127.0.0.1:3000`.
 
 ## Testing the Flow
 
-You can use `websocat` for the WebSocket and `curl` for the HTTP API.
+Since the server uses **Protocol Buffers** (binary) for WebSocket communication, manual testing with `curl` or `websocat` is limited. The recommended way to verify functionality is via the included integration tests.
 
-1. **Register User A**:
+1. **Run Integration Tests**:
    ```bash
-   curl -X POST http://localhost:3000/auth/register \
-     -H "Content-Type: application/json" \
-     -d '{"username":"alice", "password":"password"}'
+   cargo test --test integration_flow
    ```
+   This will execute the full "Register -> Upload Keys -> Send -> Receive" cycle.
 
-2. **Login (Get Token)**:
+2. **Manual Connectivity Check**:
+   You can still use `websocat` to verify the connection handshake, though you won't be able to send valid frames manually without a Protobuf encoder.
    ```bash
-   TOKEN_A=$(curl -s -X POST http://localhost:3000/auth/login \
-     -H "Content-Type: application/json" \
-     -d '{"username":"alice", "password":"password"}' | jq -r .token)
-   ```
-
-3. **Connect to WebSocket**:
-   ```bash
-   websocat "ws://localhost:3000/ws" -H "Authorization: Bearer $TOKEN_A"
-   ```
-
-4. **Send a Message (in another terminal, as User B)**:
-   (Repeat steps 1-2 for Bob to get TOKEN_B)
-   ```bash
-   # Connect as Bob and send JSON
-   websocat "ws://localhost:3000/ws" -H "Authorization: Bearer $TOKEN_B"
-   # Type: {"action": "send", "recipient_id": "<ALICE_UUID>", "ciphertext": "..."}
+   # Connect to WebSocket (expect binary noise or immediate disconnect if idle)
+   websocat "ws://localhost:3000/v1/gateway?token=$TOKEN_A"
    ```

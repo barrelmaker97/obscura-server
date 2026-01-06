@@ -35,16 +35,16 @@
   - JWTs allow "claims" (like User ID) to be embedded, reducing DB lookups for auth checks.
 - **Alternatives Considered**: `paseto` (more secure defaults but less ubiquitously supported in client libs), Session Cookies (less ideal for non-browser clients).
 
-### 4. WebSocket Protocol: Custom JSON
+### 4. WebSocket Protocol: Protocol Buffers
 
-- **Decision**: Use a simple JSON-based message format over Text WebSocket frames.
-- **Rationale**:
-  - Easy to debug and parse.
-  - Sufficient for the "relay" requirements.
-  - Binary payloads will be Base64 encoded within the JSON structure to ensure compatibility.
+- **Decision**: Use Protocol Buffers (`prost`) for WebSocket messages.
+- **Rationale**: 
+  - **Type Safety**: Enforces a strict schema defined in `obscura.proto`.
+  - **Performance**: Smaller payload size and faster serialization/deserialization compared to JSON.
+  - **Consistency**: Aligns with the overall architectural choice to use structured binary formats for the secure messaging layer.
 - **Protocol Draft**:
-  - **Client -> Server**: `{"action": "send", "recipient_id": "...", "ciphertext": "base64..."}`
-  - **Server -> Client**: `{"event": "message", "sender_id": "...", "ciphertext": "base64...", "timestamp": "..."}`
+  - **Schema**: Defined in `contracts/obscura.proto`.
+  - **Frame**: `WebSocketFrame` message containing `oneof` payload (Envelope, Ack, Heartbeat, Error).
 
 ### 5. WebSocket Authentication: Query Parameter
 

@@ -1,187 +1,178 @@
-openapi: 3.0.0
+openapi: 3.0.3
 info:
-  title: Signal Protocol Relay Server API
-  version: 1.0.0
-  description: Minimalist implementation of a Signal Relay Server.
-servers:
-  - url: http://localhost:3000
-    description: Local Development Server
-
+  title: Obscura Hybrid Relay API
+  description: |
+    A privacy-first messaging relay.
+    - **Control Plane (REST):** Registration, Key Management, Sending.
+    - **Data Plane (WebSocket):** Real-time message delivery and acknowledgement.
+    - **Protocol:** Protocol Buffers (application/x-protobuf) are used for message bodies to minimize metadata leakage and binary bloat.
+  version: 0.2.0
 paths:
-  /auth/register:
+  # --- Account & Identity ---
+  /v1/accounts:
     post:
-      summary: Register a new user
-      tags: [Auth]
+      summary: Register a new user device.
+      tags: [Account]
       requestBody:
-        required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [username, password]
-              properties:
-                username:
-                  type: string
-                  example: "alice"
-                password:
-                  type: string
-                  format: password
-                  example: "secret123"
+              $ref: '#/components/schemas/RegistrationRequest'
       responses:
-        201:
-          description: User registered successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UserResponse'
-        409:
-          description: Username already taken
+        '201':
+          description: Account created.
 
-  /auth/login:
-    post:
-      summary: Login and receive a JWT
-      tags: [Auth]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [username, password]
-              properties:
-                username:
-                  type: string
-                password:
-                  type: string
-      responses:
-        200:
-          description: Login successful
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  token:
-                    type: string
-                    description: JWT Bearer Token
-
-  /keys:
-    post:
-      summary: Upload PreKey Bundle
+  # --- Keys (X3DH) ---
+  /v1/keys:
+    put:
+      summary: Publish PreKeys.
+      description: Upload Signed PreKeys and One-Time PreKeys for X3DH asynchronous encryption.
       tags: [Keys]
       security:
-        - BearerAuth: []
+        - bearerAuth: []
       requestBody:
-        required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PreKeyBundleUpload'
+              $ref: '#/components/schemas/PreKeyUpload'
       responses:
-        200:
-          description: Keys uploaded successfully
+        '200':
+          description: Keys updated.
 
-  /keys/{username}:
+  /v1/keys/{userId}:
     get:
-      summary: Fetch a PreKey Bundle for a user
-      description: Returns Identity Key, Signed PreKey, and consumes one One-Time PreKey.
+      summary: Fetch PreKey Bundles.
+      description: |
+        Returns active PreKey bundles for all of a target user's devices. 
+        Server atomically consumes one One-Time PreKey per device (if available).
       tags: [Keys]
-      security:
-        - BearerAuth: []
       parameters:
-        - in: path
-          name: username
+        - name: userId
+          in: path
+          required: true
           schema:
             type: string
-          required: true
-          description: Username of the recipient
+            format: uuid
       responses:
-        200:
-          description: PreKey Bundle retrieved
+        '200':
+          description: List of bundles.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PreKeyBundleResponse'
-        404:
-          description: User not found or One-Time PreKeys exhausted (Strict Failure)
+                type: array
+                items:
+                  $ref: '#/components/schemas/PreKeyBundle'
+
+  # --- Messaging (REST Upstream) ---
+  /v1/messages/{destinationDeviceId}:
+    post:
+      summary: Send an encrypted message (Push).
+      description: |
+        Pushes an encrypted envelope to the target device's queue.
+        **Payload:** `OutgoingMessage` (Protobuf).
+        The recipient will receive this via WebSocket.
+      tags: [Messaging]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: destinationDeviceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/x-protobuf:
+            schema:
+              type: string
+              format: binary
+              description: Serialized `OutgoingMessage` protobuf.
+      responses:
+        '201':
+          description: Message queued.
+
+  # --- WebSocket Gateway (Documentation Only) ---
+  /v1/gateway:
+    get:
+      summary: Connect to the Message Stream.
+      description: |
+        **WebSocket Endpoint.**
+        Clients must connect here to receive messages.
+        - **Protocol:** `WebSocketFrame` (Protobuf).
+        - **Auth:** Send `Authorization: Bearer <token>` in handshake headers.
+        - **Flow:** Server pushes `IncomingEnvelope`. Client responds with `AckMessage`. Server deletes message.
+      tags: [Messaging]
+      responses:
+        '101':
+          description: Switching Protocols.
 
 components:
   securitySchemes:
-    BearerAuth:
+    bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
 
   schemas:
-    UserResponse:
+    RegistrationRequest:
       type: object
       properties:
-        id:
-          type: string
-          format: uuid
         username:
           type: string
-        created_at:
+        password:
           type: string
-          format: date-time
-
-    PreKeyBundleUpload:
-      type: object
-      required: [identity_key, registration_id, signed_pre_key, one_time_pre_keys]
-      properties:
-        identity_key:
+        identityKey:
           type: string
-          format: base64
-          description: Base64 encoded Identity Key
-        registration_id:
+          format: byte
+          description: Base64 encoded public identity key.
+        registrationId:
           type: integer
-        signed_pre_key:
-          type: object
-          properties:
-            id:
-              type: integer
-            key:
-              type: string
-              format: base64
-            signature:
-              type: string
-              format: base64
-        one_time_pre_keys:
+
+    PreKeyUpload:
+      type: object
+      properties:
+        signedPreKey:
+          $ref: '#/components/schemas/SignedPreKey'
+        oneTimePreKeys:
           type: array
           items:
-            type: object
-            properties:
-              id:
-                type: integer
-              key:
-                type: string
-                format: base64
+            $ref: '#/components/schemas/OneTimePreKey'
 
-    PreKeyBundleResponse:
+    PreKeyBundle:
       type: object
       properties:
-        identity_key:
+        deviceId:
           type: string
-          format: base64
-        registration_id:
+          format: uuid
+        registrationId:
           type: integer
-        signed_pre_key:
-          type: object
-          properties:
-            id:
-              type: integer
-            key:
-              type: string
-              format: base64
-            signature:
-              type: string
-              format: base64
-        one_time_pre_key:
-          type: object
-          description: A single one-time key.
-          properties:
-            id:
-              type: integer
-            key:
-              type: string
-              format: base64
+        identityKey:
+          type: string
+          format: byte
+        signedPreKey:
+          $ref: '#/components/schemas/SignedPreKey'
+        oneTimePreKey:
+          $ref: '#/components/schemas/OneTimePreKey'
+          nullable: true
+
+    SignedPreKey:
+      type: object
+      properties:
+        keyId:
+          type: integer
+        publicKey:
+          type: string
+          format: byte
+        signature:
+          type: string
+          format: byte
+
+    OneTimePreKey:
+      type: object
+      properties:
+        keyId:
+          type: integer
+        publicKey:
+          type: string
+          format: byte

@@ -1,18 +1,18 @@
-# Implementation Plan: [FEATURE]
+# Implementation Plan: Signal Server
 
-**Branch**: `[###-feature-name]` | **Date**: [DATE] | **Spec**: [link]
-**Input**: Feature specification from `/specs/[###-feature-name]/spec.md`
+**Branch**: `001-signal-server` | **Date**: 2026-01-06 | **Spec**: [specs/001-signal-server/spec.md](specs/001-signal-server/spec.md)
+**Input**: Feature specification from `specs/001-signal-server/spec.md`
 
 **Note**: This template is filled in by the `/speckit.plan` command. See `.specify/templates/commands/plan.md` for the execution workflow.
 
 ## Summary
 
-This feature implements a minimalist, zero-knowledge Signal Protocol relay server. It enables users to register, upload cryptographic keys, and exchange end-to-end encrypted messages asynchronously. The system uses a hybrid transport model (HTTP for keys/auth, WebSocket for messaging) and enforces strict storage limits (TTL and capacity) to maintain a low footprint.
+This feature implements a minimalist, zero-knowledge Signal Protocol relay server. It enables users to register, upload cryptographic keys, and exchange end-to-end encrypted messages asynchronously. The system uses a hybrid transport model (HTTP for keys/auth, WebSocket for messaging) and enforces strict storage limits (TTL and capacity) to maintain a low footprint. Protocol Buffers are used for message serialization to ensure type safety and efficiency.
 
 ## Technical Context
 
 **Language/Version**: Rust 1.75+
-**Primary Dependencies**: `tokio` (Async Runtime), `axum` (Web Framework), `sqlx` (PostgreSQL Driver), `argon2` (Password Hashing), `serde` (Serialization), `tracing` (Logging), `tower` (Middleware/Rate Limiting).
+**Primary Dependencies**: `tokio` (Async Runtime), `axum` (Web Framework), `sqlx` (PostgreSQL Driver), `argon2` (Password Hashing), `serde` (Serialization), `prost` (Protobuf), `tracing` (Logging), `tower` (Middleware/Rate Limiting).
 **Storage**: PostgreSQL
 **Testing**: `cargo test` (Unit/Integration), `sqlx::test` (Database tests).
 **Target Platform**: Linux server
@@ -61,6 +61,7 @@ specs/001-signal-server/
 ├── data-model.md        # Phase 1 output
 ├── quickstart.md        # Phase 1 output
 ├── contracts/           # Phase 1 output
+│   ├── obscura.proto
 │   └── openapi.yaml
 └── tasks.md             # Phase 2 output
 ```
