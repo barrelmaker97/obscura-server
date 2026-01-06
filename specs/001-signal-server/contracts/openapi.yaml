@@ -1,0 +1,187 @@
+openapi: 3.0.0
+info:
+  title: Signal Protocol Relay Server API
+  version: 1.0.0
+  description: Minimalist implementation of a Signal Relay Server.
+servers:
+  - url: http://localhost:3000
+    description: Local Development Server
+
+paths:
+  /auth/register:
+    post:
+      summary: Register a new user
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                  example: "alice"
+                password:
+                  type: string
+                  format: password
+                  example: "secret123"
+      responses:
+        201:
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        409:
+          description: Username already taken
+
+  /auth/login:
+    post:
+      summary: Login and receive a JWT
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+      responses:
+        200:
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    description: JWT Bearer Token
+
+  /keys:
+    post:
+      summary: Upload PreKey Bundle
+      tags: [Keys]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreKeyBundleUpload'
+      responses:
+        200:
+          description: Keys uploaded successfully
+
+  /keys/{username}:
+    get:
+      summary: Fetch a PreKey Bundle for a user
+      description: Returns Identity Key, Signed PreKey, and consumes one One-Time PreKey.
+      tags: [Keys]
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: username
+          schema:
+            type: string
+          required: true
+          description: Username of the recipient
+      responses:
+        200:
+          description: PreKey Bundle retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreKeyBundleResponse'
+        404:
+          description: User not found or One-Time PreKeys exhausted (Strict Failure)
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    UserResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    PreKeyBundleUpload:
+      type: object
+      required: [identity_key, registration_id, signed_pre_key, one_time_pre_keys]
+      properties:
+        identity_key:
+          type: string
+          format: base64
+          description: Base64 encoded Identity Key
+        registration_id:
+          type: integer
+        signed_pre_key:
+          type: object
+          properties:
+            id:
+              type: integer
+            key:
+              type: string
+              format: base64
+            signature:
+              type: string
+              format: base64
+        one_time_pre_keys:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              key:
+                type: string
+                format: base64
+
+    PreKeyBundleResponse:
+      type: object
+      properties:
+        identity_key:
+          type: string
+          format: base64
+        registration_id:
+          type: integer
+        signed_pre_key:
+          type: object
+          properties:
+            id:
+              type: integer
+            key:
+              type: string
+              format: base64
+            signature:
+              type: string
+              format: base64
+        one_time_pre_key:
+          type: object
+          description: A single one-time key.
+          properties:
+            id:
+              type: integer
+            key:
+              type: string
+              format: base64
