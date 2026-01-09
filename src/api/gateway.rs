@@ -52,11 +52,6 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
                      if socket.send(WsMessage::Binary(buf.into())).await.is_err() {
                          return;
                      }
-                     // Fire-and-forget deletion? No, spec says "Ack-based".
-                     // Wait, the spec was updated to be "At-Least-Once".
-                     // But we removed the Ack handling in the previous "Fire-and-Forget" attempt?
-                     // Ah, checking history: I reverted to Ack-based.
-                     // I need to ensure Ack handling is still here!
                  }
              }
         }
