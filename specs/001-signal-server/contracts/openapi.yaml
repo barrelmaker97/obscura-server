@@ -6,7 +6,7 @@ info:
     - **Control Plane (REST):** Registration, Key Management, Sending.
     - **Data Plane (WebSocket):** Real-time message delivery and acknowledgement.
     - **Protocol:** Protocol Buffers (application/x-protobuf) are used for message bodies to minimize metadata leakage and binary bloat.
-  version: 0.2.0
+  version: 0.2.1
 paths:
   # --- Account & Identity ---
   /v1/accounts:
@@ -21,6 +21,31 @@ paths:
       responses:
         '201':
           description: Account created.
+
+  /v1/sessions:
+    post:
+      summary: Login and retrieve a session token.
+      tags: [Account]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Authenticated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
 
   # --- Keys (X3DH) ---
   /v1/keys:
@@ -41,10 +66,10 @@ paths:
 
   /v1/keys/{userId}:
     get:
-      summary: Fetch PreKey Bundles.
+      summary: Fetch PreKey Bundle.
       description: |
-        Returns active PreKey bundles for all of a target user's devices. 
-        Server atomically consumes one One-Time PreKey per device (if available).
+        Returns active PreKey bundle for the target user.
+        Server atomically consumes one One-Time PreKey (if available).
       tags: [Keys]
       parameters:
         - name: userId
@@ -55,13 +80,11 @@ paths:
             format: uuid
       responses:
         '200':
-          description: List of bundles.
+          description: PreKey Bundle.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/PreKeyBundle'
+                $ref: '#/components/schemas/PreKeyBundle'
 
   # --- Messaging (REST Upstream) ---
   /v1/messages/{destinationDeviceId}:
@@ -128,6 +151,12 @@ components:
           description: Base64 encoded public identity key.
         registrationId:
           type: integer
+        signedPreKey:
+          $ref: '#/components/schemas/SignedPreKey'
+        oneTimePreKeys:
+          type: array
+          items:
+            $ref: '#/components/schemas/OneTimePreKey'
 
     PreKeyUpload:
       type: object
