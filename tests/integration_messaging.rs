@@ -1,5 +1,5 @@
 use tokio::net::TcpListener;
-use obscura_server::{api::app_router, config::Config, storage};
+use obscura_server::{api::app_router, config::Config, storage, core::notification::InMemoryNotifier};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use futures::{StreamExt, SinkExt};
 use serde_json::json;
@@ -7,6 +7,7 @@ use uuid::Uuid;
 use obscura_server::proto::obscura::v1::{WebSocketFrame, OutgoingMessage, AckMessage, web_socket_frame::Payload};
 use prost::Message as ProstMessage; 
 use base64::Engine;
+use std::sync::Arc;
 
 #[tokio::test]
 async fn test_messaging_flow() {
@@ -20,7 +21,8 @@ async fn test_messaging_flow() {
     };
 
     let pool = storage::init_pool(&config.database_url).await.expect("Failed to connect to DB");
-    let app = app_router(pool, config);
+    let notifier = Arc::new(InMemoryNotifier::new());
+    let app = app_router(pool, config, notifier);
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -150,7 +152,8 @@ async fn test_websocket_auth_failure() {
     };
 
     let pool = storage::init_pool(&config.database_url).await.expect("Failed to connect to DB");
-    let app = app_router(pool, config);
+    let notifier = Arc::new(InMemoryNotifier::new());
+    let app = app_router(pool, config, notifier);
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();

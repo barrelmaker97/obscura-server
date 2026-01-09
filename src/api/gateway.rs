@@ -9,7 +9,6 @@ use crate::storage::message_repo::MessageRepository;
 use crate::proto::obscura::v1::{WebSocketFrame, IncomingEnvelope, web_socket_frame::Payload, OutgoingMessage};
 use prost::Message as ProstMessage; 
 use uuid::Uuid;
-use std::time::Duration;
 
 #[derive(Deserialize)]
 pub struct WsParams {
@@ -29,7 +28,39 @@ pub async fn websocket_handler(
 
 async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
     let repo = MessageRepository::new(state.pool);
-    let mut interval = tokio::time::interval(Duration::from_secs(1));
+    let mut rx = state.notifier.subscribe(user_id);
+
+    // Initial check for pending messages on connect
+    if let Ok(messages) = repo.fetch_pending(user_id).await {
+        for msg in messages {
+             if let Ok(outgoing) = OutgoingMessage::decode(msg.content.as_slice()) {
+                 let envelope = IncomingEnvelope {
+                     id: msg.id.to_string(),
+                     r#type: outgoing.r#type,
+                     source_user_id: msg.sender_id.to_string(),
+                     timestamp: outgoing.timestamp,
+                     content: outgoing.content,
+                 };
+                 
+                 let frame = WebSocketFrame {
+                     request_id: 0,
+                     payload: Some(Payload::Envelope(envelope)),
+                 };
+                 
+                 let mut buf = Vec::new();
+                 if frame.encode(&mut buf).is_ok() {
+                     if socket.send(WsMessage::Binary(buf.into())).await.is_err() {
+                         return;
+                     }
+                     // Fire-and-forget deletion? No, spec says "Ack-based".
+                     // Wait, the spec was updated to be "At-Least-Once".
+                     // But we removed the Ack handling in the previous "Fire-and-Forget" attempt?
+                     // Ah, checking history: I reverted to Ack-based.
+                     // I need to ensure Ack handling is still here!
+                 }
+             }
+        }
+    }
 
     loop {
         tokio::select! {
@@ -50,30 +81,33 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
                     _ => {}
                 }
             }
-            _ = interval.tick() => {
-                if let Ok(messages) = repo.fetch_pending(user_id).await {
-                    for msg in messages {
-                         if let Ok(outgoing) = OutgoingMessage::decode(msg.content.as_slice()) {
-                             let envelope = IncomingEnvelope {
-                                 id: msg.id.to_string(),
-                                 r#type: outgoing.r#type,
-                                 source_user_id: msg.sender_id.to_string(),
-                                 timestamp: outgoing.timestamp,
-                                 content: outgoing.content,
-                             };
-                             
-                             let frame = WebSocketFrame {
-                                 request_id: 0,
-                                 payload: Some(Payload::Envelope(envelope)),
-                             };
-                             
-                             let mut buf = Vec::new();
-                             if frame.encode(&mut buf).is_ok() {
-                                 if socket.send(WsMessage::Binary(buf.into())).await.is_err() {
-                                     break;
+            // Event-driven trigger
+            result = rx.recv() => {
+                if result.is_ok() {
+                    if let Ok(messages) = repo.fetch_pending(user_id).await {
+                        for msg in messages {
+                             if let Ok(outgoing) = OutgoingMessage::decode(msg.content.as_slice()) {
+                                 let envelope = IncomingEnvelope {
+                                     id: msg.id.to_string(),
+                                     r#type: outgoing.r#type,
+                                     source_user_id: msg.sender_id.to_string(),
+                                     timestamp: outgoing.timestamp,
+                                     content: outgoing.content,
+                                 };
+                                 
+                                 let frame = WebSocketFrame {
+                                     request_id: 0,
+                                     payload: Some(Payload::Envelope(envelope)),
+                                 };
+                                 
+                                 let mut buf = Vec::new();
+                                 if frame.encode(&mut buf).is_ok() {
+                                     if socket.send(WsMessage::Binary(buf.into())).await.is_err() {
+                                         break;
+                                     }
                                  }
                              }
-                         }
+                        }
                     }
                 }
             }

@@ -1,5 +1,5 @@
 use tokio::net::TcpListener;
-use obscura_server::{api::app_router, config::Config, storage};
+use obscura_server::{api::app_router, config::Config, storage, core::notification::InMemoryNotifier};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use futures::StreamExt;
 use serde_json::json;
@@ -7,6 +7,7 @@ use uuid::Uuid;
 use obscura_server::proto::obscura::v1::{WebSocketFrame, OutgoingMessage, web_socket_frame::Payload};
 use prost::Message as ProstMessage; 
 use base64::Engine;
+use std::sync::Arc;
 
 #[tokio::test]
 async fn test_message_limit_fifo() {
@@ -23,7 +24,8 @@ async fn test_message_limit_fifo() {
     // Clear messages table to ensure clean state for this test if reuse happens
     sqlx::query("DELETE FROM messages").execute(&pool).await.unwrap();
 
-    let app = app_router(pool.clone(), config);
+    let notifier = Arc::new(InMemoryNotifier::new());
+    let app = app_router(pool.clone(), config, notifier);
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();

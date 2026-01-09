@@ -6,9 +6,11 @@ use tower::ServiceExt;
 use obscura_server::api::app_router;
 use obscura_server::config::Config;
 use obscura_server::storage;
+use obscura_server::core::notification::InMemoryNotifier;
 use serde_json::json;
 use base64::Engine;
 use uuid::Uuid;
+use std::sync::Arc;
 
 #[tokio::test]
 async fn test_register_flow() {
@@ -25,7 +27,8 @@ async fn test_register_flow() {
     }
     let pool = pool_res.unwrap();
 
-    let app = app_router(pool, config);
+    let notifier = Arc::new(InMemoryNotifier::new());
+    let app = app_router(pool, config, notifier);
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
     let username = format!("testuser_reg_{}", run_id);
 

@@ -28,5 +28,8 @@ pub async fn send_message(
     // Store raw body (OutgoingMessage serialized)
     service.enqueue_message(auth_user.user_id, destination_device_id, body.to_vec()).await?;
 
+    // Notify the user if they are connected
+    state.notifier.notify(destination_device_id);
+
     Ok(StatusCode::CREATED)
 }

@@ -1,6 +1,8 @@
 use axum::{Router, routing::{get, post, put}};
 use crate::storage::DbPool;
 use crate::config::Config;
+use crate::core::notification::Notifier;
+use std::sync::Arc;
 
 pub mod auth;
 pub mod keys;
@@ -12,10 +14,11 @@ pub mod middleware;
 pub struct AppState {
     pub pool: DbPool,
     pub config: Config,
+    pub notifier: Arc<dyn Notifier>,
 }
 
-pub fn app_router(pool: DbPool, config: Config) -> Router {
-    let state = AppState { pool, config };
+pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>) -> Router {
+    let state = AppState { pool, config, notifier };
     
     Router::new()
         .route("/v1/accounts", post(auth::register))

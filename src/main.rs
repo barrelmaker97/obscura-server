@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use obscura_server::{config::Config, storage, api};
+use obscura_server::{config::Config, storage, api, core::notification::InMemoryNotifier};
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -21,7 +22,8 @@ async fn main() -> anyhow::Result<()> {
     sqlx::migrate!().run(&pool).await?;
     tracing::info!("Migrations complete.");
 
-    let app = api::app_router(pool, config);
+    let notifier = Arc::new(InMemoryNotifier::new());
+    let app = api::app_router(pool, config, notifier);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     tracing::info!("listening on {}", addr);
