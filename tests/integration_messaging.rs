@@ -32,7 +32,7 @@ async fn test_messaging_flow() {
     let ws_url = format!("ws://{}/v1/gateway", addr);
 
     tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
+        axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
     });
 
     let client = reqwest::Client::new();
@@ -164,7 +164,7 @@ async fn test_websocket_auth_failure() {
     let ws_url = format!("ws://{}/v1/gateway", addr);
 
     tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
+        axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
     });
 
     // Attempt to connect with invalid token

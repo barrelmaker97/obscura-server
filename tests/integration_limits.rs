@@ -35,7 +35,7 @@ async fn test_message_limit_fifo() {
     let ws_url = format!("ws://{}/v1/gateway", addr);
 
     tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
+        axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
     });
 
     let client = reqwest::Client::new();
@@ -160,10 +160,6 @@ async fn test_rate_limiting() {
     // 2. First Request - Should Pass (or at least not be Rate Limited)
     // We hit a non-existent endpoint or just check auth failure, doesn't matter.
     // Rate limit layer runs before auth.
-    let req1 = Request::builder()
-        .uri("/v1/gateway?token=bad")
-        .body(Body::empty())
-        .unwrap();
     
     // We need to provide ConnectInfo for the rate limiter to work in tests.
     // However, axum's `oneshot` doesn't easily inject ConnectInfo unless we wrap the app or mock it.

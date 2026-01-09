@@ -52,6 +52,7 @@ async fn test_register_flow() {
         .method("POST")
         .uri("/v1/accounts")
         .header("content-type", "application/json")
+        .extension(axum::extract::connect_info::ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 12345))))
         .body(Body::from(serde_json::to_string(&payload).unwrap()))
         .unwrap();
 
@@ -68,6 +69,7 @@ async fn test_register_flow() {
         .method("POST")
         .uri("/v1/sessions")
         .header("content-type", "application/json")
+        .extension(axum::extract::connect_info::ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 12345))))
         .body(Body::from(serde_json::to_string(&login_payload).unwrap()))
         .unwrap();
 
@@ -86,6 +88,7 @@ async fn test_register_flow() {
     let req_keys = Request::builder()
         .method("GET")
         .uri(format!("/v1/keys/{}", user_id))
+        .extension(axum::extract::connect_info::ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 12345))))
         .body(Body::empty())
         .unwrap();
 
