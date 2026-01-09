@@ -2,9 +2,11 @@
 
 ## Prerequisites
 
-- **Rust**: 1.75+ (`rustup update stable`)
-- **PostgreSQL**: 14+ running locally
-- **Tools**: `sqlx-cli` (`cargo install sqlx-cli`)
+- **Rust**: 1.83+ (`rustup update stable`)
+- **PostgreSQL**: 16+ running locally (or via Docker)
+- **Protobuf Compiler**: `protoc` (Required for build)
+  - Ubuntu/Debian: `sudo apt install protobuf-compiler`
+  - MacOS: `brew install protobuf`
 
 ## Setup
 
@@ -23,10 +25,9 @@
    ```
 
 3. **Database**:
-   Create the database and run migrations:
+   You can use Docker to spin up a quick database:
    ```bash
-   sqlx database create
-   sqlx migrate run
+   docker run --name obscura-db -e POSTGRES_USER=user -e POSTGRES_PASSWORD=password -e POSTGRES_DB=signal_server -p 5432:5432 -d postgres:16
    ```
 
 ## Running the Server
@@ -34,7 +35,8 @@
 ```bash
 cargo run
 ```
-Server will start on `http://127.0.0.1:3000`.
+Server will start on `http://0.0.0.0:3000`.
+**Note**: Migrations are applied automatically on startup.
 
 ## Testing the Flow
 
@@ -42,9 +44,11 @@ Since the server uses **Protocol Buffers** (binary) for WebSocket communication,
 
 1. **Run Integration Tests**:
    ```bash
-   cargo test --test integration_flow
+   cargo test
    ```
-   This will execute the full "Register -> Upload Keys -> Send -> Receive" cycle.
+   This will execute all tests, including:
+   - `integration_registration`: Register -> Upload Keys -> Fetch Keys
+   - `integration_messaging`: Send Message -> Receive via WebSocket
 
 2. **Manual Connectivity Check**:
    You can still use `websocat` to verify the connection handshake, though you won't be able to send valid frames manually without a Protobuf encoder.

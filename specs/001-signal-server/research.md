@@ -70,15 +70,7 @@
   - Forces clients to replenish keys actively.
   - Simpler than implementing fallback logic.
 
-### 8. Rate Limiting: `tower-governor`
-
-- **Decision**: Use `tower-governor` middleware.
-- **Rationale**:
-  - Integrates seamlessly with `axum` (via `tower`).
-  - In-memory governance is sufficient for a single-node MVP.
-  - configurable quotas (e.g., requests per second per IP).
-
-### 9. Serialization: `serde`
+### 8. Serialization: `serde`
 
 - **Decision**: Use `serde` with `serde_json`.
 - **Rationale**: The de-facto standard in Rust.
@@ -88,4 +80,3 @@
 - **Batch Uploads**: Will be handled as a JSON array of objects in the HTTP POST body.
 - **Zero Knowledge**: Verified that server only needs to store `TEXT` or `BYTEA` blobs. The "content" is encrypted by the client. The server does not need the keys.
 - **Limits**: TTL 30 days, Max 1000 messages.
-

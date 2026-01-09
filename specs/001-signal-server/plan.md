@@ -11,8 +11,8 @@ This feature implements a minimalist, zero-knowledge Signal Protocol relay serve
 
 ## Technical Context
 
-**Language/Version**: Rust 1.75+
-**Primary Dependencies**: `tokio` (Async Runtime), `axum` (Web Framework), `sqlx` (PostgreSQL Driver), `argon2` (Password Hashing), `serde` (Serialization), `prost` (Protobuf), `tracing` (Logging), `tower` (Middleware/Rate Limiting).
+**Language/Version**: Rust 1.83+
+**Primary Dependencies**: `tokio` (Async Runtime), `axum` (Web Framework), `sqlx` (PostgreSQL Driver), `argon2` (Password Hashing), `serde` (Serialization), `prost` (Protobuf), `tracing` (Logging).
 **Storage**: PostgreSQL
 **Testing**: `cargo test` (Unit/Integration), `sqlx::test` (Database tests).
 **Target Platform**: Linux server
@@ -40,7 +40,6 @@ plan MUST include evidence for the following gates:
 - **Security**:
   - **Zero Knowledge**: Server treats message content as opaque blobs.
   - **Auth**: `argon2` for password hashing. Session tokens (e.g., JWT or Signed Cookies) for API access.
-  - **Rate Limiting**: Applied via `tower-governor` or similar middleware on public endpoints.
   - **Secrets**: DB credentials loaded from environment variables (e.g., `DATABASE_URL`).
 - **Privacy**:
   - **Data Minimization**: Only store necessary metadata (sender, recipient, timestamp).

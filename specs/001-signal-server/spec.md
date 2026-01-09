@@ -14,7 +14,7 @@
 - Q: Transport protocol strategy? → A: **Hybrid**: HTTP for Users/Keys, WebSocket for Message Relay.
 
 ### Session 2026-01-05
-- Q: WebSocket Message Reliability? → A: **Fire-and-Forget**. Server deletes message immediately after writing to the socket buffer. No application-level ACK required.
+- Q: WebSocket Message Reliability? → A: **At-Least-Once**. Server retains message until client sends an `AckMessage`.
 - Q: WebSocket Authentication? → A: **Query Parameter**. Usage: `ws://host/ws?token=<jwt>`.
 - Q: Specific Storage Limits? → A: **TTL**: 30 Days. **Capacity**: 1000 messages per user (FIFO).
 - Q: PreKey Exhaustion behavior? → A: **Strict Failure**. If no One-Time PreKeys are available, the server returns an error (no fallback to just Signed PreKey).
@@ -50,7 +50,7 @@ Users must be able to send encrypted messages to offline users, which the server
 
 1. **Given** a registered User B, **When** User A sends an encrypted message payload addressed to User B via HTTP POST, **Then** the server accepts it and stores it in User B's inbox.
 2. **Given** User B has pending messages, **When** User B connects and requests their messages, **Then** the server pushes the encrypted payloads.
-3. **Given** User B has retrieved their messages, **When** they request messages again, **Then** the inbox is empty (messages are deleted immediately upon push).
+3. **Given** User B has retrieved their messages, **When** they send an acknowledgement for the message ID, **Then** the inbox is empty (messages are deleted upon acknowledgement).
 
 ---
 
@@ -69,7 +69,7 @@ Users must be able to send encrypted messages to offline users, which the server
 - **FR-003**: System MUST provide an HTTP endpoint to retrieve a targeted user's PreKey Bundle. It MUST consume one One-Time PreKey per request and fail with an error if none are available.
 - **FR-004**: System MUST allow authenticated users to send encrypted binary payloads to another user's inbox via HTTP POST (REST).
 - **FR-005**: System MUST allow authenticated users to list and fetch encrypted messages from their own inbox via WebSocket.
-- **FR-006**: System MUST delete messages from storage immediately after they are written to the WebSocket (Fire-and-Forget).
+- **FR-006**: System MUST delete messages from storage ONLY after receiving an explicit `AckMessage` from the client (At-Least-Once).
 - **FR-007**: System MUST use a **Hybrid Transport** model: HTTP for user/key management and sending messages, and WebSocket for real-time message receiving.
 - **FR-008**: System MUST NOT store any message content in plaintext or retain keys that would allow decryption (Zero-Knowledge).
 - **FR-009**: System MUST enforce storage limits: **30-Day TTL** for all messages AND a **maximum of 1000 messages** per inbox (oldest messages dropped first if full).
