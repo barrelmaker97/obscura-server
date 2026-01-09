@@ -17,6 +17,8 @@ async fn test_register_flow() {
     let config = Config {
         database_url: std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://user:pass@localhost/db".to_string()),
         jwt_secret: "secret".to_string(),
+        rate_limit_per_second: 5,
+        rate_limit_burst: 10,
     };
 
     // Mock or check connection. For now we assume failure if no DB.

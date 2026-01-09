@@ -18,6 +18,8 @@ async fn test_message_limit_fifo() {
     let config = Config {
         database_url: database_url.clone(),
         jwt_secret: "test_secret".to_string(),
+        rate_limit_per_second: 2000,
+        rate_limit_burst: 2000,
     };
 
     let pool = storage::init_pool(&config.database_url).await.expect("Failed to connect to DB");
@@ -133,4 +135,62 @@ fn decode_jwt_claims(token: &str) -> serde_json::Value {
     let payload = parts[1];
     let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload).unwrap();
     serde_json::from_slice(&decoded).unwrap()
+}
+
+#[tokio::test]
+async fn test_rate_limiting() {
+    use axum::{body::Body, http::{Request, StatusCode}};
+    use tower::ServiceExt;
+
+    // 1. Setup with strict limits
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://user:password@localhost/signal_server".to_string());
+    
+    let config = Config {
+        database_url: database_url.clone(),
+        jwt_secret: "test_secret".to_string(),
+        rate_limit_per_second: 1, // 1 request per second
+        rate_limit_burst: 1,      // Max burst 1
+    };
+
+    let pool = storage::init_pool(&config.database_url).await.expect("Failed to connect to DB");
+    let notifier = Arc::new(InMemoryNotifier::new());
+    let app = app_router(pool, config, notifier);
+
+    // 2. First Request - Should Pass (or at least not be Rate Limited)
+    // We hit a non-existent endpoint or just check auth failure, doesn't matter.
+    // Rate limit layer runs before auth.
+    let req1 = Request::builder()
+        .uri("/v1/gateway?token=bad")
+        .body(Body::empty())
+        .unwrap();
+    
+    // We need to provide ConnectInfo for the rate limiter to work in tests.
+    // However, axum's `oneshot` doesn't easily inject ConnectInfo unless we wrap the app or mock it.
+    // tower-governor by default uses PeerIp.
+    // When using `oneshot`, there is no TCP connection, so no IP.
+    // tower-governor usually falls back or allows if it can't extract key?
+    // OR we need to use `ConnectInfo` extension manually.
+    
+    // Let's try sending it. If tower-governor fails to extract IP, it might panic or allow.
+    // Ideally we want to verify it blocks. 
+    // To mock ConnectInfo in tests:
+    let req1 = Request::builder()
+        .uri("/v1/gateway?token=bad")
+        .extension(axum::extract::connect_info::ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 12345))))
+        .body(Body::empty())
+        .unwrap();
+
+    let resp1 = app.clone().oneshot(req1).await.unwrap();
+    assert_ne!(resp1.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    // 3. Second Request - Should Fail (Burst exceeded)
+    let req2 = Request::builder()
+        .uri("/v1/gateway?token=bad")
+        .extension(axum::extract::connect_info::ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 12345))))
+        .body(Body::empty())
+        .unwrap();
+
+    let resp2 = app.clone().oneshot(req2).await.unwrap();
+    assert_eq!(resp2.status(), StatusCode::TOO_MANY_REQUESTS);
 }

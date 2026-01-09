@@ -18,6 +18,8 @@ async fn test_messaging_flow() {
     let config = Config {
         database_url: database_url.clone(),
         jwt_secret: "test_secret".to_string(),
+        rate_limit_per_second: 5,
+        rate_limit_burst: 10,
     };
 
     let pool = storage::init_pool(&config.database_url).await.expect("Failed to connect to DB");
@@ -149,6 +151,8 @@ async fn test_websocket_auth_failure() {
     let config = Config {
         database_url: database_url.clone(),
         jwt_secret: "test_secret".to_string(),
+        rate_limit_per_second: 5,
+        rate_limit_burst: 10,
     };
 
     let pool = storage::init_pool(&config.database_url).await.expect("Failed to connect to DB");
