@@ -83,4 +83,13 @@ impl MessageRepository {
         .await?;
         Ok(())
     }
+
+    pub async fn delete_expired(&self) -> Result<u64> {
+        let result = sqlx::query(
+            "DELETE FROM messages WHERE expires_at < NOW()"
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
 }

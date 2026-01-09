@@ -139,6 +139,33 @@ async fn test_messaging_flow() {
     panic!("Did not receive expected message");
 }
 
+#[tokio::test]
+async fn test_websocket_auth_failure() {
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://user:password@localhost/signal_server".to_string());
+    
+    let config = Config {
+        database_url: database_url.clone(),
+        jwt_secret: "test_secret".to_string(),
+    };
+
+    let pool = storage::init_pool(&config.database_url).await.expect("Failed to connect to DB");
+    let app = app_router(pool, config);
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let ws_url = format!("ws://{}/v1/gateway", addr);
+
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    // Attempt to connect with invalid token
+    let res = connect_async(format!("{}?token=invalid_token", ws_url)).await;
+    
+    assert!(res.is_err(), "WebSocket connection should fail with invalid token");
+}
+
 fn decode_jwt_claims(token: &str) -> serde_json::Value {
     let parts: Vec<&str> = token.split('.').collect();
     let payload = parts[1];

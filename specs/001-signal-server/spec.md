@@ -14,7 +14,7 @@
 - Q: Transport protocol strategy? → A: **Hybrid**: HTTP for Users/Keys, WebSocket for Message Relay.
 
 ### Session 2026-01-05
-- Q: WebSocket Message Reliability? → A: **At-Least-Once**. Server retains message until client sends an `AckMessage`.
+- Q: WebSocket Message Reliability? → A: **At-Least-Once**. Server retains message until client sends an acknowledgement.
 - Q: WebSocket Authentication? → A: **Query Parameter**. Usage: `ws://host/ws?token=<jwt>`.
 - Q: Specific Storage Limits? → A: **TTL**: 30 Days. **Capacity**: 1000 messages per user (FIFO).
 - Q: PreKey Exhaustion behavior? → A: **Strict Failure**. If no One-Time PreKeys are available, the server returns an error (no fallback to just Signed PreKey).
@@ -69,11 +69,12 @@ Users must be able to send encrypted messages to offline users, which the server
 - **FR-003**: System MUST provide an HTTP endpoint to retrieve a targeted user's PreKey Bundle. It MUST consume one One-Time PreKey per request and fail with an error if none are available.
 - **FR-004**: System MUST allow authenticated users to send encrypted binary payloads to another user's inbox via HTTP POST (REST).
 - **FR-005**: System MUST allow authenticated users to list and fetch encrypted messages from their own inbox via WebSocket.
-- **FR-006**: System MUST delete messages from storage ONLY after receiving an explicit `AckMessage` from the client (At-Least-Once).
+- **FR-006**: System MUST delete messages from storage ONLY after receiving an explicit acknowledgement from the client (At-Least-Once).
 - **FR-007**: System MUST use a **Hybrid Transport** model: HTTP for user/key management and sending messages, and WebSocket for real-time message receiving.
 - **FR-008**: System MUST NOT store any message content in plaintext or retain keys that would allow decryption (Zero-Knowledge).
 - **FR-009**: System MUST enforce storage limits: **30-Day TTL** for all messages AND a **maximum of 1000 messages** per inbox (oldest messages dropped first if full).
 - **FR-010**: WebSocket connections MUST be authenticated via a **Query Parameter** (e.g., `?token=...`).
+- **FR-011**: System MUST provide an HTTP endpoint to authenticate an existing user via Username/Password and issue a session token (Login).
 
 ### Constitution Alignment (mandatory)
 

@@ -19,6 +19,7 @@ pub fn app_router(pool: DbPool, config: Config) -> Router {
     
     Router::new()
         .route("/v1/accounts", post(auth::register))
+        .route("/v1/sessions", post(auth::login))
         .route("/v1/keys", put(keys::upload_keys))
         .route("/v1/keys/{userId}", get(keys::get_pre_key_bundle))
         .route("/v1/messages/{destinationDeviceId}", post(messages::send_message))

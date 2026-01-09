@@ -24,7 +24,12 @@ pub async fn get_pre_key_bundle(
     let bundle = key_repo.fetch_pre_key_bundle(user_id).await?;
     
     match bundle {
-        Some(b) => Ok(Json(b)),
+        Some(b) => {
+            if b.one_time_pre_key.is_none() {
+                return Err(AppError::BadRequest("No one-time prekeys available".into()));
+            }
+            Ok(Json(b))
+        },
         None => Err(AppError::NotFound),
     }
 }

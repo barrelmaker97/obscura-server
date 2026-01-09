@@ -23,6 +23,12 @@ pub struct RegistrationRequest {
 }
 
 #[derive(Deserialize)]
+pub struct LoginRequest {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Deserialize)]
 pub struct SignedPreKeyDto {
     #[serde(rename = "keyId")]
     pub key_id: i32,
@@ -42,6 +48,24 @@ pub struct OneTimePreKeyDto {
 #[derive(Serialize)]
 pub struct AuthResponse {
     pub token: String,
+}
+
+pub async fn login(
+    State(state): State<AppState>,
+    Json(payload): Json<LoginRequest>,
+) -> Result<impl IntoResponse> {
+    let user_repo = UserRepository::new(state.pool.clone());
+    
+    let user = user_repo.find_by_username(&payload.username).await?
+        .ok_or(AppError::AuthError)?; // Generic AuthError to avoid enumeration
+
+    if !auth::verify_password(&payload.password, &user.password_hash)? {
+        return Err(AppError::AuthError);
+    }
+
+    let token = create_jwt(user.id, &state.config.jwt_secret)?;
+    
+    Ok(Json(AuthResponse { token }))
 }
 
 pub async fn register(
