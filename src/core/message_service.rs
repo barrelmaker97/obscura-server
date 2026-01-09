@@ -1,6 +1,7 @@
 use crate::storage::message_repo::MessageRepository;
 use crate::error::Result;
 use uuid::Uuid;
+use std::time::Duration;
 
 #[derive(Clone)]
 pub struct MessageService {
@@ -20,5 +21,25 @@ impl MessageService {
 
         self.repo.create(sender_id, recipient_id, content, 30).await?;
         Ok(())
+    }
+
+    /// Periodically cleans up expired messages from the database.
+    pub async fn run_cleanup_loop(&self) {
+        let mut interval = tokio::time::interval(Duration::from_secs(3600)); // Every hour
+        
+        loop {
+            interval.tick().await;
+            tracing::debug!("Running expired message cleanup...");
+            match self.repo.delete_expired().await {
+                Ok(count) => {
+                    if count > 0 {
+                        tracing::info!("Cleanup: Deleted {} expired messages.", count);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Cleanup loop error: {:?}", e);
+                }
+            }
+        }
     }
 }

@@ -22,6 +22,14 @@ async fn main() -> anyhow::Result<()> {
     sqlx::migrate!().run(&pool).await?;
     tracing::info!("Migrations complete.");
 
+    // Start background tasks
+    let message_service = obscura_server::core::message_service::MessageService::new(
+        obscura_server::storage::message_repo::MessageRepository::new(pool.clone())
+    );
+    tokio::spawn(async move {
+        message_service.run_cleanup_loop().await;
+    });
+
     let notifier = Arc::new(InMemoryNotifier::new());
     let app = api::app_router(pool, config, notifier);
 
