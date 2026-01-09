@@ -2,13 +2,12 @@ use async_trait::async_trait;
 use tokio::sync::broadcast;
 use uuid::Uuid;
 use dashmap::DashMap;
-use std::sync::Arc;
 
 #[async_trait]
 pub trait Notifier: Send + Sync {
     // Returns a receiver that will get a value when a notification arrives.
     fn subscribe(&self, user_id: Uuid) -> broadcast::Receiver<()>;
-    
+
     // Sends a notification to the user.
     fn notify(&self, user_id: Uuid);
 }
