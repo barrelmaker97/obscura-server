@@ -16,18 +16,18 @@
    cd obscura-server
    ```
 
-2. **Environment**:
+2. **Database**:
+   Start PostgreSQL using Docker Compose:
+   ```bash
+   docker compose up -d
+   ```
+
+3. **Environment**:
    Copy `.env.example` to `.env`:
    ```bash
    DATABASE_URL=postgres://user:password@localhost/signal_server
    JWT_SECRET=your_secret_key_change_me
    RUST_LOG=debug
-   ```
-
-3. **Database**:
-   You can use Docker to spin up a quick database:
-   ```bash
-   docker run --name obscura-db -e POSTGRES_USER=user -e POSTGRES_PASSWORD=password -e POSTGRES_DB=signal_server -p 5432:5432 -d postgres:16
    ```
 
 ## Running the Server
@@ -36,23 +36,21 @@
 cargo run
 ```
 Server will start on `http://0.0.0.0:3000`.
-**Note**: Migrations are applied automatically on startup.
+**Note**: Migrations are applied automatically on startup and during tests.
 
 ## Testing the Flow
 
-Since the server uses **Protocol Buffers** (binary) for WebSocket communication, manual testing with `curl` or `websocat` is limited. The recommended way to verify functionality is via the included integration tests.
-
-1. **Run Integration Tests**:
+1. **Automated Tests**:
+   Run the full integration suite:
    ```bash
    cargo test
    ```
-   This will execute all tests, including:
-   - `integration_registration`: Register -> Upload Keys -> Fetch Keys
-   - `integration_messaging`: Send Message -> Receive via WebSocket
+   Tests will execute all integration flows and automatically ensure the database schema is up-to-date.
 
 2. **Manual Connectivity Check**:
-   You can still use `websocat` to verify the connection handshake, though you won't be able to send valid frames manually without a Protobuf encoder.
+   You can use `websocat` to verify the connection handshake. Note that you need a valid JWT token from the registration/login flow.
+   You won't be able to send valid frames manually without a Protobuf encoder.
    ```bash
    # Connect to WebSocket (expect binary noise or immediate disconnect if idle)
-   websocat "ws://localhost:3000/v1/gateway?token=$TOKEN_A"
+   websocat "ws://localhost:3000/v1/gateway?token=$TOKEN"
    ```

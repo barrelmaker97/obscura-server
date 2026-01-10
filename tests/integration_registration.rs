@@ -5,29 +5,24 @@ use axum::{
 use tower::ServiceExt;
 use obscura_server::api::app_router;
 use obscura_server::config::Config;
-use obscura_server::storage;
 use obscura_server::core::notification::InMemoryNotifier;
 use serde_json::json;
 use base64::Engine;
 use uuid::Uuid;
 use std::sync::Arc;
 
+mod common;
+
 #[tokio::test]
 async fn test_register_flow() {
+    let pool = common::get_test_pool().await;
+    
     let config = Config {
-        database_url: std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://user:pass@localhost/db".to_string()),
+        database_url: "".to_string(), // Not used for pool initialization here
         jwt_secret: "secret".to_string(),
         rate_limit_per_second: 5,
         rate_limit_burst: 10,
     };
-
-    // Mock or check connection. For now we assume failure if no DB.
-    let pool_res = storage::init_pool(&config.database_url).await;
-    if pool_res.is_err() {
-        eprintln!("Skipping test: No DB connection");
-        return;
-    }
-    let pool = pool_res.unwrap();
 
     let notifier = Arc::new(InMemoryNotifier::new());
     let app = app_router(pool, config, notifier);

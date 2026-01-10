@@ -10,10 +10,13 @@ Signal Protocol Relay Server.
 
 ## Setup
 
-1. Copy `.env.example` to `.env` and configure `DATABASE_URL` and `JWT_SECRET`.
-2. `cargo run` (This will run migrations automatically).
+1. `docker compose up -d` (Starts PostgreSQL)
+2. Copy `.env.example` to `.env` and configure `DATABASE_URL` and `JWT_SECRET`.
+3. `cargo run` (Migrations are applied automatically).
 
 ## Testing
+
+Tests automatically apply migrations to the database. Ensure Postgres is running.
 
 ```bash
 cargo test

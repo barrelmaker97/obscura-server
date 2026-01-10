@@ -1,5 +1,5 @@
 use tokio::net::TcpListener;
-use obscura_server::{api::app_router, config::Config, storage, core::notification::InMemoryNotifier};
+use obscura_server::{api::app_router, config::Config, core::notification::InMemoryNotifier};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use futures::StreamExt;
 use serde_json::json;
@@ -9,20 +9,19 @@ use prost::Message as ProstMessage;
 use base64::Engine;
 use std::sync::Arc;
 
+mod common;
+
 #[tokio::test]
 async fn test_message_limit_fifo() {
-    // 1. Setup Server
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://user:password@localhost/signal_server".to_string());
+    let pool = common::get_test_pool().await;
     
     let config = Config {
-        database_url: database_url.clone(),
+        database_url: "".to_string(),
         jwt_secret: "test_secret".to_string(),
         rate_limit_per_second: 2000,
         rate_limit_burst: 2000,
     };
 
-    let pool = storage::init_pool(&config.database_url).await.expect("Failed to connect to DB");
     // Clear messages table to ensure clean state for this test if reuse happens
     sqlx::query("DELETE FROM messages").execute(&pool).await.unwrap();
 
@@ -142,18 +141,14 @@ async fn test_rate_limiting() {
     use axum::{body::Body, http::{Request, StatusCode}};
     use tower::ServiceExt;
 
-    // 1. Setup with strict limits
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://user:password@localhost/signal_server".to_string());
+    let pool = common::get_test_pool().await;
     
     let config = Config {
-        database_url: database_url.clone(),
+        database_url: "".to_string(),
         jwt_secret: "test_secret".to_string(),
         rate_limit_per_second: 1, // 1 request per second
         rate_limit_burst: 1,      // Max burst 1
     };
-
-    let pool = storage::init_pool(&config.database_url).await.expect("Failed to connect to DB");
     let notifier = Arc::new(InMemoryNotifier::new());
     let app = app_router(pool, config, notifier);
 
