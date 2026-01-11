@@ -78,10 +78,9 @@ pub async fn register(
     // 1. Create User
     let password_hash = auth::hash_password(&payload.password)?;
     let user = user_repo.create(&payload.username, &password_hash).await.map_err(|e| {
-        if let AppError::Database(sqlx::Error::Database(db_err)) = &e {
-            if db_err.code().as_deref() == Some("23505") {
+        if let AppError::Database(sqlx::Error::Database(db_err)) = &e
+            && db_err.code().as_deref() == Some("23505") {
                  return AppError::BadRequest("Username already exists".into());
-            }
         }
         e
     })?;

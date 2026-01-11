@@ -48,10 +48,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
                  };
 
                  let mut buf = Vec::new();
-                 if frame.encode(&mut buf).is_ok() {
-                     if socket.send(WsMessage::Binary(buf.into())).await.is_err() {
-                         return;
-                     }
+                 if frame.encode(&mut buf).is_ok()
+                     && socket.send(WsMessage::Binary(buf.into())).await.is_err() {
+                     return;
                  }
              }
         }
@@ -62,12 +61,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
             msg = socket.recv() => {
                 match msg {
                     Some(Ok(WsMessage::Binary(bin))) => {
-                         if let Ok(frame) = WebSocketFrame::decode(bin.as_ref()) {
-                             if let Some(Payload::Ack(ack)) = frame.payload {
-                                 if let Ok(msg_id) = Uuid::parse_str(&ack.message_id) {
-                                     let _ = repo.delete(msg_id).await;
-                                 }
-                             }
+                         if let Ok(frame) = WebSocketFrame::decode(bin.as_ref())
+                             && let Some(Payload::Ack(ack)) = frame.payload
+                             && let Ok(msg_id) = Uuid::parse_str(&ack.message_id) {
+                                 let _ = repo.delete(msg_id).await;
                          }
                     }
                     Some(Ok(WsMessage::Close(_))) => break,
@@ -100,10 +97,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
                                      };
 
                                      let mut buf = Vec::new();
-                                     if frame.encode(&mut buf).is_ok() {
-                                         if socket.send(WsMessage::Binary(buf.into())).await.is_err() {
-                                             break;
-                                         }
+                                     if frame.encode(&mut buf).is_ok()
+                                         && socket.send(WsMessage::Binary(buf.into())).await.is_err() {
+                                         break;
                                      }
                                  }
                             }
