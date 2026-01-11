@@ -16,7 +16,7 @@ impl MessageRepository {
 
     pub async fn create(&self, sender_id: Uuid, recipient_id: Uuid, content: Vec<u8>, ttl_days: i64) -> Result<()> {
         let expires_at = OffsetDateTime::now_utc() + Duration::days(ttl_days);
-        
+
         sqlx::query(
             r#"
             INSERT INTO messages (sender_id, recipient_id, content, expires_at)
@@ -29,7 +29,7 @@ impl MessageRepository {
         .bind(expires_at)
         .execute(&self.pool)
         .await?;
-        
+
         Ok(())
     }
 
@@ -58,7 +58,7 @@ impl MessageRepository {
         .await?;
         Ok(())
     }
-    
+
     pub async fn count_messages(&self, recipient_id: Uuid) -> Result<i64> {
          let count: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM messages WHERE recipient_id = $1"
@@ -72,7 +72,7 @@ impl MessageRepository {
     pub async fn delete_oldest(&self, recipient_id: Uuid) -> Result<()> {
          sqlx::query(
             r#"
-            DELETE FROM messages 
+            DELETE FROM messages
             WHERE id = (
                 SELECT id FROM messages WHERE recipient_id = $1 ORDER BY created_at ASC LIMIT 1
             )

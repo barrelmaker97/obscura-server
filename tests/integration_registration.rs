@@ -16,7 +16,7 @@ mod common;
 #[tokio::test]
 async fn test_register_flow() {
     let pool = common::get_test_pool().await;
-    
+
     let config = Config {
         database_url: "".to_string(), // Not used for pool initialization here
         jwt_secret: "secret".to_string(),
@@ -34,7 +34,7 @@ async fn test_register_flow() {
         "username": username,
         "password": "password123",
         "registrationId": 123,
-        "identityKey": "dGVzdF9pZGVudGl0eV9rZXk=", 
+        "identityKey": "dGVzdF9pZGVudGl0eV9rZXk=",
         "signedPreKey": {
             "keyId": 1,
             "publicKey": "dGVzdF9zaWduZWRfcHViX2tleQ==",
@@ -70,12 +70,12 @@ async fn test_register_flow() {
 
     let response_login = app.clone().oneshot(req_login).await.unwrap();
     assert_eq!(response_login.status(), StatusCode::OK);
-    
+
     // Verify token exists
     let body_bytes = axum::body::to_bytes(response_login.into_body(), usize::MAX).await.unwrap();
     let body_json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
     let token = body_json["token"].as_str().unwrap();
-    
+
     // 3. Fetch Keys (Should fail due to empty one-time keys)
     let claims = decode_jwt_claims(token);
     let user_id = claims["sub"].as_str().unwrap();

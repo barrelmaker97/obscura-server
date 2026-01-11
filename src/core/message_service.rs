@@ -26,7 +26,7 @@ impl MessageService {
     /// Periodically cleans up expired messages from the database.
     pub async fn run_cleanup_loop(&self) {
         let mut interval = tokio::time::interval(Duration::from_secs(3600)); // Every hour
-        
+
         loop {
             interval.tick().await;
             tracing::debug!("Running expired message cleanup...");

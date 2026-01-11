@@ -7,7 +7,7 @@ mod common;
 #[tokio::test]
 async fn test_expired_message_cleanup() {
     let pool = common::get_test_pool().await;
-    
+
     let repo = MessageRepository::new(pool.clone());
 
     // 1. Create a dummy user
@@ -22,7 +22,7 @@ async fn test_expired_message_cleanup() {
     // 2. Insert an expired message (1 day ago)
     let msg_id = Uuid::new_v4();
     let expired_time = OffsetDateTime::now_utc() - Duration::days(1);
-    
+
     sqlx::query(
         "INSERT INTO messages (id, sender_id, recipient_id, content, expires_at) VALUES ($1, $2, $2, $3, $4)"
     )
@@ -37,7 +37,7 @@ async fn test_expired_message_cleanup() {
     // 3. Insert a non-expired message (1 day from now)
     let active_msg_id = Uuid::new_v4();
     let active_time = OffsetDateTime::now_utc() + Duration::days(1);
-    
+
     sqlx::query(
         "INSERT INTO messages (id, sender_id, recipient_id, content, expires_at) VALUES ($1, $2, $2, $3, $4)"
     )

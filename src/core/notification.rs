@@ -88,7 +88,7 @@ mod tests {
 
         // 2. Subscribe (creates entry)
         let rx = notifier.subscribe(user_id);
-        
+
         // Assert entry exists
         assert!(notifier.channels.contains_key(&user_id));
         assert_eq!(notifier.channels.len(), 1);
@@ -103,7 +103,7 @@ mod tests {
         assert!(!notifier.channels.contains_key(&user_id));
         assert_eq!(notifier.channels.len(), 0);
     }
-    
+
     #[tokio::test]
     async fn test_notifier_gc_keeps_active_channels() {
         let notifier = InMemoryNotifier::new_with_interval(Duration::from_millis(100));

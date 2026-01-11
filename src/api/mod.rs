@@ -28,7 +28,7 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>) -> 
     );
 
     let state = AppState { pool, config, notifier };
-    
+
     Router::new()
         .route("/v1/accounts", post(auth::register))
         .route("/v1/sessions", post(auth::login))

@@ -7,7 +7,7 @@ use crate::api::AppState;
 use crate::api::middleware::verify_jwt;
 use crate::storage::message_repo::MessageRepository;
 use crate::proto::obscura::v1::{WebSocketFrame, IncomingEnvelope, web_socket_frame::Payload, OutgoingMessage};
-use prost::Message as ProstMessage; 
+use prost::Message as ProstMessage;
 use uuid::Uuid;
 
 #[derive(Deserialize)]
@@ -41,12 +41,12 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
                      timestamp: outgoing.timestamp,
                      content: outgoing.content,
                  };
-                 
+
                  let frame = WebSocketFrame {
                      request_id: 0,
                      payload: Some(Payload::Envelope(envelope)),
                  };
-                 
+
                  let mut buf = Vec::new();
                  if frame.encode(&mut buf).is_ok() {
                      if socket.send(WsMessage::Binary(buf.into())).await.is_err() {
@@ -93,12 +93,12 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
                                          timestamp: outgoing.timestamp,
                                          content: outgoing.content,
                                      };
-                                     
+
                                      let frame = WebSocketFrame {
                                          request_id: 0,
                                          payload: Some(Payload::Envelope(envelope)),
                                      };
-                                     
+
                                      let mut buf = Vec::new();
                                      if frame.encode(&mut buf).is_ok() {
                                          if socket.send(WsMessage::Binary(buf.into())).await.is_err() {

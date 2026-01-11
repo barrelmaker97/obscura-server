@@ -13,7 +13,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let config = Config::from_env()?;
-    
+
     // Initialize pool
     let pool = storage::init_pool(&config.database_url).await?;
 

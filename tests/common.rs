@@ -26,11 +26,11 @@ pub async fn get_test_pool() -> PgPool {
     setup_tracing();
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://user:password@localhost/signal_server".to_string());
-    
+
     let pool = storage::init_pool(&database_url).await.expect("Failed to connect to DB. Is Postgres running?");
-    
+
     // Run migrations automatically
     sqlx::migrate!().run(&pool).await.expect("Failed to run migrations");
-    
+
     pool
 }

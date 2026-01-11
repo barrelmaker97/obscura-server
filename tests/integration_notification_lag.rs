@@ -5,7 +5,7 @@ use futures::StreamExt;
 use serde_json::json;
 use uuid::Uuid;
 use obscura_server::proto::obscura::v1::{WebSocketFrame, OutgoingMessage, web_socket_frame::Payload};
-use prost::Message as ProstMessage; 
+use prost::Message as ProstMessage;
 use base64::Engine;
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,7 +15,7 @@ mod common;
 #[tokio::test]
 async fn test_notification_lag_recovery() {
     let pool = common::get_test_pool().await;
-    
+
     // Config with higher rate limits so we don't get 429s during the flood
     let config = Config {
         database_url: "".to_string(),
@@ -44,7 +44,7 @@ async fn test_notification_lag_recovery() {
         "username": user_a_name,
         "password": "password",
         "registrationId": 1,
-        "identityKey": "dGVzdF9pZGVudGl0eV9rZXk=", 
+        "identityKey": "dGVzdF9pZGVudGl0eV9rZXk=",
         "signedPreKey": {
             "keyId": 1,
             "publicKey": "dGVzdF9zaWduZWRfcHViX2tleQ==",
@@ -66,7 +66,7 @@ async fn test_notification_lag_recovery() {
         "username": user_b_name,
         "password": "password",
         "registrationId": 2,
-        "identityKey": "dGVzdF9pZGVudGl0eV9rZXk=", 
+        "identityKey": "dGVzdF9pZGVudGl0eV9rZXk=",
         "signedPreKey": {
             "keyId": 1,
             "publicKey": "dGVzdF9zaWduZWRfcHViX2tleQ==",
@@ -111,9 +111,9 @@ async fn test_notification_lag_recovery() {
             .send()
             .await
             .unwrap();
-        
+
         assert_eq!(resp.status(), 201, "Failed to send message {}", i);
-        
+
         // Small yield to ensure server processes the request and tries to notify
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
@@ -122,12 +122,12 @@ async fn test_notification_lag_recovery() {
     // We expect to receive ALL 30 messages.
     // If Lagged error was ignored, we would miss messages.
     // With Lagged handling, the server should fetch from DB and recover.
-    
+
     let mut received_count = 0;
     let timeout = Duration::from_secs(5);
-    
+
     let start = std::time::Instant::now();
-    
+
     loop {
         if std::time::Instant::now().duration_since(start) > timeout {
             break;

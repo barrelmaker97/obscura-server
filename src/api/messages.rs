@@ -4,7 +4,7 @@ use axum::{
     response::IntoResponse,
     body::Bytes,
 };
-use prost::Message as ProstMessage; 
+use prost::Message as ProstMessage;
 use uuid::Uuid;
 use crate::api::AppState;
 use crate::api::middleware::AuthUser;
@@ -22,9 +22,9 @@ pub async fn send_message(
     // Validate Protobuf
     let _ = OutgoingMessage::decode(body.clone())
         .map_err(|_| AppError::BadRequest("Invalid protobuf".into()))?;
-    
+
     let service = MessageService::new(MessageRepository::new(state.pool));
-    
+
     // Store raw body (OutgoingMessage serialized)
     service.enqueue_message(auth_user.user_id, destination_device_id, body.to_vec()).await?;
 

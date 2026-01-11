@@ -5,7 +5,7 @@ use futures::{StreamExt, SinkExt};
 use serde_json::json;
 use uuid::Uuid;
 use obscura_server::proto::obscura::v1::{WebSocketFrame, OutgoingMessage, AckMessage, web_socket_frame::Payload};
-use prost::Message as ProstMessage; 
+use prost::Message as ProstMessage;
 use base64::Engine;
 use std::sync::Arc;
 
@@ -14,7 +14,7 @@ mod common;
 #[tokio::test]
 async fn test_messaging_flow() {
     let pool = common::get_test_pool().await;
-    
+
     let config = Config {
         database_url: "".to_string(),
         jwt_secret: "test_secret".to_string(),
@@ -42,7 +42,7 @@ async fn test_messaging_flow() {
         "username": user_a_name,
         "password": "password",
         "registrationId": 1,
-        "identityKey": "dGVzdF9pZGVudGl0eV9rZXk=", 
+        "identityKey": "dGVzdF9pZGVudGl0eV9rZXk=",
         "signedPreKey": {
             "keyId": 1,
             "publicKey": "dGVzdF9zaWduZWRfcHViX2tleQ==",
@@ -65,7 +65,7 @@ async fn test_messaging_flow() {
         "username": user_b_name,
         "password": "password",
         "registrationId": 2,
-        "identityKey": "dGVzdF9pZGVudGl0eV9rZXk=", 
+        "identityKey": "dGVzdF9pZGVudGl0eV9rZXk=",
         "signedPreKey": {
             "keyId": 1,
             "publicKey": "dGVzdF9zaWduZWRfcHViX2tleQ==",
@@ -80,7 +80,7 @@ async fn test_messaging_flow() {
         .await
         .unwrap();
     assert_eq!(resp_b.status(), 201);
-    
+
     let token_b = resp_b.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
     let claims_b = decode_jwt_claims(&token_b);
     let user_b_id = claims_b["sub"].as_str().unwrap();
@@ -101,7 +101,7 @@ async fn test_messaging_flow() {
         .send()
         .await
         .unwrap();
-    
+
     assert_eq!(resp_msg.status(), 201);
 
     // 5. Connect User B via WebSocket and Receive
@@ -128,23 +128,23 @@ async fn test_messaging_flow() {
                 };
                 let mut ack_buf = Vec::new();
                 ack_frame.encode(&mut ack_buf).unwrap();
-                
+
                 ws_stream.send(Message::Binary(ack_buf.into())).await.expect("Failed to send ACK");
-                
+
                 // Allow a small window for server to process ACK (optional but good for stability)
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                 return;
             }
         }
     }
-    
+
     panic!("Did not receive expected message");
 }
 
 #[tokio::test]
 async fn test_websocket_auth_failure() {
     let pool = common::get_test_pool().await;
-    
+
     let config = Config {
         database_url: "".to_string(),
         jwt_secret: "test_secret".to_string(),
@@ -164,7 +164,7 @@ async fn test_websocket_auth_failure() {
 
     // Attempt to connect with invalid token
     let res = connect_async(format!("{}?token=invalid_token", ws_url)).await;
-    
+
     assert!(res.is_err(), "WebSocket connection should fail with invalid token");
 }
 

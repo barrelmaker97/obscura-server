@@ -5,7 +5,7 @@ use futures::StreamExt;
 use serde_json::json;
 use uuid::Uuid;
 use obscura_server::proto::obscura::v1::{WebSocketFrame, OutgoingMessage, web_socket_frame::Payload};
-use prost::Message as ProstMessage; 
+use prost::Message as ProstMessage;
 use base64::Engine;
 use std::sync::Arc;
 
@@ -14,7 +14,7 @@ mod common;
 #[tokio::test]
 async fn test_message_limit_fifo() {
     let pool = common::get_test_pool().await;
-    
+
     let config = Config {
         database_url: "".to_string(),
         jwt_secret: "test_secret".to_string(),
@@ -46,7 +46,7 @@ async fn test_message_limit_fifo() {
         "username": user_a_name,
         "password": "password",
         "registrationId": 1,
-        "identityKey": "dGVzdF9pZGVudGl0eV9rZXk=", 
+        "identityKey": "dGVzdF9pZGVudGl0eV9rZXk=",
         "signedPreKey": {
             "keyId": 1,
             "publicKey": "dGVzdF9zaWduZWRfcHViX2tleQ==",
@@ -68,7 +68,7 @@ async fn test_message_limit_fifo() {
         "username": user_b_name,
         "password": "password",
         "registrationId": 2,
-        "identityKey": "dGVzdF9pZGVudGl0eV9rZXk=", 
+        "identityKey": "dGVzdF9pZGVudGl0eV9rZXk=",
         "signedPreKey": {
             "keyId": 1,
             "publicKey": "dGVzdF9zaWduZWRfcHViX2tleQ==",
@@ -82,7 +82,7 @@ async fn test_message_limit_fifo() {
         .send()
         .await
         .unwrap();
-    
+
     let token_b = resp_b.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
     let claims_b = decode_jwt_claims(&token_b);
     let user_b_id = claims_b["sub"].as_str().unwrap();
@@ -142,7 +142,7 @@ async fn test_rate_limiting() {
     use tower::ServiceExt;
 
     let pool = common::get_test_pool().await;
-    
+
     let config = Config {
         database_url: "".to_string(),
         jwt_secret: "test_secret".to_string(),
@@ -155,16 +155,16 @@ async fn test_rate_limiting() {
     // 2. First Request - Should Pass (or at least not be Rate Limited)
     // We hit a non-existent endpoint or just check auth failure, doesn't matter.
     // Rate limit layer runs before auth.
-    
+
     // We need to provide ConnectInfo for the rate limiter to work in tests.
     // However, axum's `oneshot` doesn't easily inject ConnectInfo unless we wrap the app or mock it.
     // tower-governor by default uses PeerIp.
     // When using `oneshot`, there is no TCP connection, so no IP.
     // tower-governor usually falls back or allows if it can't extract key?
     // OR we need to use `ConnectInfo` extension manually.
-    
+
     // Let's try sending it. If tower-governor fails to extract IP, it might panic or allow.
-    // Ideally we want to verify it blocks. 
+    // Ideally we want to verify it blocks.
     // To mock ConnectInfo in tests:
     let req1 = Request::builder()
         .uri("/v1/gateway?token=bad")

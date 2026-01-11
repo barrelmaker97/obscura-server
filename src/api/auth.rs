@@ -55,7 +55,7 @@ pub async fn login(
     Json(payload): Json<LoginRequest>,
 ) -> Result<impl IntoResponse> {
     let user_repo = UserRepository::new(state.pool.clone());
-    
+
     let user = user_repo.find_by_username(&payload.username).await?
         .ok_or(AppError::AuthError)?; // Generic AuthError to avoid enumeration
 
@@ -64,7 +64,7 @@ pub async fn login(
     }
 
     let token = create_jwt(user.id, &state.config.jwt_secret)?;
-    
+
     Ok(Json(AuthResponse { token }))
 }
 
