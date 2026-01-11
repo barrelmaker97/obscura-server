@@ -78,31 +78,39 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
             }
             // Event-driven trigger
             result = rx.recv() => {
-                if result.is_ok() {
-                    if let Ok(messages) = repo.fetch_pending(user_id).await {
-                        for msg in messages {
-                             if let Ok(outgoing) = OutgoingMessage::decode(msg.content.as_slice()) {
-                                 let envelope = IncomingEnvelope {
-                                     id: msg.id.to_string(),
-                                     r#type: outgoing.r#type,
-                                     source_user_id: msg.sender_id.to_string(),
-                                     timestamp: outgoing.timestamp,
-                                     content: outgoing.content,
-                                 };
-                                 
-                                 let frame = WebSocketFrame {
-                                     request_id: 0,
-                                     payload: Some(Payload::Envelope(envelope)),
-                                 };
-                                 
-                                 let mut buf = Vec::new();
-                                 if frame.encode(&mut buf).is_ok() {
-                                     if socket.send(WsMessage::Binary(buf.into())).await.is_err() {
-                                         break;
+                match result {
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        // Drain any pending notifications to avoid redundant DB checks
+                        while rx.try_recv().is_ok() {}
+
+                        if let Ok(messages) = repo.fetch_pending(user_id).await {
+                            for msg in messages {
+                                 if let Ok(outgoing) = OutgoingMessage::decode(msg.content.as_slice()) {
+                                     let envelope = IncomingEnvelope {
+                                         id: msg.id.to_string(),
+                                         r#type: outgoing.r#type,
+                                         source_user_id: msg.sender_id.to_string(),
+                                         timestamp: outgoing.timestamp,
+                                         content: outgoing.content,
+                                     };
+                                     
+                                     let frame = WebSocketFrame {
+                                         request_id: 0,
+                                         payload: Some(Payload::Envelope(envelope)),
+                                     };
+                                     
+                                     let mut buf = Vec::new();
+                                     if frame.encode(&mut buf).is_ok() {
+                                         if socket.send(WsMessage::Binary(buf.into())).await.is_err() {
+                                             break;
+                                         }
                                      }
                                  }
-                             }
+                            }
                         }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        break;
                     }
                 }
             }
