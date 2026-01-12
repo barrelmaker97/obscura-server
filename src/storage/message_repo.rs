@@ -59,35 +59,29 @@ impl MessageRepository {
         Ok(())
     }
 
-    pub async fn count_messages(&self, recipient_id: Uuid) -> Result<i64> {
-         let count: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM messages WHERE recipient_id = $1"
-        )
-        .bind(recipient_id)
-        .fetch_one(&self.pool)
-        .await?;
-        Ok(count)
-    }
-
-    pub async fn delete_oldest(&self, recipient_id: Uuid) -> Result<()> {
-         sqlx::query(
-            r#"
-            DELETE FROM messages
-            WHERE id = (
-                SELECT id FROM messages WHERE recipient_id = $1 ORDER BY created_at ASC LIMIT 1
-            )
-            "#
-        )
-        .bind(recipient_id)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-
     pub async fn delete_expired(&self) -> Result<u64> {
         let result = sqlx::query(
             "DELETE FROM messages WHERE expires_at < NOW()"
         )
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    pub async fn delete_global_overflow(&self, limit: i64) -> Result<u64> {
+        // Deletes messages that exceed the 'limit' per recipient
+        let result = sqlx::query(
+            r#"
+            DELETE FROM messages
+            WHERE id IN (
+                SELECT id FROM (
+                    SELECT id, ROW_NUMBER() OVER (PARTITION BY recipient_id ORDER BY created_at DESC) as rn
+                    FROM messages
+                ) t WHERE t.rn > $1
+            )
+            "#
+        )
+        .bind(limit)
         .execute(&self.pool)
         .await?;
         Ok(result.rows_affected())

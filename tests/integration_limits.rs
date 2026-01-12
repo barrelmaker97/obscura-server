@@ -1,5 +1,5 @@
 use tokio::net::TcpListener;
-use obscura_server::{api::app_router, config::Config, core::notification::InMemoryNotifier};
+use obscura_server::{api::app_router, config::Config, core::notification::InMemoryNotifier, storage::message_repo::MessageRepository};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use futures::StreamExt;
 use serde_json::json;
@@ -109,7 +109,12 @@ async fn test_message_limit_fifo() {
             .unwrap();
     }
 
-    // 5. Connect User B and Verify
+    // 5. Trigger Background Cleanup Manually
+    // Since we moved cleanup to background, we must simulate the job running now.
+    let repo = MessageRepository::new(pool.clone());
+    repo.delete_global_overflow(1000).await.expect("Failed to run cleanup");
+
+    // 6. Connect User B and Verify
     let (mut ws_stream, _) = connect_async(format!("{}?token={}", ws_url, token_b))
         .await
         .expect("Failed to connect WS");
