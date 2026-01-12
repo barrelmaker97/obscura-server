@@ -17,7 +17,7 @@ description: "Task list for 001-signal-server"
 
 - [x] T001 Create Rust project structure (`cargo new obscura-server`)
 - [x] T002 Update `Cargo.toml` with dependencies (`tokio`, `axum`, `sqlx`, `serde`, `prost`, `tracing`, `argon2`)
-- [x] T003 [P] Create `build.rs` to compile `specs/001-signal-server/contracts/obscura.proto`
+- [x] T003 [P] Create `build.rs` to compile `proto/obscura.proto`
 - [x] T004 [P] Configure `clippy` and `rustfmt` in `rust-toolchain.toml` or `.rustfmt.toml`
 - [x] T005 Create `.env.example` with `DATABASE_URL` and `JWT_SECRET` variables
 

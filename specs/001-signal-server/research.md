@@ -43,7 +43,7 @@
   - **Performance**: Smaller payload size and faster serialization/deserialization compared to JSON.
   - **Consistency**: Aligns with the overall architectural choice to use structured binary formats for the secure messaging layer.
 - **Protocol Draft**:
-  - **Schema**: Defined in `contracts/obscura.proto`.
+  - **Schema**: Defined in `obscura.proto`.
   - **Frame**: `WebSocketFrame` message containing `oneof` payload (Envelope, Ack, Heartbeat, Error).
 
 ### 5. WebSocket Authentication: Query Parameter

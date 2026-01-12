@@ -60,7 +60,6 @@ specs/001-signal-server/
 ├── data-model.md        # Phase 1 output
 ├── quickstart.md        # Phase 1 output
 ├── contracts/           # Phase 1 output
-│   ├── obscura.proto
 │   └── openapi.yaml
 └── tasks.md             # Phase 2 output
 ```
@@ -68,23 +67,26 @@ specs/001-signal-server/
 ### Source Code (repository root)
 
 ```text
-src/
-├── main.rs              # Entry point
-├── config.rs            # Configuration loader
-├── error.rs             # Global error types
-├── api/                 # HTTP & WebSocket handlers
-│   ├── mod.rs
-│   ├── auth.rs
-│   ├── keys.rs
-│   └── messages.rs
-├── core/                # Business logic & Domain types
-│   ├── mod.rs
-│   ├── user.rs
-│   └── crypto.rs
-└── storage/             # Database layer
-    ├── mod.rs
-    ├── postgres.rs
-    └── migrations/
+/
+├── proto/               # Protobuf definitions
+│   └── obscura.proto
+├── migrations/          # SQL migrations
+├── src/
+│   ├── main.rs          # Entry point
+│   ├── config.rs        # Configuration loader
+│   ├── error.rs         # Global error types
+│   ├── api/             # HTTP & WebSocket handlers
+│   │   ├── mod.rs
+│   │   ├── auth.rs
+│   │   ├── keys.rs
+│   │   └── messages.rs
+│   ├── core/            # Business logic & Domain types
+│   │   ├── mod.rs
+│   │   ├── user.rs
+│   │   └── crypto.rs
+│   └── storage/         # Database layer
+│       ├── mod.rs
+│       └── postgres.rs
 ```
 
 **Structure Decision**: Standard Rust binary structure with modular separation of concerns (API, Core, Storage).
