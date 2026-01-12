@@ -2,6 +2,14 @@
 name = "obscura-server"
 version = "0.1.0"
 edition = "2024"
+description = "A server for relaying secure messages using the Signal Protocol"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/barrelmaker97/obscura-server"
+keywords = ["messaging", "photo", "encrypted", "secure", "signal"]
+authors = ["Nolan Cooper <nolancooper97@gmail.com>"]
+
+[profile.release]
+strip = "symbols"
 
 [dependencies]
 anyhow = "1.0.100"
