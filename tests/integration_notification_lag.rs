@@ -1,5 +1,5 @@
 use tokio::net::TcpListener;
-use obscura_server::{api::app_router, config::Config, core::notification::InMemoryNotifier};
+use obscura_server::{api::app_router, core::notification::InMemoryNotifier};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use futures::StreamExt;
 use serde_json::json;
@@ -13,18 +13,12 @@ use std::time::Duration;
 mod common;
 
 #[tokio::test]
-async fn test_notification_lag_recovery() {
+async fn test_slow_consumer_notification_drop() {
+    // 1. Setup Server
     let pool = common::get_test_pool().await;
-
-    // Config with higher rate limits so we don't get 429s during the flood
-    let config = Config {
-        database_url: "".to_string(),
-        jwt_secret: "test_secret".to_string(),
-        rate_limit_per_second: 100,
-        rate_limit_burst: 100,
-    };
-    let notifier = Arc::new(InMemoryNotifier::new());
-    let app = app_router(pool, config, notifier);
+    let config = common::get_test_config();
+    let notifier = Arc::new(InMemoryNotifier::new(config.clone()));
+    let app = app_router(pool, config.clone(), notifier);
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();

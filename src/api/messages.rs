@@ -23,7 +23,7 @@ pub async fn send_message(
     let _ = OutgoingMessage::decode(body.clone())
         .map_err(|_| AppError::BadRequest("Invalid protobuf".into()))?;
 
-    let service = MessageService::new(MessageRepository::new(state.pool));
+    let service = MessageService::new(MessageRepository::new(state.pool), state.config.clone());
 
     // Store raw body (OutgoingMessage serialized)
     service.enqueue_message(auth_user.user_id, destination_device_id, body.to_vec()).await?;

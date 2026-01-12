@@ -55,7 +55,7 @@ pub async fn upload_keys(
         otpk_vec.push((k.key_id, pub_key));
     }
     // Pass generic executor (tx implements Deref<Target=PgConnection>)
-    key_repo.insert_one_time_pre_keys(&mut *tx, auth_user.user_id, &otpk_vec).await?;
+    key_repo.insert_one_time_pre_keys(&mut tx, auth_user.user_id, &otpk_vec).await?;
 
     tx.commit().await?;
 

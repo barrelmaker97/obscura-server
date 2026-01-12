@@ -105,7 +105,7 @@ pub async fn register(
         otpk_vec.push((k.key_id, pub_key));
     }
     // Note: insert_one_time_pre_keys takes &mut PgConnection
-    key_repo.insert_one_time_pre_keys(&mut *tx, user.id, &otpk_vec).await?;
+    key_repo.insert_one_time_pre_keys(&mut tx, user.id, &otpk_vec).await?;
 
     // 5. Commit Transaction
     tx.commit().await?;

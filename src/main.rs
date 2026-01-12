@@ -24,16 +24,18 @@ async fn main() -> anyhow::Result<()> {
 
     // Start background tasks
     let message_service = obscura_server::core::message_service::MessageService::new(
-        obscura_server::storage::message_repo::MessageRepository::new(pool.clone())
+        obscura_server::storage::message_repo::MessageRepository::new(pool.clone()),
+        config.clone()
     );
     tokio::spawn(async move {
         message_service.run_cleanup_loop().await;
     });
 
-    let notifier = Arc::new(InMemoryNotifier::new());
-    let app = api::app_router(pool, config, notifier);
+    let notifier = Arc::new(InMemoryNotifier::new(config.clone()));
+    let app = api::app_router(pool, config.clone(), notifier);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    let addr_str = format!("{}:{}", config.server_host, config.server_port);
+    let addr: SocketAddr = addr_str.parse().expect("Invalid address format");
     tracing::info!("listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;

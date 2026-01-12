@@ -1,5 +1,5 @@
 use tokio::net::TcpListener;
-use obscura_server::{api::app_router, config::Config, core::notification::InMemoryNotifier, storage::message_repo::MessageRepository};
+use obscura_server::{api::app_router, core::notification::InMemoryNotifier, storage::message_repo::MessageRepository};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use futures::StreamExt;
 use serde_json::json;
@@ -14,19 +14,13 @@ mod common;
 #[tokio::test]
 async fn test_message_limit_fifo() {
     let pool = common::get_test_pool().await;
-
-    let config = Config {
-        database_url: "".to_string(),
-        jwt_secret: "test_secret".to_string(),
-        rate_limit_per_second: 2000,
-        rate_limit_burst: 2000,
-    };
+    let config = common::get_test_config();
 
     // Clear messages table to ensure clean state for this test if reuse happens
     sqlx::query("DELETE FROM messages").execute(&pool).await.unwrap();
 
-    let notifier = Arc::new(InMemoryNotifier::new());
-    let app = app_router(pool.clone(), config, notifier);
+    let notifier = Arc::new(InMemoryNotifier::new(config.clone()));
+    let app = app_router(pool.clone(), config.clone(), notifier);
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -147,15 +141,12 @@ async fn test_rate_limiting() {
     use tower::ServiceExt;
 
     let pool = common::get_test_pool().await;
+    let mut config = common::get_test_config();
+    config.rate_limit_per_second = 1;
+    config.rate_limit_burst = 1;
 
-    let config = Config {
-        database_url: "".to_string(),
-        jwt_secret: "test_secret".to_string(),
-        rate_limit_per_second: 1, // 1 request per second
-        rate_limit_burst: 1,      // Max burst 1
-    };
-    let notifier = Arc::new(InMemoryNotifier::new());
-    let app = app_router(pool, config, notifier);
+    let notifier = Arc::new(InMemoryNotifier::new(config.clone()));
+    let app = app_router(pool, config.clone(), notifier);
 
     // 2. First Request - Should Pass (or at least not be Rate Limited)
     // We hit a non-existent endpoint or just check auth failure, doesn't matter.

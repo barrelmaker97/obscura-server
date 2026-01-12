@@ -1,5 +1,5 @@
 use tokio::net::TcpListener;
-use obscura_server::{api::app_router, config::Config, core::notification::InMemoryNotifier};
+use obscura_server::{api::app_router, core::notification::InMemoryNotifier};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use futures::{StreamExt, SinkExt};
 use serde_json::json;
@@ -13,16 +13,11 @@ mod common;
 
 #[tokio::test]
 async fn test_messaging_flow() {
+    // 1. Setup Server
     let pool = common::get_test_pool().await;
-
-    let config = Config {
-        database_url: "".to_string(),
-        jwt_secret: "test_secret".to_string(),
-        rate_limit_per_second: 5,
-        rate_limit_burst: 10,
-    };
-    let notifier = Arc::new(InMemoryNotifier::new());
-    let app = app_router(pool, config, notifier);
+    let config = common::get_test_config();
+    let notifier = Arc::new(InMemoryNotifier::new(config.clone()));
+    let app = app_router(pool, config.clone(), notifier);
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -143,16 +138,11 @@ async fn test_messaging_flow() {
 
 #[tokio::test]
 async fn test_websocket_auth_failure() {
+    // 1. Setup Server
     let pool = common::get_test_pool().await;
-
-    let config = Config {
-        database_url: "".to_string(),
-        jwt_secret: "test_secret".to_string(),
-        rate_limit_per_second: 5,
-        rate_limit_burst: 10,
-    };
-    let notifier = Arc::new(InMemoryNotifier::new());
-    let app = app_router(pool, config, notifier);
+    let config = common::get_test_config();
+    let notifier = Arc::new(InMemoryNotifier::new(config.clone()));
+    let app = app_router(pool, config.clone(), notifier);
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
