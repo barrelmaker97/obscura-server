@@ -1,60 +1,56 @@
-use std::env;
+use clap::Parser;
 use dotenvy::dotenv;
 
-#[derive(Clone, Debug)]
+const DEFAULT_RATE_LIMIT_PER_SECOND: u32 = 5;
+const DEFAULT_RATE_LIMIT_BURST: u32 = 10;
+const DEFAULT_SERVER_HOST: &str = "0.0.0.0";
+const DEFAULT_SERVER_PORT: u16 = 3000;
+const DEFAULT_MESSAGE_TTL_DAYS: i64 = 30;
+const DEFAULT_MAX_INBOX_SIZE: i64 = 1000;
+const DEFAULT_MESSAGE_CLEANUP_INTERVAL_SECS: u64 = 300;
+const DEFAULT_NOTIFICATION_GC_INTERVAL_SECS: u64 = 60;
+const DEFAULT_NOTIFICATION_CHANNEL_CAPACITY: usize = 16;
+
+#[derive(Clone, Debug, Parser)]
+#[command(version, about, long_about = None)]
 pub struct Config {
+    #[arg(long, env)]
     pub database_url: String,
+
+    #[arg(long, env)]
     pub jwt_secret: String,
+
+    #[arg(long, env, default_value_t = DEFAULT_RATE_LIMIT_PER_SECOND)]
     pub rate_limit_per_second: u32,
+
+    #[arg(long, env, default_value_t = DEFAULT_RATE_LIMIT_BURST)]
     pub rate_limit_burst: u32,
+
+    #[arg(long, env, default_value = DEFAULT_SERVER_HOST)]
     pub server_host: String,
+
+    #[arg(long, env = "PORT", default_value_t = DEFAULT_SERVER_PORT)]
     pub server_port: u16,
+
+    #[arg(long, env, default_value_t = DEFAULT_MESSAGE_TTL_DAYS)]
     pub message_ttl_days: i64,
+
+    #[arg(long, env, default_value_t = DEFAULT_MAX_INBOX_SIZE)]
     pub max_inbox_size: i64,
+
+    #[arg(long, env, default_value_t = DEFAULT_MESSAGE_CLEANUP_INTERVAL_SECS)]
     pub message_cleanup_interval_secs: u64,
+
+    #[arg(long, env, default_value_t = DEFAULT_NOTIFICATION_GC_INTERVAL_SECS)]
     pub notification_gc_interval_secs: u64,
+
+    #[arg(long, env, default_value_t = DEFAULT_NOTIFICATION_CHANNEL_CAPACITY)]
     pub notification_channel_capacity: usize,
 }
 
 impl Config {
-    pub fn from_env() -> Result<Self, env::VarError> {
+    pub fn load() -> Self {
         dotenv().ok();
-        Ok(Self {
-            database_url: env::var("DATABASE_URL")?,
-            jwt_secret: env::var("JWT_SECRET")?,
-            rate_limit_per_second: env::var("RATE_LIMIT_PER_SECOND")
-                .unwrap_or_else(|_| "5".to_string())
-                .parse()
-                .unwrap_or(5),
-            rate_limit_burst: env::var("RATE_LIMIT_BURST")
-                .unwrap_or_else(|_| "10".to_string())
-                .parse()
-                .unwrap_or(10),
-            server_host: env::var("SERVER_HOST").unwrap_or_else(|_| "0.0.0.0".to_string()),
-            server_port: env::var("PORT")
-                .unwrap_or_else(|_| "3000".to_string())
-                .parse()
-                .unwrap_or(3000),
-            message_ttl_days: env::var("MESSAGE_TTL_DAYS")
-                .unwrap_or_else(|_| "30".to_string())
-                .parse()
-                .unwrap_or(30),
-            max_inbox_size: env::var("MAX_INBOX_SIZE")
-                .unwrap_or_else(|_| "1000".to_string())
-                .parse()
-                .unwrap_or(1000),
-            message_cleanup_interval_secs: env::var("MESSAGE_CLEANUP_INTERVAL_SECS")
-                .unwrap_or_else(|_| "300".to_string())
-                .parse()
-                .unwrap_or(300),
-            notification_gc_interval_secs: env::var("NOTIFICATION_GC_INTERVAL_SECS")
-                .unwrap_or_else(|_| "60".to_string())
-                .parse()
-                .unwrap_or(60),
-            notification_channel_capacity: env::var("NOTIFICATION_CHANNEL_CAPACITY")
-                .unwrap_or_else(|_| "16".to_string())
-                .parse()
-                .unwrap_or(16),
-        })
+        Self::parse()
     }
 }

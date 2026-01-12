@@ -12,7 +12,7 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let config = Config::from_env()?;
+    let config = Config::load();
 
     // Initialize pool
     let pool = storage::init_pool(&config.database_url).await?;
