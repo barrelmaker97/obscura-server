@@ -11,7 +11,6 @@ axum = { version = "0.8.8", features = ["ws"] }
 base64 = "0.22.1"
 dashmap = "6.1.0"
 dotenvy = "0.15.7"
-futures = "0.3.31"
 jsonwebtoken = { version = "10.2.0", features = ["rust_crypto"] }
 prost = "0.14.1"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -20,7 +19,6 @@ sqlx = { version = "0.8.6", features = ["postgres", "runtime-tokio-rustls", "mac
 thiserror = "2.0.17"
 time = { version = "0.3.44", features = ["serde"] }
 tokio = { version = "1.49.0", features = ["full"] }
-tower = "0.5.2"
 tower_governor = "0.8.0"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
@@ -30,6 +28,7 @@ uuid = { version = "1.19.0", features = ["v4", "serde"] }
 prost-build = "0.14.1"
 
 [dev-dependencies]
+futures = "0.3.31"
 reqwest = { version = "0.13.1", features = ["json"] }
 tokio-tungstenite = "0.28.0"
 tower = "0.5.2"

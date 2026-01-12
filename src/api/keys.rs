@@ -39,19 +39,25 @@ pub async fn upload_keys(
     State(state): State<AppState>,
     Json(payload): Json<PreKeyUpload>,
 ) -> Result<impl IntoResponse> {
-    let key_repo = KeyRepository::new(state.pool);
+    let key_repo = KeyRepository::new(state.pool.clone());
 
     let spk_pub = STANDARD.decode(&payload.signed_pre_key.public_key).map_err(|_| AppError::BadRequest("Invalid base64 signedPreKey public key".into()))?;
     let spk_sig = STANDARD.decode(&payload.signed_pre_key.signature).map_err(|_| AppError::BadRequest("Invalid base64 signedPreKey signature".into()))?;
 
-    key_repo.upsert_signed_pre_key(auth_user.user_id, payload.signed_pre_key.key_id, &spk_pub, &spk_sig).await?;
+    // Start transaction for atomic update
+    let mut tx = state.pool.begin().await?;
+
+    key_repo.upsert_signed_pre_key(&mut *tx, auth_user.user_id, payload.signed_pre_key.key_id, &spk_pub, &spk_sig).await?;
 
     let mut otpk_vec = Vec::new();
     for k in payload.one_time_pre_keys {
         let pub_key = STANDARD.decode(&k.public_key).map_err(|_| AppError::BadRequest("Invalid base64 oneTimePreKey".into()))?;
         otpk_vec.push((k.key_id, pub_key));
     }
-    key_repo.insert_one_time_pre_keys(auth_user.user_id, &otpk_vec).await?;
+    // Pass generic executor (tx implements Deref<Target=PgConnection>)
+    key_repo.insert_one_time_pre_keys(&mut *tx, auth_user.user_id, &otpk_vec).await?;
+
+    tx.commit().await?;
 
     Ok(StatusCode::OK)
 }

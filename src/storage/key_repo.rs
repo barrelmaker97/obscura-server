@@ -1,5 +1,5 @@
 use crate::error::Result;
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Row, Postgres, Executor, postgres::PgConnection};
 use uuid::Uuid;
 use crate::core::user::{PreKeyBundle, SignedPreKey, OneTimePreKey};
 
@@ -13,7 +13,10 @@ impl KeyRepository {
         Self { pool }
     }
 
-    pub async fn upsert_identity_key(&self, user_id: Uuid, identity_key: &[u8], registration_id: i32) -> Result<()> {
+    pub async fn upsert_identity_key<'e, E>(&self, executor: E, user_id: Uuid, identity_key: &[u8], registration_id: i32) -> Result<()>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
         sqlx::query(
             r#"
             INSERT INTO identity_keys (user_id, identity_key, registration_id)
@@ -25,12 +28,15 @@ impl KeyRepository {
         .bind(user_id)
         .bind(identity_key)
         .bind(registration_id)
-        .execute(&self.pool)
+        .execute(executor)
         .await?;
         Ok(())
     }
 
-    pub async fn upsert_signed_pre_key(&self, user_id: Uuid, key_id: i32, public_key: &[u8], signature: &[u8]) -> Result<()> {
+    pub async fn upsert_signed_pre_key<'e, E>(&self, executor: E, user_id: Uuid, key_id: i32, public_key: &[u8], signature: &[u8]) -> Result<()>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
         sqlx::query(
             r#"
             INSERT INTO signed_pre_keys (id, user_id, public_key, signature)
@@ -43,13 +49,13 @@ impl KeyRepository {
         .bind(key_id)
         .bind(public_key)
         .bind(signature)
-        .execute(&self.pool)
+        .execute(executor)
         .await?;
         Ok(())
     }
 
-    pub async fn insert_one_time_pre_keys(&self, user_id: Uuid, keys: &[(i32, Vec<u8>)]) -> Result<()> {
-        let mut tx = self.pool.begin().await?;
+    pub async fn insert_one_time_pre_keys(&self, executor: &mut PgConnection, user_id: Uuid, keys: &[(i32, Vec<u8>)]) -> Result<()>
+    {
         for (id, key) in keys {
             sqlx::query(
                 r#"
@@ -61,10 +67,9 @@ impl KeyRepository {
             .bind(user_id)
             .bind(*id)
             .bind(key)
-            .execute(&mut *tx)
+            .execute(&mut *executor)
             .await?;
         }
-        tx.commit().await?;
         Ok(())
     }
 
