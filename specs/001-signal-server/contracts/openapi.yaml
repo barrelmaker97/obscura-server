@@ -1,0 +1,207 @@
+openapi: 3.0.3
+info:
+  title: Obscura Hybrid Relay API
+  description: |
+    A privacy-first messaging relay.
+    - **Control Plane (REST):** Registration, Key Management, Sending.
+    - **Data Plane (WebSocket):** Real-time message delivery and acknowledgement.
+    - **Protocol:** Protocol Buffers (application/x-protobuf) are used for message bodies to minimize metadata leakage and binary bloat.
+  version: 0.2.1
+paths:
+  # --- Account & Identity ---
+  /v1/accounts:
+    post:
+      summary: Register a new user device.
+      tags: [Account]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistrationRequest'
+      responses:
+        '201':
+          description: Account created.
+
+  /v1/sessions:
+    post:
+      summary: Login and retrieve a session token.
+      tags: [Account]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Authenticated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+
+  # --- Keys (X3DH) ---
+  /v1/keys:
+    put:
+      summary: Publish PreKeys.
+      description: Upload Signed PreKeys and One-Time PreKeys for X3DH asynchronous encryption.
+      tags: [Keys]
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreKeyUpload'
+      responses:
+        '200':
+          description: Keys updated.
+
+  /v1/keys/{userId}:
+    get:
+      summary: Fetch PreKey Bundle.
+      description: |
+        Returns active PreKey bundle for the target user.
+        Server atomically consumes one One-Time PreKey (if available).
+      tags: [Keys]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: PreKey Bundle.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreKeyBundle'
+
+  # --- Messaging (REST Upstream) ---
+  /v1/messages/{destinationDeviceId}:
+    post:
+      summary: Send an encrypted message (Push).
+      description: |
+        Pushes an encrypted envelope to the target device's queue.
+        **Payload:** `OutgoingMessage` (Protobuf).
+        The recipient will receive this via WebSocket.
+      tags: [Messaging]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: destinationDeviceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/x-protobuf:
+            schema:
+              type: string
+              format: binary
+              description: Serialized `OutgoingMessage` protobuf.
+      responses:
+        '201':
+          description: Message queued.
+
+  # --- WebSocket Gateway (Documentation Only) ---
+  /v1/gateway:
+    get:
+      summary: Connect to the Message Stream.
+      description: |
+        **WebSocket Endpoint.**
+        Clients must connect here to receive messages.
+        - **Protocol:** `WebSocketFrame` (Protobuf).
+        - **Auth:** Pass the JWT in the query string: `ws://.../v1/gateway?token=<jwt>`.
+        - **Flow:** Server pushes `IncomingEnvelope`. Client responds with `AckMessage`. Server deletes message.
+      tags: [Messaging]
+      responses:
+        '101':
+          description: Switching Protocols.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    RegistrationRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        identityKey:
+          type: string
+          format: byte
+          description: Base64 encoded public identity key.
+        registrationId:
+          type: integer
+        signedPreKey:
+          $ref: '#/components/schemas/SignedPreKey'
+        oneTimePreKeys:
+          type: array
+          items:
+            $ref: '#/components/schemas/OneTimePreKey'
+
+    PreKeyUpload:
+      type: object
+      properties:
+        signedPreKey:
+          $ref: '#/components/schemas/SignedPreKey'
+        oneTimePreKeys:
+          type: array
+          items:
+            $ref: '#/components/schemas/OneTimePreKey'
+
+    PreKeyBundle:
+      type: object
+      properties:
+        deviceId:
+          type: string
+          format: uuid
+        registrationId:
+          type: integer
+        identityKey:
+          type: string
+          format: byte
+        signedPreKey:
+          $ref: '#/components/schemas/SignedPreKey'
+        oneTimePreKey:
+          $ref: '#/components/schemas/OneTimePreKey'
+          nullable: true
+
+    SignedPreKey:
+      type: object
+      properties:
+        keyId:
+          type: integer
+        publicKey:
+          type: string
+          format: byte
+        signature:
+          type: string
+          format: byte
+
+    OneTimePreKey:
+      type: object
+      properties:
+        keyId:
+          type: integer
+        publicKey:
+          type: string
+          format: byte

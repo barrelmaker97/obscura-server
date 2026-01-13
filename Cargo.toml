@@ -1,0 +1,42 @@
+[package]
+name = "obscura-server"
+version = "0.1.0"
+edition = "2024"
+description = "A server for relaying secure messages using the Signal Protocol"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/barrelmaker97/obscura-server"
+keywords = ["messaging", "photo", "encrypted", "secure", "signal"]
+authors = ["Nolan Cooper <nolancooper97@gmail.com>"]
+
+[profile.release]
+strip = "symbols"
+
+[dependencies]
+anyhow = "1.0.100"
+argon2 = "0.5.3"
+async-trait = "0.1.89"
+axum = { version = "0.8.8", features = ["ws"] }
+base64 = "0.22.1"
+clap = { version = "4.5.54", features = ["derive", "env"] }
+dashmap = "6.1.0"
+jsonwebtoken = { version = "10.2.0", features = ["rust_crypto"] }
+prost = "0.14.1"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+sqlx = { version = "0.8.6", features = ["postgres", "runtime-tokio-rustls", "macros", "migrate", "uuid", "time"] }
+thiserror = "2.0.17"
+time = { version = "0.3.44", features = ["serde"] }
+tokio = { version = "1.49.0", features = ["full"] }
+tower_governor = "0.8.0"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+uuid = { version = "1.19.0", features = ["v4", "serde"] }
+
+[build-dependencies]
+prost-build = "0.14.1"
+
+[dev-dependencies]
+futures = "0.3.31"
+reqwest = { version = "0.13.1", features = ["json"] }
+tokio-tungstenite = "0.28.0"
+tower = "0.5.2"
