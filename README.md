@@ -1,12 +1,12 @@
 # Obscura Server
-**Obscura Server** is a minimalist, secure relay server for the Signal Protocol. It facilitates end-to-end encrypted asynchronous messaging while knowing nothing about the content of the messages (Zero-Knowledge).
+**Obscura Server** is a minimalist, secure relay server for the Signal Protocol. It facilitates end-to-end encrypted asynchronous messaging while knowing nothing about the content of the messages.
 
 ## Features
 
 - **Zero-Knowledge Architecture**: The server stores opaque encrypted blobs. It cannot read message content.
-- **Signal Protocol Support**: Native support for PreKeys (Identity, Signed, One-Time) to enable X3DH key exchanges.
+- **Signal Protocol Support**: Uses PreKeys (Identity, Signed, One-Time) to enable X3DH key exchanges.
 - **Asynchronous Delivery**: Stores encrypted messages until the recipient comes online to fetch them.
-- **Strict Privacy Limits**: Automatic garbage collection of old messages (TTL) and global inbox limits to prevent metadata buildup.
+- **Strict Privacy Limits**: Automatic garbage collection of old messages and global inbox limits to prevent metadata buildup.
 - **Container Native**: Built with Docker in mind for easy deployment.
 - **Configurable**: Fully configurable via command-line flags or environment variables.
 
@@ -104,7 +104,7 @@ cargo test
 
 # License
 
-Copyright (c) 2025 Nolan Cooper
+Copyright (c) 2026 Nolan Cooper
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
