@@ -10,8 +10,6 @@ use thiserror::Error;
 pub enum AppError {
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
-    #[error("Configuration error: {0}")]
-    Config(#[from] std::env::VarError),
     #[error("Authentication failed")]
     AuthError,
     #[error("Not found")]
@@ -30,10 +28,6 @@ impl IntoResponse for AppError {
             AppError::Database(e) => {
                 tracing::error!("Database error: {:?}", e);
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
-            }
-            AppError::Config(e) => {
-                tracing::error!("Config error: {:?}", e);
-                (StatusCode::INTERNAL_SERVER_ERROR, "Configuration error".to_string())
             }
             AppError::AuthError => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
             AppError::NotFound => (StatusCode::NOT_FOUND, "Not found".to_string()),

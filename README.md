@@ -11,7 +11,12 @@ Signal Protocol Relay Server.
 ## Setup
 
 1. `docker compose up -d` (Starts PostgreSQL)
-2. Copy `.env.example` to `.env` and configure `DATABASE_URL` and `JWT_SECRET`.
+2. Configure environment variables:
+   ```bash
+   export DATABASE_URL=postgres://user:password@localhost/signal_server
+   export JWT_SECRET=your_secret_key
+   ```
+   (Or pass them directly when running)
 3. `cargo run` (Migrations are applied automatically).
 
 ## Testing

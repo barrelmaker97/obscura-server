@@ -23,7 +23,11 @@
    ```
 
 3. **Environment**:
-   Copy `.env.example` to `.env`:
+   Set the required environment variables:
+   ```bash
+   export DATABASE_URL=postgres://user:password@localhost/signal_server
+   export JWT_SECRET=test_secret
+   ```
    ```bash
    DATABASE_URL=postgres://user:password@localhost/signal_server
    JWT_SECRET=your_secret_key_change_me

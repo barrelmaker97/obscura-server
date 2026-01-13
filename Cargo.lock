@@ -1593,7 +1593,6 @@ dependencies = [
  "base64",
  "clap",
  "dashmap",
- "dotenvy",
  "futures",
  "jsonwebtoken",
  "prost",

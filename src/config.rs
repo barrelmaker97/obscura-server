@@ -1,5 +1,4 @@
 use clap::Parser;
-use dotenvy::dotenv;
 
 const DEFAULT_RATE_LIMIT_PER_SECOND: u32 = 5;
 const DEFAULT_RATE_LIMIT_BURST: u32 = 10;
@@ -50,7 +49,6 @@ pub struct Config {
 
 impl Config {
     pub fn load() -> Self {
-        dotenv().ok();
         Self::parse()
     }
 }
