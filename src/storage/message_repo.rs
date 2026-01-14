@@ -89,10 +89,13 @@ impl MessageRepository {
         Ok(result.rows_affected())
     }
 
-    pub async fn delete_all_for_user(&self, user_id: Uuid) -> Result<u64> {
+    pub async fn delete_all_for_user<'e, E>(&self, executor: E, user_id: Uuid) -> Result<u64>
+    where
+        E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+    {
         let result = sqlx::query("DELETE FROM messages WHERE recipient_id = $1")
             .bind(user_id)
-            .execute(&self.pool)
+            .execute(executor)
             .await?;
         Ok(result.rows_affected())
     }

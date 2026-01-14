@@ -4,6 +4,7 @@ use crate::api::middleware::AuthUser;
 use crate::core::notification::UserEvent;
 use crate::error::{AppError, Result};
 use crate::storage::key_repo::KeyRepository;
+use crate::storage::message_repo::MessageRepository;
 use axum::{
     Json,
     extract::{Path, State},
@@ -88,9 +89,9 @@ pub async fn upload_keys(
                 .await?;
 
             // 2. Delete pending messages
-            sqlx::query("DELETE FROM messages WHERE recipient_id = $1")
-                .bind(auth_user.user_id)
-                .execute(&mut *tx)
+            let message_repo = MessageRepository::new(state.pool.clone());
+            message_repo
+                .delete_all_for_user(&mut *tx, auth_user.user_id)
                 .await?;
 
             // 3. Update Identity Key
