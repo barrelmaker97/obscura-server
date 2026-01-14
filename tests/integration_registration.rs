@@ -2,13 +2,13 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use tower::ServiceExt;
-use std::sync::Arc;
-use uuid::Uuid;
-use serde_json::json;
 use base64::Engine;
 use obscura_server::api::app_router;
 use obscura_server::core::notification::InMemoryNotifier;
+use serde_json::json;
+use std::sync::Arc;
+use tower::ServiceExt;
+use uuid::Uuid;
 mod common;
 
 #[tokio::test]

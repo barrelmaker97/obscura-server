@@ -1,14 +1,12 @@
+use obscura_server::{api, config::Config, core::notification::InMemoryNotifier, storage};
 use std::net::SocketAddr;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use obscura_server::{config::Config, storage, api, core::notification::InMemoryNotifier};
 use std::sync::Arc;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "debug".into()),
-        ))
+        .with(tracing_subscriber::EnvFilter::new(std::env::var("RUST_LOG").unwrap_or_else(|_| "debug".into())))
         .with(tracing_subscriber::fmt::layer())
         .init();
 
@@ -25,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
     // Start background tasks
     let message_service = obscura_server::core::message_service::MessageService::new(
         obscura_server::storage::message_repo::MessageRepository::new(pool.clone()),
-        config.clone()
+        config.clone(),
     );
     tokio::spawn(async move {
         message_service.run_cleanup_loop().await;

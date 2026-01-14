@@ -1,13 +1,13 @@
-use tokio::net::TcpListener;
-use obscura_server::{api::app_router, core::notification::InMemoryNotifier};
-use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
-use futures::{StreamExt, SinkExt};
-use serde_json::json;
-use uuid::Uuid;
-use obscura_server::proto::obscura::v1::{WebSocketFrame, OutgoingMessage, AckMessage, web_socket_frame::Payload};
-use prost::Message as ProstMessage;
 use base64::Engine;
+use futures::{SinkExt, StreamExt};
+use obscura_server::proto::obscura::v1::{AckMessage, OutgoingMessage, WebSocketFrame, web_socket_frame::Payload};
+use obscura_server::{api::app_router, core::notification::InMemoryNotifier};
+use prost::Message as ProstMessage;
+use serde_json::json;
 use std::sync::Arc;
+use tokio::net::TcpListener;
+use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
+use uuid::Uuid;
 
 mod common;
 
@@ -46,11 +46,7 @@ async fn test_messaging_flow() {
         "oneTimePreKeys": []
     });
 
-    let resp_a = client.post(format!("{}/v1/accounts", server_url))
-        .json(&reg_a)
-        .send()
-        .await
-        .unwrap();
+    let resp_a = client.post(format!("{}/v1/accounts", server_url)).json(&reg_a).send().await.unwrap();
     assert_eq!(resp_a.status(), 201);
     let token_a = resp_a.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
 
@@ -69,11 +65,7 @@ async fn test_messaging_flow() {
         "oneTimePreKeys": []
     });
 
-    let resp_b = client.post(format!("{}/v1/accounts", server_url))
-        .json(&reg_b)
-        .send()
-        .await
-        .unwrap();
+    let resp_b = client.post(format!("{}/v1/accounts", server_url)).json(&reg_b).send().await.unwrap();
     assert_eq!(resp_b.status(), 201);
 
     let token_b = resp_b.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
@@ -81,15 +73,12 @@ async fn test_messaging_flow() {
     let user_b_id = claims_b["sub"].as_str().unwrap();
 
     // 4. Send Message from A to B
-    let outgoing = OutgoingMessage {
-        r#type: 1,
-        content: b"Hello World".to_vec(),
-        timestamp: 123456789,
-    };
+    let outgoing = OutgoingMessage { r#type: 1, content: b"Hello World".to_vec(), timestamp: 123456789 };
     let mut buf = Vec::new();
     outgoing.encode(&mut buf).unwrap();
 
-    let resp_msg = client.post(format!("{}/v1/messages/{}", server_url, user_b_id))
+    let resp_msg = client
+        .post(format!("{}/v1/messages/{}", server_url, user_b_id))
         .header("Authorization", format!("Bearer {}", token_a))
         .header("Content-Type", "application/octet-stream")
         .body(buf)
@@ -100,9 +89,8 @@ async fn test_messaging_flow() {
     assert_eq!(resp_msg.status(), 201);
 
     // 5. Connect User B via WebSocket and Receive
-    let (mut ws_stream, _) = connect_async(format!("{}?token={}", ws_url, token_b))
-        .await
-        .expect("Failed to connect WS");
+    let (mut ws_stream, _) =
+        connect_async(format!("{}?token={}", ws_url, token_b)).await.expect("Failed to connect WS");
 
     // We expect the message immediately
     if let Some(msg) = ws_stream.next().await {
@@ -114,13 +102,8 @@ async fn test_messaging_flow() {
                 assert_eq!(env.content, b"Hello World");
 
                 // Send ACK
-                let ack = AckMessage {
-                    message_id: env.id.clone(),
-                };
-                let ack_frame = WebSocketFrame {
-                    request_id: 0,
-                    payload: Some(Payload::Ack(ack)),
-                };
+                let ack = AckMessage { message_id: env.id.clone() };
+                let ack_frame = WebSocketFrame { request_id: 0, payload: Some(Payload::Ack(ack)) };
                 let mut ack_buf = Vec::new();
                 ack_frame.encode(&mut ack_buf).unwrap();
 

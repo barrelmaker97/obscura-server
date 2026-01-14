@@ -1,13 +1,13 @@
-use tokio::net::TcpListener;
-use obscura_server::{api::app_router, core::notification::InMemoryNotifier, storage::message_repo::MessageRepository};
-use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
-use futures::StreamExt;
-use serde_json::json;
-use uuid::Uuid;
-use obscura_server::proto::obscura::v1::{WebSocketFrame, OutgoingMessage, web_socket_frame::Payload};
-use prost::Message as ProstMessage;
 use base64::Engine;
+use futures::StreamExt;
+use obscura_server::proto::obscura::v1::{OutgoingMessage, WebSocketFrame, web_socket_frame::Payload};
+use obscura_server::{api::app_router, core::notification::InMemoryNotifier, storage::message_repo::MessageRepository};
+use prost::Message as ProstMessage;
+use serde_json::json;
 use std::sync::Arc;
+use tokio::net::TcpListener;
+use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
+use uuid::Uuid;
 
 mod common;
 
@@ -49,11 +49,7 @@ async fn test_message_limit_fifo() {
         "oneTimePreKeys": []
     });
 
-    let resp_a = client.post(format!("{}/v1/accounts", server_url))
-        .json(&reg_a)
-        .send()
-        .await
-        .unwrap();
+    let resp_a = client.post(format!("{}/v1/accounts", server_url)).json(&reg_a).send().await.unwrap();
     let token_a = resp_a.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
 
     // 3. Register User B (Recipient)
@@ -71,11 +67,7 @@ async fn test_message_limit_fifo() {
         "oneTimePreKeys": []
     });
 
-    let resp_b = client.post(format!("{}/v1/accounts", server_url))
-        .json(&reg_b)
-        .send()
-        .await
-        .unwrap();
+    let resp_b = client.post(format!("{}/v1/accounts", server_url)).json(&reg_b).send().await.unwrap();
 
     let token_b = resp_b.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
     let claims_b = decode_jwt_claims(&token_b);
@@ -86,15 +78,12 @@ async fn test_message_limit_fifo() {
     // Messages 0, 1, 2, 3, 4 should be gone. Message 5 should be the first one.
     for i in 0..1005 {
         let payload = format!("msg_{}", i).into_bytes();
-        let outgoing = OutgoingMessage {
-            r#type: 1,
-            content: payload,
-            timestamp: 123456789,
-        };
+        let outgoing = OutgoingMessage { r#type: 1, content: payload, timestamp: 123456789 };
         let mut buf = Vec::new();
         outgoing.encode(&mut buf).unwrap();
 
-        client.post(format!("{}/v1/messages/{}", server_url, user_b_id))
+        client
+            .post(format!("{}/v1/messages/{}", server_url, user_b_id))
             .header("Authorization", format!("Bearer {}", token_a))
             .header("Content-Type", "application/octet-stream")
             .body(buf)
@@ -109,9 +98,8 @@ async fn test_message_limit_fifo() {
     repo.delete_global_overflow(1000).await.expect("Failed to run cleanup");
 
     // 6. Connect User B and Verify
-    let (mut ws_stream, _) = connect_async(format!("{}?token={}", ws_url, token_b))
-        .await
-        .expect("Failed to connect WS");
+    let (mut ws_stream, _) =
+        connect_async(format!("{}?token={}", ws_url, token_b)).await.expect("Failed to connect WS");
 
     // Receive first message
     if let Some(msg) = ws_stream.next().await {
@@ -137,7 +125,10 @@ fn decode_jwt_claims(token: &str) -> serde_json::Value {
 
 #[tokio::test]
 async fn test_rate_limiting() {
-    use axum::{body::Body, http::{Request, StatusCode}};
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
     use tower::ServiceExt;
 
     let pool = common::get_test_pool().await;

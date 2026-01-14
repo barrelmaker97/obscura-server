@@ -1,14 +1,14 @@
-use tokio::net::TcpListener;
-use obscura_server::{api::app_router, core::notification::InMemoryNotifier};
-use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
-use futures::StreamExt;
-use serde_json::json;
-use uuid::Uuid;
-use obscura_server::proto::obscura::v1::{WebSocketFrame, OutgoingMessage, web_socket_frame::Payload};
-use prost::Message as ProstMessage;
 use base64::Engine;
+use futures::StreamExt;
+use obscura_server::proto::obscura::v1::{OutgoingMessage, WebSocketFrame, web_socket_frame::Payload};
+use obscura_server::{api::app_router, core::notification::InMemoryNotifier};
+use prost::Message as ProstMessage;
+use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::net::TcpListener;
+use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
+use uuid::Uuid;
 
 mod common;
 
@@ -47,11 +47,7 @@ async fn test_slow_consumer_notification_drop() {
         "oneTimePreKeys": []
     });
 
-    let resp_a = client.post(format!("{}/v1/accounts", server_url))
-        .json(&reg_a)
-        .send()
-        .await
-        .unwrap();
+    let resp_a = client.post(format!("{}/v1/accounts", server_url)).json(&reg_a).send().await.unwrap();
     let token_a = resp_a.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
 
     // 2. Register User B (Receiver)
@@ -69,19 +65,14 @@ async fn test_slow_consumer_notification_drop() {
         "oneTimePreKeys": []
     });
 
-    let resp_b = client.post(format!("{}/v1/accounts", server_url))
-        .json(&reg_b)
-        .send()
-        .await
-        .unwrap();
+    let resp_b = client.post(format!("{}/v1/accounts", server_url)).json(&reg_b).send().await.unwrap();
     let token_b = resp_b.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
     let claims_b = decode_jwt_claims(&token_b);
     let user_b_id = claims_b["sub"].as_str().unwrap();
 
     // 3. Connect User B via WebSocket
-    let (mut ws_stream, _) = connect_async(format!("{}?token={}", ws_url, token_b))
-        .await
-        .expect("Failed to connect WS");
+    let (mut ws_stream, _) =
+        connect_async(format!("{}?token={}", ws_url, token_b)).await.expect("Failed to connect WS");
 
     // IMPORTANT: We do NOT read from ws_stream yet.
     // This fills the TCP buffer, causing the server's `socket.send().await` to block.
@@ -90,15 +81,13 @@ async fn test_slow_consumer_notification_drop() {
     // 4. Flood User B with 30 messages (exceeding channel capacity of 16)
     let message_count = 30;
     for i in 0..message_count {
-        let outgoing = OutgoingMessage {
-            r#type: 1,
-            content: format!("Message {}", i).into_bytes(),
-            timestamp: 123456789,
-        };
+        let outgoing =
+            OutgoingMessage { r#type: 1, content: format!("Message {}", i).into_bytes(), timestamp: 123456789 };
         let mut buf = Vec::new();
         outgoing.encode(&mut buf).unwrap();
 
-        let resp = client.post(format!("{}/v1/messages/{}", server_url, user_b_id))
+        let resp = client
+            .post(format!("{}/v1/messages/{}", server_url, user_b_id))
             .header("Authorization", format!("Bearer {}", token_a))
             .header("Content-Type", "application/octet-stream")
             .body(buf)
@@ -130,12 +119,12 @@ async fn test_slow_consumer_notification_drop() {
         match tokio::time::timeout(Duration::from_millis(500), ws_stream.next()).await {
             Ok(Some(Ok(Message::Binary(bin)))) => {
                 if let Ok(frame) = WebSocketFrame::decode(bin.as_ref()) {
-                     if let Some(Payload::Envelope(_)) = frame.payload {
-                         received_count += 1;
-                         if received_count == message_count {
-                             break;
-                         }
-                     }
+                    if let Some(Payload::Envelope(_)) = frame.payload {
+                        received_count += 1;
+                        if received_count == message_count {
+                            break;
+                        }
+                    }
                 }
             }
             Ok(Some(Ok(Message::Close(_)))) => break,
@@ -149,7 +138,11 @@ async fn test_slow_consumer_notification_drop() {
         }
     }
 
-    assert_eq!(received_count, message_count, "Should receive all {} messages, but got {}", message_count, received_count);
+    assert_eq!(
+        received_count, message_count,
+        "Should receive all {} messages, but got {}",
+        message_count, received_count
+    );
 }
 
 fn decode_jwt_claims(token: &str) -> serde_json::Value {

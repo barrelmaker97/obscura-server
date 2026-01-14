@@ -1,6 +1,6 @@
 use crate::core::user::User;
 use crate::error::Result;
-use sqlx::{Postgres, Executor};
+use sqlx::{Executor, Postgres};
 
 #[derive(Clone, Default)]
 pub struct UserRepository {}

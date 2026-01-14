@@ -1,8 +1,8 @@
-use crate::storage::message_repo::MessageRepository;
-use crate::error::Result;
 use crate::config::Config;
-use uuid::Uuid;
+use crate::error::Result;
+use crate::storage::message_repo::MessageRepository;
 use std::time::Duration;
+use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct MessageService {

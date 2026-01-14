@@ -1,6 +1,6 @@
-use std::sync::Once;
-use sqlx::PgPool;
 use obscura_server::storage;
+use sqlx::PgPool;
+use std::sync::Once;
 
 static INIT: Once = Once::new();
 
@@ -16,9 +16,7 @@ pub fn setup_tracing() {
             .add_directive("rustls=warn".parse().unwrap())
             .add_directive("tungstenite=warn".parse().unwrap());
 
-        tracing_subscriber::fmt()
-            .with_env_filter(filter)
-            .init();
+        tracing_subscriber::fmt().with_env_filter(filter).init();
     });
 }
 
