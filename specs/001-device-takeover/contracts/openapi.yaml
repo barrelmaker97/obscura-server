@@ -1,0 +1,82 @@
+openapi: 3.0.0
+info:
+  title: Obscura Server API - Device Takeover
+  version: 1.0.0
+paths:
+  /keys:
+    post:
+      summary: Upload PreKeys or Perform Device Takeover
+      description: |
+        Uploads new Signed PreKeys and One-Time PreKeys.
+        **Device Takeover**: If an `identityKey` is provided and it *differs* from the stored key,
+        this acts as a destructive **Device Takeover**:
+        - Replaces the Identity Key.
+        - Deletes ALL old keys (Signed and One-Time).
+        - Deletes ALL pending messages.
+        - Disconnects active WebSockets.
+
+        If `identityKey` matches the stored key, it only appends the new keys (standard refill).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - signedPreKey
+                - oneTimePreKeys
+              properties:
+                identityKey:
+                  type: string
+                  nullable: true
+                  description: Optional Base64 Identity Key. Triggers takeover if changed.
+                registrationId:
+                  type: integer
+                  nullable: true
+                  description: Required if identityKey is provided.
+                signedPreKey:
+                  $ref: '#/components/schemas/SignedPreKeyDto'
+                oneTimePreKeys:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/OneTimePreKeyDto'
+      responses:
+        '200':
+          description: Keys uploaded or takeover successful.
+        '401':
+          description: Unauthorized.
+        '400':
+          description: Invalid key formats.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    SignedPreKeyDto:
+      type: object
+      required:
+        - keyId
+        - publicKey
+        - signature
+      properties:
+        keyId:
+          type: integer
+        publicKey:
+          type: string
+        signature:
+          type: string
+    OneTimePreKeyDto:
+      type: object
+      required:
+        - keyId
+        - publicKey
+      properties:
+        keyId:
+          type: integer
+        publicKey:
+          type: string
