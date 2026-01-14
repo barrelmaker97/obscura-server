@@ -1,6 +1,6 @@
 # Feature Specification: Device Takeover
 
-**Feature Branch**: `001-device-takeover`
+**Feature Branch**: `002-device-takeover`
 **Created**: 2026-01-13
 **Status**: Draft
 **Input**: User description: "Update the application API to handle 'Device Takeovers' to fully enable a 'Single Active Device' strategy. An authenticated user must be able to overwrite their existing identity key."

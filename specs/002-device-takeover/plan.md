@@ -1,7 +1,7 @@
 # Implementation Plan: Device Takeover
 
-**Branch**: `001-device-takeover` | **Date**: 2026-01-13 | **Spec**: [specs/001-device-takeover/spec.md](specs/001-device-takeover/spec.md)
-**Input**: Feature specification from `/specs/001-device-takeover/spec.md`
+**Branch**: `002-device-takeover` | **Date**: 2026-01-13 | **Spec**: [specs/002-device-takeover/spec.md](specs/002-device-takeover/spec.md)
+**Input**: Feature specification from `/specs/002-device-takeover/spec.md`
 
 **Note**: This template is filled in by the `/speckit.plan` command. See `.specify/templates/commands/plan.md` for the execution workflow.
 
@@ -40,7 +40,7 @@ plan MUST include evidence for the following gates:
 ### Documentation (this feature)
 
 ```text
-specs/001-device-takeover/
+specs/002-device-takeover/
 ├── plan.md              # This file
 ├── research.md          # Phase 0 output
 ├── data-model.md        # Phase 1 output
