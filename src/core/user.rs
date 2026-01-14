@@ -25,7 +25,6 @@ pub struct OneTimePreKey {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PreKeyBundle {
-    pub device_id: Uuid,
     pub registration_id: i32,
     pub identity_key: Vec<u8>,
     pub signed_pre_key: SignedPreKey,

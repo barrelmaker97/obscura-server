@@ -87,7 +87,7 @@ paths:
                 $ref: '#/components/schemas/PreKeyBundle'
 
   # --- Messaging (REST Upstream) ---
-  /v1/messages/{destinationDeviceId}:
+  /v1/messages/{recipientId}:
     post:
       summary: Send an encrypted message (Push).
       description: |
@@ -98,7 +98,7 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - name: destinationDeviceId
+        - name: recipientId
           in: path
           required: true
           schema:
@@ -171,9 +171,6 @@ components:
     PreKeyBundle:
       type: object
       properties:
-        deviceId:
-          type: string
-          format: uuid
         registrationId:
           type: integer
         identityKey:

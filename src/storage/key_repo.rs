@@ -143,7 +143,7 @@ impl KeyRepository {
         let one_time_pre_key =
             otpk_row.map(|row| OneTimePreKey { key_id: row.get("id"), public_key: row.get("public_key") });
 
-        Ok(Some(PreKeyBundle { device_id: user_id, registration_id, identity_key, signed_pre_key, one_time_pre_key }))
+        Ok(Some(PreKeyBundle { registration_id, identity_key, signed_pre_key, one_time_pre_key }))
     }
 
     pub async fn fetch_identity_key(&self, user_id: Uuid) -> Result<Option<Vec<u8>>> {
