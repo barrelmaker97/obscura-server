@@ -17,7 +17,7 @@ use uuid::Uuid;
 pub async fn send_message(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(destination_device_id): Path<Uuid>,
+    Path(recipient_id): Path<Uuid>,
     body: Bytes,
 ) -> Result<impl IntoResponse> {
     // Validate Protobuf
@@ -28,13 +28,13 @@ pub async fn send_message(
 
     // Store raw body (OutgoingMessage serialized)
     service
-        .enqueue_message(auth_user.user_id, destination_device_id, body.to_vec())
+        .enqueue_message(auth_user.user_id, recipient_id, body.to_vec())
         .await?;
 
     // Notify the user if they are connected
     state
         .notifier
-        .notify(destination_device_id, UserEvent::MessageReceived);
+        .notify(recipient_id, UserEvent::MessageReceived);
 
     Ok(StatusCode::CREATED)
 }

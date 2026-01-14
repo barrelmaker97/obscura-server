@@ -42,7 +42,7 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>) -> 
         .route("/v1/keys", post(keys::upload_keys))
         .route("/v1/keys/{userId}", get(keys::get_pre_key_bundle))
         .route(
-            "/v1/messages/{destinationDeviceId}",
+            "/v1/messages/{recipientId}",
             post(messages::send_message),
         )
         .route("/v1/gateway", get(gateway::websocket_handler))
