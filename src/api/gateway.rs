@@ -21,6 +21,8 @@ pub struct WsParams {
     token: String,
 }
 
+use std::collections::HashSet;
+
 pub async fn websocket_handler(
     ws: WebSocketUpgrade,
     Query(params): Query<WsParams>,
@@ -35,6 +37,7 @@ pub async fn websocket_handler(
 async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
     let repo = MessageRepository::new(state.pool.clone());
     let key_repo = KeyRepository::new(state.pool.clone());
+    let mut sent_message_ids = HashSet::new();
 
     // Check for Identity Key
     if let Ok(None) = key_repo.fetch_identity_key(user_id).await {
@@ -46,25 +49,8 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
     let mut rx = state.notifier.subscribe(user_id);
 
     // Initial check for pending messages on connect
-    if let Ok(messages) = repo.fetch_pending(user_id).await {
-        for msg in messages {
-            if let Ok(outgoing) = OutgoingMessage::decode(msg.content.as_slice()) {
-                let envelope = IncomingEnvelope {
-                    id: msg.id.to_string(),
-                    r#type: outgoing.r#type,
-                    source_user_id: msg.sender_id.to_string(),
-                    timestamp: outgoing.timestamp,
-                    content: outgoing.content,
-                };
-
-                let frame = WebSocketFrame { request_id: 0, payload: Some(Payload::Envelope(envelope)) };
-
-                let mut buf = Vec::new();
-                if frame.encode(&mut buf).is_ok() && socket.send(WsMessage::Binary(buf.into())).await.is_err() {
-                    return;
-                }
-            }
-        }
+    if !flush_messages(&mut socket, &repo, user_id, &mut sent_message_ids).await {
+        return;
     }
 
     loop {
@@ -75,7 +61,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
                          if let Ok(frame) = WebSocketFrame::decode(bin.as_ref())
                              && let Some(Payload::Ack(ack)) = frame.payload
                              && let Ok(msg_id) = Uuid::parse_str(&ack.message_id) {
-                                 let _ = repo.delete(msg_id).await;
+                                 if repo.delete(msg_id).await.is_ok() {
+                                     sent_message_ids.remove(&ack.message_id);
+                                 }
                          }
                     }
                     Some(Ok(WsMessage::Close(_))) => break,
@@ -116,31 +104,52 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
                     break;
                 }
 
-                if should_fetch && let Ok(messages) = repo.fetch_pending(user_id).await {
-                    for msg in messages {
-                         if let Ok(outgoing) = OutgoingMessage::decode(msg.content.as_slice()) {
-                             let envelope = IncomingEnvelope {
-                                 id: msg.id.to_string(),
-                                 r#type: outgoing.r#type,
-                                 source_user_id: msg.sender_id.to_string(),
-                                 timestamp: outgoing.timestamp,
-                                 content: outgoing.content,
-                             };
-
-                             let frame = WebSocketFrame {
-                                 request_id: 0,
-                                 payload: Some(Payload::Envelope(envelope)),
-                             };
-
-                             let mut buf = Vec::new();
-                             if frame.encode(&mut buf).is_ok()
-                                 && socket.send(WsMessage::Binary(buf.into())).await.is_err() {
-                                 break;
-                             }
-                         }
+                if should_fetch {
+                    if !flush_messages(&mut socket, &repo, user_id, &mut sent_message_ids).await {
+                        break;
                     }
                 }
             }
         }
     }
+}
+
+async fn flush_messages(
+    socket: &mut WebSocket,
+    repo: &MessageRepository,
+    user_id: Uuid,
+    sent_ids: &mut HashSet<String>,
+) -> bool {
+    if let Ok(messages) = repo.fetch_pending(user_id).await {
+        for msg in messages {
+            let msg_id_str = msg.id.to_string();
+            if sent_ids.contains(&msg_id_str) {
+                continue;
+            }
+
+            if let Ok(outgoing) = OutgoingMessage::decode(msg.content.as_slice()) {
+                let envelope = IncomingEnvelope {
+                    id: msg_id_str.clone(),
+                    r#type: outgoing.r#type,
+                    source_user_id: msg.sender_id.to_string(),
+                    timestamp: outgoing.timestamp,
+                    content: outgoing.content,
+                };
+
+                let frame = WebSocketFrame {
+                    request_id: 0,
+                    payload: Some(Payload::Envelope(envelope)),
+                };
+
+                let mut buf = Vec::new();
+                if frame.encode(&mut buf).is_ok() {
+                    if socket.send(WsMessage::Binary(buf.into())).await.is_err() {
+                        return false;
+                    }
+                    sent_ids.insert(msg_id_str);
+                }
+            }
+        }
+    }
+    true
 }
