@@ -16,14 +16,11 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PreKeyUpload {
-    #[serde(rename = "identityKey")]
     pub identity_key: Option<String>,
-    #[serde(rename = "registrationId")]
     pub registration_id: Option<i32>,
-    #[serde(rename = "signedPreKey")]
     pub signed_pre_key: SignedPreKeyDto,
-    #[serde(rename = "oneTimePreKeys")]
     pub one_time_pre_keys: Vec<OneTimePreKeyDto>,
 }
 

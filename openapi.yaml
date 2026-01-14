@@ -1,12 +1,12 @@
 openapi: 3.0.3
 info:
-  title: Obscura Hybrid Relay API
+  title: Obscura Server API
   description: |
     A privacy-first messaging relay.
     - **Control Plane (REST):** Registration, Key Management, Sending.
     - **Data Plane (WebSocket):** Real-time message delivery and acknowledgement.
     - **Protocol:** Protocol Buffers (application/x-protobuf) are used for message bodies to minimize metadata leakage and binary bloat.
-  version: 0.2.1
+  version: 1.0.0
 paths:
   # --- Account & Identity ---
   /v1/accounts:
@@ -21,6 +21,12 @@ paths:
       responses:
         '201':
           description: Account created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Invalid input or username already exists.
 
   /v1/sessions:
     post:
@@ -36,22 +42,34 @@ paths:
                   type: string
                 password:
                   type: string
+              required:
+                - username
+                - password
       responses:
         '200':
           description: Authenticated.
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  token:
-                    type: string
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Unauthorized (Invalid credentials).
 
   # --- Keys (X3DH) ---
   /v1/keys:
     post:
-      summary: Publish PreKeys.
-      description: Upload Signed PreKeys and One-Time PreKeys for X3DH asynchronous encryption.
+      summary: Upload PreKeys or Perform Device Takeover.
+      description: |
+        Uploads new Signed PreKeys and One-Time PreKeys.
+
+        **Device Takeover:**
+        If an `identityKey` is provided and it *differs* from the stored key for this user:
+        - Replaces the Identity Key.
+        - Deletes ALL old keys (Signed and One-Time).
+        - Deletes ALL pending messages.
+        - Disconnects active WebSockets.
+
+        If `identityKey` matches the stored key or is omitted, it acts as a standard key refill (appending new keys).
       tags: [Keys]
       security:
         - bearerAuth: []
@@ -62,7 +80,11 @@ paths:
               $ref: '#/components/schemas/PreKeyUpload'
       responses:
         '200':
-          description: Keys updated.
+          description: Keys updated or takeover successful.
+        '400':
+          description: Invalid key formats or missing registrationId for takeover.
+        '401':
+          description: Unauthorized.
 
   /v1/keys/{userId}:
     get:
@@ -85,6 +107,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PreKeyBundle'
+        '404':
+          description: User not found or no keys available.
 
   # --- Messaging (REST Upstream) ---
   /v1/messages/{recipientId}:
@@ -111,9 +135,18 @@ paths:
               type: string
               format: binary
               description: Serialized `OutgoingMessage` protobuf.
+          application/octet-stream:
+             schema:
+              type: string
+              format: binary
+              description: Serialized `OutgoingMessage` protobuf.
       responses:
         '201':
           description: Message queued.
+        '400':
+          description: Invalid Protobuf.
+        '401':
+          description: Unauthorized.
 
   # --- WebSocket Gateway (Documentation Only) ---
   /v1/gateway:
@@ -126,9 +159,18 @@ paths:
         - **Auth:** Pass the JWT in the query string: `ws://.../v1/gateway?token=<jwt>`.
         - **Flow:** Server pushes `IncomingEnvelope`. Client responds with `AckMessage`. Server deletes message.
       tags: [Messaging]
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+          description: JWT Access Token.
       responses:
         '101':
           description: Switching Protocols.
+        '401':
+          description: Unauthorized (Invalid or missing token).
 
 components:
   securitySchemes:
@@ -138,8 +180,21 @@ components:
       bearerFormat: JWT
 
   schemas:
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+
     RegistrationRequest:
       type: object
+      required:
+        - username
+        - password
+        - identityKey
+        - registrationId
+        - signedPreKey
+        - oneTimePreKeys
       properties:
         username:
           type: string
@@ -147,26 +202,34 @@ components:
           type: string
         identityKey:
           type: string
-          format: byte
           description: Base64 encoded public identity key.
         registrationId:
           type: integer
         signedPreKey:
-          $ref: '#/components/schemas/SignedPreKey'
+          $ref: '#/components/schemas/SignedPreKeyDto'
         oneTimePreKeys:
           type: array
           items:
-            $ref: '#/components/schemas/OneTimePreKey'
+            $ref: '#/components/schemas/OneTimePreKeyDto'
 
     PreKeyUpload:
       type: object
+      required:
+        - signedPreKey
+        - oneTimePreKeys
       properties:
+        identityKey:
+          type: string
+          description: Optional Base64 Identity Key. Triggers takeover if changed.
+        registrationId:
+          type: integer
+          description: Required if identityKey is provided.
         signedPreKey:
-          $ref: '#/components/schemas/SignedPreKey'
+          $ref: '#/components/schemas/SignedPreKeyDto'
         oneTimePreKeys:
           type: array
           items:
-            $ref: '#/components/schemas/OneTimePreKey'
+            $ref: '#/components/schemas/OneTimePreKeyDto'
 
     PreKeyBundle:
       type: object
@@ -177,28 +240,35 @@ components:
           type: string
           format: byte
         signedPreKey:
-          $ref: '#/components/schemas/SignedPreKey'
+          $ref: '#/components/schemas/SignedPreKeyDto'
         oneTimePreKey:
-          $ref: '#/components/schemas/OneTimePreKey'
+          $ref: '#/components/schemas/OneTimePreKeyDto'
           nullable: true
 
-    SignedPreKey:
+    SignedPreKeyDto:
       type: object
+      required:
+        - keyId
+        - publicKey
+        - signature
       properties:
         keyId:
           type: integer
         publicKey:
           type: string
-          format: byte
+          description: Base64 encoded public key
         signature:
           type: string
-          format: byte
+          description: Base64 encoded signature
 
-    OneTimePreKey:
+    OneTimePreKeyDto:
       type: object
+      required:
+        - keyId
+        - publicKey
       properties:
         keyId:
           type: integer
         publicKey:
           type: string
-          format: byte
+          description: Base64 encoded public key

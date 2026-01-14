@@ -9,16 +9,13 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RegistrationRequest {
     pub username: String,
     pub password: String,
-    #[serde(rename = "identityKey")]
     pub identity_key: String, // Base64
-    #[serde(rename = "registrationId")]
     pub registration_id: i32,
-    #[serde(rename = "signedPreKey")]
     pub signed_pre_key: SignedPreKeyDto,
-    #[serde(rename = "oneTimePreKeys")]
     pub one_time_pre_keys: Vec<OneTimePreKeyDto>,
 }
 
@@ -29,19 +26,17 @@ pub struct LoginRequest {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SignedPreKeyDto {
-    #[serde(rename = "keyId")]
     pub key_id: i32,
-    #[serde(rename = "publicKey")]
     pub public_key: String,
     pub signature: String,
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OneTimePreKeyDto {
-    #[serde(rename = "keyId")]
     pub key_id: i32,
-    #[serde(rename = "publicKey")]
     pub public_key: String,
 }
 
