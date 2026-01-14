@@ -1,6 +1,6 @@
-use uuid::Uuid;
-use time::{OffsetDateTime, Duration};
 use obscura_server::storage::message_repo::MessageRepository;
+use time::{Duration, OffsetDateTime};
+use uuid::Uuid;
 
 mod common;
 
@@ -14,7 +14,10 @@ async fn test_expired_message_cleanup() {
     let user_id = Uuid::new_v4();
     sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
         .bind(user_id)
-        .bind(format!("cleanup_user_{}", user_id.to_string()[..8].to_string()))
+        .bind(format!(
+            "cleanup_user_{}",
+            user_id.to_string()[..8].to_string()
+        ))
         .execute(&pool)
         .await
         .unwrap();
@@ -62,11 +65,12 @@ async fn test_expired_message_cleanup() {
     assert!(deleted >= 1);
 
     // 5. Verify only active one remains
-    let count_after: i64 = sqlx::query_scalar("SELECT count(*) FROM messages WHERE recipient_id = $1")
-        .bind(user_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let count_after: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM messages WHERE recipient_id = $1")
+            .bind(user_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(count_after, 1);
 
     let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM messages WHERE id = $1)")

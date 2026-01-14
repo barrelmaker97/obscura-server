@@ -1,23 +1,29 @@
+use crate::config::Config;
 use async_trait::async_trait;
+use dashmap::DashMap;
 use tokio::sync::broadcast;
 use uuid::Uuid;
-use dashmap::DashMap;
-use crate::config::Config;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum UserEvent {
+    MessageReceived,
+    Disconnect,
+}
 
 #[async_trait]
 pub trait Notifier: Send + Sync {
     // Returns a receiver that will get a value when a notification arrives.
-    fn subscribe(&self, user_id: Uuid) -> broadcast::Receiver<()>;
+    fn subscribe(&self, user_id: Uuid) -> broadcast::Receiver<UserEvent>;
 
     // Sends a notification to the user.
-    fn notify(&self, user_id: Uuid);
+    fn notify(&self, user_id: Uuid, event: UserEvent);
 }
 
 pub struct InMemoryNotifier {
     // Map UserID -> Broadcast Channel
     // We store the Sender. We create new Receivers from it.
     // Wrapped in Arc to share with background GC task.
-    channels: std::sync::Arc<DashMap<Uuid, broadcast::Sender<()>>>,
+    channels: std::sync::Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
     channel_capacity: usize,
 }
 
@@ -33,7 +39,9 @@ impl InMemoryNotifier {
             loop {
                 interval.tick().await;
                 // Atomic cleanup: Remove entries with 0 receivers
-                map_ref.retain(|_, sender: &mut broadcast::Sender<()>| sender.receiver_count() > 0);
+                map_ref.retain(|_, sender: &mut broadcast::Sender<UserEvent>| {
+                    sender.receiver_count() > 0
+                });
             }
         });
 
@@ -46,9 +54,10 @@ impl InMemoryNotifier {
 
 #[async_trait]
 impl Notifier for InMemoryNotifier {
-    fn subscribe(&self, user_id: Uuid) -> broadcast::Receiver<()> {
+    fn subscribe(&self, user_id: Uuid) -> broadcast::Receiver<UserEvent> {
         // Get existing channel or create new one
-        let tx = self.channels
+        let tx = self
+            .channels
             .entry(user_id)
             .or_insert_with(|| {
                 let (tx, _rx) = broadcast::channel(self.channel_capacity);
@@ -60,10 +69,10 @@ impl Notifier for InMemoryNotifier {
         tx.subscribe()
     }
 
-    fn notify(&self, user_id: Uuid) {
+    fn notify(&self, user_id: Uuid, event: UserEvent) {
         if let Some(tx) = self.channels.get(&user_id) {
             // We ignore errors (e.g., if no one is listening)
-            let _ = tx.send(());
+            let _ = tx.send(event);
         }
     }
 }
@@ -92,10 +101,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_notifier_gc_cleans_up_unused_channels() {
-        // 1. Create notifier with fast cleanup (1 second for test, but we can't do millis easily with u64 seconds in config)
-        // Note: The original test used millis. Since we switched to seconds in config, we might need to wait at least 1s.
-        // Ideally, we'd allow config to be generic or more granular, but for now 1s is the minimum.
-        // Let's use 1 second.
         let config = test_config(1, 16);
         let notifier = InMemoryNotifier::new(config);
         let user_id = Uuid::new_v4();

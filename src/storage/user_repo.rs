@@ -1,6 +1,6 @@
 use crate::core::user::User;
 use crate::error::Result;
-use sqlx::{Postgres, Executor};
+use sqlx::{Executor, Postgres};
 
 #[derive(Clone, Default)]
 pub struct UserRepository {}
@@ -10,7 +10,12 @@ impl UserRepository {
         Self {}
     }
 
-    pub async fn create<'e, E>(&self, executor: E, username: &str, password_hash: &str) -> Result<User>
+    pub async fn create<'e, E>(
+        &self,
+        executor: E,
+        username: &str,
+        password_hash: &str,
+    ) -> Result<User>
     where
         E: Executor<'e, Database = Postgres>,
     {
