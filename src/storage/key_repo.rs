@@ -155,6 +155,18 @@ impl KeyRepository {
         Ok(row.map(|r| r.get("identity_key")))
     }
 
+    pub async fn fetch_identity_key_for_update<'e, E>(&self, executor: E, user_id: Uuid) -> Result<Option<Vec<u8>>>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
+        let row = sqlx::query("SELECT identity_key FROM identity_keys WHERE user_id = $1 FOR UPDATE")
+            .bind(user_id)
+            .fetch_optional(executor)
+            .await?;
+
+        Ok(row.map(|r| r.get("identity_key")))
+    }
+
     pub async fn delete_all_signed_pre_keys<'e, E>(&self, executor: E, user_id: Uuid) -> Result<()>
     where
         E: Executor<'e, Database = Postgres>,
