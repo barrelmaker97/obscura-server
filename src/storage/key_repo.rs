@@ -140,18 +140,10 @@ impl KeyRepository {
         .fetch_optional(&self.pool)
         .await?;
 
-        let one_time_pre_key = otpk_row.map(|row| OneTimePreKey {
-            key_id: row.get("id"),
-            public_key: row.get("public_key"),
-        });
+        let one_time_pre_key =
+            otpk_row.map(|row| OneTimePreKey { key_id: row.get("id"), public_key: row.get("public_key") });
 
-        Ok(Some(PreKeyBundle {
-            device_id: user_id,
-            registration_id,
-            identity_key,
-            signed_pre_key,
-            one_time_pre_key,
-        }))
+        Ok(Some(PreKeyBundle { device_id: user_id, registration_id, identity_key, signed_pre_key, one_time_pre_key }))
     }
 
     pub async fn fetch_identity_key(&self, user_id: Uuid) -> Result<Option<Vec<u8>>> {
@@ -167,25 +159,15 @@ impl KeyRepository {
     where
         E: Executor<'e, Database = Postgres>,
     {
-        sqlx::query("DELETE FROM signed_pre_keys WHERE user_id = $1")
-            .bind(user_id)
-            .execute(executor)
-            .await?;
+        sqlx::query("DELETE FROM signed_pre_keys WHERE user_id = $1").bind(user_id).execute(executor).await?;
         Ok(())
     }
 
-    pub async fn delete_all_one_time_pre_keys<'e, E>(
-        &self,
-        executor: E,
-        user_id: Uuid,
-    ) -> Result<()>
+    pub async fn delete_all_one_time_pre_keys<'e, E>(&self, executor: E, user_id: Uuid) -> Result<()>
     where
         E: Executor<'e, Database = Postgres>,
     {
-        sqlx::query("DELETE FROM one_time_pre_keys WHERE user_id = $1")
-            .bind(user_id)
-            .execute(executor)
-            .await?;
+        sqlx::query("DELETE FROM one_time_pre_keys WHERE user_id = $1").bind(user_id).execute(executor).await?;
         Ok(())
     }
 }

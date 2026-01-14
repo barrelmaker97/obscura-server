@@ -14,10 +14,7 @@ async fn test_expired_message_cleanup() {
     let user_id = Uuid::new_v4();
     sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
         .bind(user_id)
-        .bind(format!(
-            "cleanup_user_{}",
-            user_id.to_string()[..8].to_string()
-        ))
+        .bind(format!("cleanup_user_{}", user_id.to_string()[..8].to_string()))
         .execute(&pool)
         .await
         .unwrap();
@@ -26,31 +23,27 @@ async fn test_expired_message_cleanup() {
     let msg_id = Uuid::new_v4();
     let expired_time = OffsetDateTime::now_utc() - Duration::days(1);
 
-    sqlx::query(
-        "INSERT INTO messages (id, sender_id, recipient_id, content, expires_at) VALUES ($1, $2, $2, $3, $4)"
-    )
-    .bind(msg_id)
-    .bind(user_id)
-    .bind(b"expired content".to_vec())
-    .bind(expired_time)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO messages (id, sender_id, recipient_id, content, expires_at) VALUES ($1, $2, $2, $3, $4)")
+        .bind(msg_id)
+        .bind(user_id)
+        .bind(b"expired content".to_vec())
+        .bind(expired_time)
+        .execute(&pool)
+        .await
+        .unwrap();
 
     // 3. Insert a non-expired message (1 day from now)
     let active_msg_id = Uuid::new_v4();
     let active_time = OffsetDateTime::now_utc() + Duration::days(1);
 
-    sqlx::query(
-        "INSERT INTO messages (id, sender_id, recipient_id, content, expires_at) VALUES ($1, $2, $2, $3, $4)"
-    )
-    .bind(active_msg_id)
-    .bind(user_id)
-    .bind(b"active content".to_vec())
-    .bind(active_time)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO messages (id, sender_id, recipient_id, content, expires_at) VALUES ($1, $2, $2, $3, $4)")
+        .bind(active_msg_id)
+        .bind(user_id)
+        .bind(b"active content".to_vec())
+        .bind(active_time)
+        .execute(&pool)
+        .await
+        .unwrap();
 
     // Verify both exist
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM messages WHERE recipient_id = $1")
@@ -65,12 +58,11 @@ async fn test_expired_message_cleanup() {
     assert!(deleted >= 1);
 
     // 5. Verify only active one remains
-    let count_after: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM messages WHERE recipient_id = $1")
-            .bind(user_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let count_after: i64 = sqlx::query_scalar("SELECT count(*) FROM messages WHERE recipient_id = $1")
+        .bind(user_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(count_after, 1);
 
     let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM messages WHERE id = $1)")

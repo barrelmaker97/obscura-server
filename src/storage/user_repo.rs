@@ -10,12 +10,7 @@ impl UserRepository {
         Self {}
     }
 
-    pub async fn create<'e, E>(
-        &self,
-        executor: E,
-        username: &str,
-        password_hash: &str,
-    ) -> Result<User>
+    pub async fn create<'e, E>(&self, executor: E, username: &str, password_hash: &str) -> Result<User>
     where
         E: Executor<'e, Database = Postgres>,
     {

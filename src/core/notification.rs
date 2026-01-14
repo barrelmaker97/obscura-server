@@ -39,16 +39,11 @@ impl InMemoryNotifier {
             loop {
                 interval.tick().await;
                 // Atomic cleanup: Remove entries with 0 receivers
-                map_ref.retain(|_, sender: &mut broadcast::Sender<UserEvent>| {
-                    sender.receiver_count() > 0
-                });
+                map_ref.retain(|_, sender: &mut broadcast::Sender<UserEvent>| sender.receiver_count() > 0);
             }
         });
 
-        Self {
-            channels,
-            channel_capacity: config.notification_channel_capacity,
-        }
+        Self { channels, channel_capacity: config.notification_channel_capacity }
     }
 }
 

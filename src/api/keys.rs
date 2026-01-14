@@ -27,10 +27,7 @@ pub struct PreKeyUpload {
     pub one_time_pre_keys: Vec<OneTimePreKeyDto>,
 }
 
-pub async fn get_pre_key_bundle(
-    State(state): State<AppState>,
-    Path(user_id): Path<Uuid>,
-) -> Result<impl IntoResponse> {
+pub async fn get_pre_key_bundle(State(state): State<AppState>, Path(user_id): Path<Uuid>) -> Result<impl IntoResponse> {
     let key_repo = KeyRepository::new(state.pool);
     let bundle = key_repo.fetch_pre_key_bundle(user_id).await?;
 
@@ -56,9 +53,8 @@ pub async fn upload_keys(
 
     // Check Identity Key if provided
     if let Some(new_ik_b64) = &payload.identity_key {
-        let new_ik_bytes = STANDARD
-            .decode(new_ik_b64)
-            .map_err(|_| AppError::BadRequest("Invalid base64 identityKey".into()))?;
+        let new_ik_bytes =
+            STANDARD.decode(new_ik_b64).map_err(|_| AppError::BadRequest("Invalid base64 identityKey".into()))?;
 
         // Fetch existing identity key
         let existing_ik_opt = key_repo.fetch_identity_key(auth_user.user_id).await?;
@@ -73,52 +69,33 @@ pub async fn upload_keys(
         }
 
         if is_takeover {
-            let reg_id = payload.registration_id.ok_or(AppError::BadRequest(
-                "registrationId required for takeover".into(),
-            ))?;
+            let reg_id =
+                payload.registration_id.ok_or(AppError::BadRequest("registrationId required for takeover".into()))?;
 
             // Start transaction
             let mut tx = state.pool.begin().await?;
 
             // 1. Delete old pre-keys
-            key_repo
-                .delete_all_signed_pre_keys(&mut *tx, auth_user.user_id)
-                .await?;
-            key_repo
-                .delete_all_one_time_pre_keys(&mut *tx, auth_user.user_id)
-                .await?;
+            key_repo.delete_all_signed_pre_keys(&mut *tx, auth_user.user_id).await?;
+            key_repo.delete_all_one_time_pre_keys(&mut *tx, auth_user.user_id).await?;
 
             // 2. Delete pending messages
             let message_repo = MessageRepository::new(state.pool.clone());
-            message_repo
-                .delete_all_for_user(&mut *tx, auth_user.user_id)
-                .await?;
+            message_repo.delete_all_for_user(&mut *tx, auth_user.user_id).await?;
 
             // 3. Update Identity Key
-            key_repo
-                .upsert_identity_key(&mut *tx, auth_user.user_id, &new_ik_bytes, reg_id)
-                .await?;
+            key_repo.upsert_identity_key(&mut *tx, auth_user.user_id, &new_ik_bytes, reg_id).await?;
 
             // 4. Insert new keys
             let spk_pub = STANDARD
                 .decode(&payload.signed_pre_key.public_key)
-                .map_err(|_| {
-                    AppError::BadRequest("Invalid base64 signedPreKey public key".into())
-                })?;
+                .map_err(|_| AppError::BadRequest("Invalid base64 signedPreKey public key".into()))?;
             let spk_sig = STANDARD
                 .decode(&payload.signed_pre_key.signature)
-                .map_err(|_| {
-                    AppError::BadRequest("Invalid base64 signedPreKey signature".into())
-                })?;
+                .map_err(|_| AppError::BadRequest("Invalid base64 signedPreKey signature".into()))?;
 
             key_repo
-                .upsert_signed_pre_key(
-                    &mut *tx,
-                    auth_user.user_id,
-                    payload.signed_pre_key.key_id,
-                    &spk_pub,
-                    &spk_sig,
-                )
+                .upsert_signed_pre_key(&mut *tx, auth_user.user_id, payload.signed_pre_key.key_id, &spk_pub, &spk_sig)
                 .await?;
 
             let mut otpk_vec = Vec::new();
@@ -128,16 +105,12 @@ pub async fn upload_keys(
                     .map_err(|_| AppError::BadRequest("Invalid base64 oneTimePreKey".into()))?;
                 otpk_vec.push((k.key_id, pub_key));
             }
-            key_repo
-                .insert_one_time_pre_keys(&mut tx, auth_user.user_id, &otpk_vec)
-                .await?;
+            key_repo.insert_one_time_pre_keys(&mut tx, auth_user.user_id, &otpk_vec).await?;
 
             tx.commit().await?;
 
             // Trigger disconnect
-            state
-                .notifier
-                .notify(auth_user.user_id, UserEvent::Disconnect);
+            state.notifier.notify(auth_user.user_id, UserEvent::Disconnect);
 
             return Ok(StatusCode::OK);
         }
@@ -154,25 +127,16 @@ pub async fn upload_keys(
     let mut tx = state.pool.begin().await?;
 
     key_repo
-        .upsert_signed_pre_key(
-            &mut *tx,
-            auth_user.user_id,
-            payload.signed_pre_key.key_id,
-            &spk_pub,
-            &spk_sig,
-        )
+        .upsert_signed_pre_key(&mut *tx, auth_user.user_id, payload.signed_pre_key.key_id, &spk_pub, &spk_sig)
         .await?;
 
     let mut otpk_vec = Vec::new();
     for k in payload.one_time_pre_keys {
-        let pub_key = STANDARD
-            .decode(&k.public_key)
-            .map_err(|_| AppError::BadRequest("Invalid base64 oneTimePreKey".into()))?;
+        let pub_key =
+            STANDARD.decode(&k.public_key).map_err(|_| AppError::BadRequest("Invalid base64 oneTimePreKey".into()))?;
         otpk_vec.push((k.key_id, pub_key));
     }
-    key_repo
-        .insert_one_time_pre_keys(&mut tx, auth_user.user_id, &otpk_vec)
-        .await?;
+    key_repo.insert_one_time_pre_keys(&mut tx, auth_user.user_id, &otpk_vec).await?;
 
     tx.commit().await?;
 

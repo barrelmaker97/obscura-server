@@ -22,14 +22,8 @@ pub struct AuthUser {
 impl FromRequestParts<AppState> for AuthUser {
     type Rejection = AppError;
 
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
-        let auth_header = parts
-            .headers
-            .get(header::AUTHORIZATION)
-            .ok_or(AppError::AuthError)?;
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+        let auth_header = parts.headers.get(header::AUTHORIZATION).ok_or(AppError::AuthError)?;
 
         let auth_str = auth_header.to_str().map_err(|_| AppError::AuthError)?;
         if !auth_str.starts_with("Bearer ") {
@@ -40,38 +34,20 @@ impl FromRequestParts<AppState> for AuthUser {
 
         let claims = verify_jwt(token, &state.config.jwt_secret)?;
 
-        Ok(AuthUser {
-            user_id: claims.sub,
-        })
+        Ok(AuthUser { user_id: claims.sub })
     }
 }
 
 pub fn create_jwt(user_id: Uuid, secret: &str) -> Result<String, AppError> {
-    let expiration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as usize
-        + 3600 * 24; // 24 hours
+    let expiration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as usize + 3600 * 24; // 24 hours
 
-    let claims = Claims {
-        sub: user_id,
-        exp: expiration,
-    };
+    let claims = Claims { sub: user_id, exp: expiration };
 
-    encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(secret.as_bytes()),
-    )
-    .map_err(|_| AppError::Internal)
+    encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes())).map_err(|_| AppError::Internal)
 }
 
 pub fn verify_jwt(token: &str, secret: &str) -> Result<Claims, AppError> {
-    let token_data = decode::<Claims>(
-        token,
-        &DecodingKey::from_secret(secret.as_bytes()),
-        &Validation::default(),
-    )
-    .map_err(|_| AppError::AuthError)?;
+    let token_data = decode::<Claims>(token, &DecodingKey::from_secret(secret.as_bytes()), &Validation::default())
+        .map_err(|_| AppError::AuthError)?;
     Ok(token_data.claims)
 }

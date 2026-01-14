@@ -16,9 +16,7 @@ mod common;
 fn decode_jwt_claims(token: &str) -> serde_json::Value {
     let parts: Vec<&str> = token.split('.').collect();
     let payload = parts[1];
-    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(payload)
-        .unwrap();
+    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload).unwrap();
     serde_json::from_slice(&decoded).unwrap()
 }
 
@@ -36,12 +34,7 @@ async fn test_device_takeover_success() {
     let ws_url = format!("ws://{}/v1/gateway", addr);
 
     tokio::spawn(async move {
-        axum::serve(
-            listener,
-            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-        )
-        .await
-        .unwrap();
+        axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
     });
 
     let client = reqwest::Client::new();
@@ -64,33 +57,21 @@ async fn test_device_takeover_success() {
         ]
     });
 
-    let resp = client
-        .post(format!("{}/v1/accounts", server_url))
-        .json(&reg_payload)
-        .send()
-        .await
-        .unwrap();
+    let resp = client.post(format!("{}/v1/accounts", server_url)).json(&reg_payload).send().await.unwrap();
     assert_eq!(resp.status(), 201);
-    let token = resp.json::<serde_json::Value>().await.unwrap()["token"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let token = resp.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
     let claims = decode_jwt_claims(&token);
     let user_id = Uuid::parse_str(claims["sub"].as_str().unwrap()).unwrap();
 
     // 3. Populate Data (PreKeys exist from reg, add a pending message)
     let msg_repo = MessageRepository::new(pool.clone());
-    msg_repo
-        .create(user_id, user_id, vec![1, 2, 3], 30)
-        .await
-        .unwrap();
+    msg_repo.create(user_id, user_id, vec![1, 2, 3], 30).await.unwrap();
     let pending_before = msg_repo.fetch_pending(user_id).await.unwrap();
     assert_eq!(pending_before.len(), 1);
 
     // 4. Connect WebSocket (Device A)
-    let (mut ws_stream, _) = connect_async(format!("{}?token={}", ws_url, token))
-        .await
-        .expect("Failed to connect WS A");
+    let (mut ws_stream, _) =
+        connect_async(format!("{}?token={}", ws_url, token)).await.expect("Failed to connect WS A");
 
     // 5. Perform Takeover (Device B)
     // New Identity Key: BBBBB...
@@ -142,18 +123,12 @@ async fn test_device_takeover_success() {
 
     // Old PreKeys should be gone (Key ID 1 was uploaded initially, Key ID 2 is new)
     let key_repo = KeyRepository::new(pool.clone());
-    let bundle = key_repo
-        .fetch_pre_key_bundle(user_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let bundle = key_repo.fetch_pre_key_bundle(user_id).await.unwrap().unwrap();
 
     // Check Identity Key
     assert_eq!(
         bundle.identity_key,
-        base64::engine::general_purpose::STANDARD
-            .decode("QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=")
-            .unwrap()
+        base64::engine::general_purpose::STANDARD.decode("QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=").unwrap()
     );
     // Check Signed Pre Key ID
     assert_eq!(bundle.signed_pre_key.key_id, 2);
@@ -173,12 +148,7 @@ async fn test_refill_pre_keys_no_overwrite() {
     let server_url = format!("http://{}", addr);
 
     tokio::spawn(async move {
-        axum::serve(
-            listener,
-            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-        )
-        .await
-        .unwrap();
+        axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
     });
 
     let client = reqwest::Client::new();
@@ -199,17 +169,9 @@ async fn test_refill_pre_keys_no_overwrite() {
         "oneTimePreKeys": []
     });
 
-    let resp = client
-        .post(format!("{}/v1/accounts", server_url))
-        .json(&reg_payload)
-        .send()
-        .await
-        .unwrap();
+    let resp = client.post(format!("{}/v1/accounts", server_url)).json(&reg_payload).send().await.unwrap();
     assert_eq!(resp.status(), 201);
-    let token = resp.json::<serde_json::Value>().await.unwrap()["token"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let token = resp.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
 
     // 2. Refill (Same Identity Key)
     // We explicitly provide the SAME identity key.
@@ -248,12 +210,7 @@ async fn test_no_identity_key_rejects_websocket() {
     let ws_url = format!("ws://{}/v1/gateway", addr);
 
     tokio::spawn(async move {
-        axum::serve(
-            listener,
-            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-        )
-        .await
-        .unwrap();
+        axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
     });
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
@@ -262,10 +219,7 @@ async fn test_no_identity_key_rejects_websocket() {
     use obscura_server::storage::user_repo::UserRepository;
     let user_repo = UserRepository::new();
     let mut tx = pool.begin().await.unwrap();
-    let user = user_repo
-        .create(&mut *tx, &format!("nokey_{}", run_id), "hash")
-        .await
-        .unwrap();
+    let user = user_repo.create(&mut *tx, &format!("nokey_{}", run_id), "hash").await.unwrap();
     tx.commit().await.unwrap();
 
     // Generate a token for this user

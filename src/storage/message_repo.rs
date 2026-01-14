@@ -14,13 +14,7 @@ impl MessageRepository {
         Self { pool }
     }
 
-    pub async fn create(
-        &self,
-        sender_id: Uuid,
-        recipient_id: Uuid,
-        content: Vec<u8>,
-        ttl_days: i64,
-    ) -> Result<()> {
+    pub async fn create(&self, sender_id: Uuid, recipient_id: Uuid, content: Vec<u8>, ttl_days: i64) -> Result<()> {
         let expires_at = OffsetDateTime::now_utc() + Duration::days(ttl_days);
 
         sqlx::query(
@@ -56,17 +50,12 @@ impl MessageRepository {
     }
 
     pub async fn delete(&self, message_id: Uuid) -> Result<()> {
-        sqlx::query("DELETE FROM messages WHERE id = $1")
-            .bind(message_id)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query("DELETE FROM messages WHERE id = $1").bind(message_id).execute(&self.pool).await?;
         Ok(())
     }
 
     pub async fn delete_expired(&self) -> Result<u64> {
-        let result = sqlx::query("DELETE FROM messages WHERE expires_at < NOW()")
-            .execute(&self.pool)
-            .await?;
+        let result = sqlx::query("DELETE FROM messages WHERE expires_at < NOW()").execute(&self.pool).await?;
         Ok(result.rows_affected())
     }
 
@@ -81,7 +70,7 @@ impl MessageRepository {
                     FROM messages
                 ) t WHERE t.rn > $1
             )
-            "#
+            "#,
         )
         .bind(limit)
         .execute(&self.pool)
@@ -93,10 +82,8 @@ impl MessageRepository {
     where
         E: sqlx::Executor<'e, Database = sqlx::Postgres>,
     {
-        let result = sqlx::query("DELETE FROM messages WHERE recipient_id = $1")
-            .bind(user_id)
-            .execute(executor)
-            .await?;
+        let result =
+            sqlx::query("DELETE FROM messages WHERE recipient_id = $1").bind(user_id).execute(executor).await?;
         Ok(result.rows_affected())
     }
 }
