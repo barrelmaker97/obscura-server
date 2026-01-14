@@ -49,7 +49,7 @@ paths:
 
   # --- Keys (X3DH) ---
   /v1/keys:
-    put:
+    post:
       summary: Publish PreKeys.
       description: Upload Signed PreKeys and One-Time PreKeys for X3DH asynchronous encryption.
       tags: [Keys]

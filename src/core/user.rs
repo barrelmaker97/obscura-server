@@ -11,6 +11,7 @@ pub struct User {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SignedPreKey {
     pub key_id: i32,
     pub public_key: Vec<u8>,
@@ -18,12 +19,14 @@ pub struct SignedPreKey {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OneTimePreKey {
     pub key_id: i32,
     pub public_key: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PreKeyBundle {
     pub registration_id: i32,
     pub identity_key: Vec<u8>,
