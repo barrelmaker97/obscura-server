@@ -178,7 +178,7 @@ async fn test_no_duplicate_delivery() {
 
     // 5. Receive Message 1 (Do NOT Ack yet)
     let msg1_id = receive_envelope(&mut ws_stream).await;
-    
+
     // 6. Send Message 2 (A -> B) - Triggers notification
     send_message(&client, &server_url, &token_a, user_b_id, b"Message 2").await;
 
@@ -187,7 +187,7 @@ async fn test_no_duplicate_delivery() {
     // We want to verify we receive Message 2 and NOT Message 1.
     let msg2_id = receive_envelope(&mut ws_stream).await;
     assert_ne!(msg1_id, msg2_id, "Should receive a different message ID");
-    
+
     // 8. Assert no more messages (Message 1 should NOT be re-sent)
     // We wait a bit to ensure no phantom duplicates arrive
     tokio::select! {
@@ -206,7 +206,7 @@ async fn test_no_duplicate_delivery() {
 }
 
 async fn register_user(client: &reqwest::Client, server_url: &str, username: &str, reg_id: u32) -> String {
-     let reg = json!({
+    let reg = json!({
         "username": username,
         "password": "password",
         "registrationId": reg_id,
@@ -239,7 +239,9 @@ async fn send_message(client: &reqwest::Client, server_url: &str, token: &str, r
     assert_eq!(resp.status(), 201);
 }
 
-async fn receive_envelope(ws_stream: &mut tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>) -> String {
+async fn receive_envelope(
+    ws_stream: &mut tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+) -> String {
     if let Some(Ok(Message::Binary(bin))) = ws_stream.next().await {
         let frame = WebSocketFrame::decode(bin.as_ref()).unwrap();
         if let Some(Payload::Envelope(env)) = frame.payload {
