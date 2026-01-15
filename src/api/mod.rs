@@ -27,7 +27,7 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>) -> 
         GovernorConfigBuilder::default()
             .per_second(config.rate_limit_per_second as u64)
             .burst_size(config.rate_limit_burst)
-            .key_extractor(rate_limit::SmartIpKeyExtractor)
+            .key_extractor(rate_limit::IpKeyExtractor)
             .finish()
             .unwrap(),
     );

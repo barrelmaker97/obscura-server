@@ -5,9 +5,9 @@ use tower_governor::GovernorError;
 use tower_governor::key_extractor::KeyExtractor;
 
 #[derive(Clone, Copy)]
-pub struct SmartIpKeyExtractor;
+pub struct IpKeyExtractor;
 
-impl KeyExtractor for SmartIpKeyExtractor {
+impl KeyExtractor for IpKeyExtractor {
     type Key = IpAddr;
 
     fn extract<T>(&self, req: &Request<T>) -> Result<Self::Key, GovernorError> {
