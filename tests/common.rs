@@ -40,6 +40,8 @@ pub fn get_test_config() -> obscura_server::config::Config {
         jwt_secret: "test_secret".to_string(),
         rate_limit_per_second: 10000,
         rate_limit_burst: 10000,
+        auth_rate_limit_per_second: 10000,
+        auth_rate_limit_burst: 10000,
         server_host: "127.0.0.1".to_string(),
         server_port: 0, // 0 means let OS choose
         message_ttl_days: 30,
@@ -47,5 +49,6 @@ pub fn get_test_config() -> obscura_server::config::Config {
         message_cleanup_interval_secs: 300,
         notification_gc_interval_secs: 60,
         notification_channel_capacity: 16,
+        trusted_proxies: "127.0.0.1/32,::1/128".to_string(),
     }
 }
