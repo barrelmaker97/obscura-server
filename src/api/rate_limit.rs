@@ -29,12 +29,10 @@ impl IpKeyExtractor {
             // Walk the chain from right to left (most recent to original).
             // We skip any IPs that belong to our own infrastructure (trusted proxies).
             // The first IP we encounter that IS NOT trusted is considered the real client.
-            let ips: Vec<IpAddr> = xff_val.split(',').filter_map(|s| s.trim().parse::<IpAddr>().ok()).collect();
-
-            for ip in ips.into_iter().rev() {
-                if !self.is_trusted(&ip) {
-                    return ip;
-                }
+            if let Some(real_ip) =
+                xff_val.rsplit(',').filter_map(|s| s.trim().parse::<IpAddr>().ok()).find(|ip| !self.is_trusted(ip))
+            {
+                return real_ip;
             }
         }
 
