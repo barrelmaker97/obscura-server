@@ -142,3 +142,25 @@ async fn test_rate_limit_recovery() {
         .send().await.unwrap();
     assert_eq!(resp_ok.status(), StatusCode::NOT_FOUND, "Should be unblocked after wait");
 }
+
+#[tokio::test]
+async fn test_rate_limit_retry_after_header() {
+    let server_url = setup_test_server(1, 1).await;
+    let client = Client::new();
+    let ip = "7.7.7.7";
+
+    // First request consumes the budget
+    client.get(format!("{}/v1/keys/{}", server_url, uuid::Uuid::new_v4()))
+        .header("X-Forwarded-For", ip)
+        .send().await.unwrap();
+    
+    // Second request should be rate limited
+    let resp = client.get(format!("{}/v1/keys/{}", server_url, uuid::Uuid::new_v4()))
+        .header("X-Forwarded-For", ip)
+        .send().await.unwrap();
+    
+    assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+    
+    let retry_after = resp.headers().get("retry-after");
+    assert!(retry_after.is_some(), "Retry-After header should be present");
+}

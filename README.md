@@ -23,8 +23,8 @@ Command-line options take precedence over environment variables.
 | `--port` | Port to bind the server to | `PORT` | `3000` | No |
 | `--message-ttl-days` | Days before a message is auto-deleted | `MESSAGE_TTL_DAYS` | `30` | No |
 | `--max-inbox-size` | Max pending messages per user | `MAX_INBOX_SIZE` | `1000` | No |
-| `--rate-limit-per-second` | API rate limit per IP | `RATE_LIMIT_PER_SECOND` | `5` | No |
-| `--rate-limit-burst` | API burst allowance per IP | `RATE_LIMIT_BURST` | `10` | No |
+| `--rate-limit-per-second` | API requests allowed per second | `RATE_LIMIT_PER_SECOND` | `10` | No |
+| `--rate-limit-burst` | Max API burst allowance per IP | `RATE_LIMIT_BURST` | `20` | No |
 
 ### Example
 
