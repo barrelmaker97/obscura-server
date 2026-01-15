@@ -68,39 +68,32 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>) -> 
         .route("/gateway", get(gateway::websocket_handler))
         .layer(GovernorLayer::new(standard_conf));
 
-    Router::new()
-        .nest("/v1", auth_routes.merge(api_routes))
-        .layer(from_fn(log_rate_limit_events))
-        .with_state(state)
+    Router::new().nest("/v1", auth_routes.merge(api_routes)).layer(from_fn(log_rate_limit_events)).with_state(state)
 }
 
 async fn log_rate_limit_events(req: Request<Body>, next: Next) -> Response {
     let method = req.method().clone();
-    
+
     // We must extract the path and IP information BEFORE calling next.run(req),
     // as that consumes the request object.
     let path = req.uri().path().to_string();
-    
-    let ip_header = req.headers().get("x-forwarded-for")
+
+    let ip_header = req
+        .headers()
+        .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.split(',').next())
         .map(|s| s.to_string());
-    
+
     let connect_info = req.extensions().get::<axum::extract::ConnectInfo<std::net::SocketAddr>>().cloned();
 
     let mut response = next.run(req).await;
 
     if response.status() == StatusCode::TOO_MANY_REQUESTS {
-        let ip = ip_header.unwrap_or_else(|| {
-            connect_info
-                .map(|info| info.0.ip().to_string())
-                .unwrap_or_else(|| "unknown".into())
-        });
+        let ip = ip_header
+            .unwrap_or_else(|| connect_info.map(|info| info.0.ip().to_string()).unwrap_or_else(|| "unknown".into()));
 
-        warn!(
-            "Rate limit hit: client_ip={}, method={}, path={}",
-            ip, method, path
-        );
+        warn!("Rate limit hit: client_ip={}, method={}, path={}", ip, method, path);
 
         // Map the internal x-ratelimit-after to the standard Retry-After header
         // for better compatibility with standard HTTP clients.
