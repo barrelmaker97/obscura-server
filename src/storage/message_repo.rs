@@ -1,5 +1,5 @@
 use crate::core::message::Message;
-use crate::error::Result;
+use crate::error::{AppError, Result};
 use sqlx::PgPool;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
@@ -17,7 +17,7 @@ impl MessageRepository {
     pub async fn create(&self, sender_id: Uuid, recipient_id: Uuid, content: Vec<u8>, ttl_days: i64) -> Result<()> {
         let expires_at = OffsetDateTime::now_utc() + Duration::days(ttl_days);
 
-        sqlx::query(
+        let result = sqlx::query(
             r#"
             INSERT INTO messages (sender_id, recipient_id, content, expires_at)
             VALUES ($1, $2, $3, $4)
@@ -28,9 +28,16 @@ impl MessageRepository {
         .bind(content)
         .bind(expires_at)
         .execute(&self.pool)
-        .await?;
+        .await;
 
-        Ok(())
+        match result {
+            Ok(_) => Ok(()),
+            Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("23503") => {
+                // Foreign key violation: recipient_id does not exist
+                Err(AppError::NotFound)
+            }
+            Err(e) => Err(AppError::Database(e)),
+        }
     }
 
     pub async fn fetch_pending(&self, recipient_id: Uuid) -> Result<Vec<Message>> {
