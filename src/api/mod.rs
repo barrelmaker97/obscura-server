@@ -28,10 +28,10 @@ pub struct AppState {
 }
 
 pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>) -> Router {
-    let interval_ms = 1000 / config.rate_limit_per_second.max(1);
+    let interval_ns = 1_000_000_000 / config.rate_limit_per_second.max(1);
     let governor_conf = Arc::new(
         GovernorConfigBuilder::default()
-            .per_millisecond(interval_ms as u64)
+            .per_nanosecond(interval_ns as u64)
             .burst_size(config.rate_limit_burst)
             .key_extractor(rate_limit::IpKeyExtractor)
             .finish()
