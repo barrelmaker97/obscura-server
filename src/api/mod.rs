@@ -78,14 +78,11 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>) -> 
 
 async fn log_rate_limit_events(State(state): State<AppState>, req: Request<Body>, next: Next) -> Response {
     let method = req.method().clone();
-    
+
     // We must extract information BEFORE calling next.run(req), as that consumes the request.
     let path = req.uri().path().to_string();
     let headers = req.headers().clone();
-    let peer_addr = req
-        .extensions()
-        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-        .map(|info| info.0.ip());
+    let peer_addr = req.extensions().get::<axum::extract::ConnectInfo<std::net::SocketAddr>>().map(|info| info.0.ip());
 
     let mut response = next.run(req).await;
 
@@ -95,10 +92,7 @@ async fn log_rate_limit_events(State(state): State<AppState>, req: Request<Body>
             .map(|addr| state.extractor.identify_client_ip(&headers, addr).to_string())
             .unwrap_or_else(|| "unknown".into());
 
-        warn!(
-            "Rate limit hit: client_ip={}, method={}, path={}",
-            ip, method, path
-        );
+        warn!("Rate limit hit: client_ip={}, method={}, path={}", ip, method, path);
 
         // Map the internal x-ratelimit-after to the standard Retry-After header
         // for better compatibility with standard HTTP clients.

@@ -168,15 +168,18 @@ async fn test_rate_limit_spoofing_protection() {
     );
 
     // Request from the 'spoofed' IP without the chain - should work (because it's a different person)
-    let resp_ok = client.get(format!("{}/v1/keys/{}", server_url, uuid::Uuid::new_v4()))
+    let resp_ok = client
+        .get(format!("{}/v1/keys/{}", server_url, uuid::Uuid::new_v4()))
         .header("X-Forwarded-For", spoofed_ip)
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp_ok.status(), StatusCode::NOT_FOUND, "The spoofed IP itself should not be affected");
 }
 
 #[tokio::test]
 async fn test_rate_limit_tiers() {
-    // Default: Standard=10/s, Auth=1/s. 
+    // Default: Standard=10/s, Auth=1/s.
     // We'll use custom values for clarity in test.
     let pool = common::get_test_pool().await;
     let mut config = common::get_test_config();
@@ -209,27 +212,40 @@ async fn test_rate_limit_tiers() {
         "signedPreKey": { "keyId": 1, "publicKey": "dGVzdA==", "signature": "dGVzdA==" },
         "oneTimePreKeys": []
     });
-    
-    let resp1 = client.post(format!("{}/v1/accounts", server_url))
+
+    let resp1 = client
+        .post(format!("{}/v1/accounts", server_url))
         .header("X-Forwarded-For", ip)
         .json(&reg_payload)
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_ne!(resp1.status(), StatusCode::TOO_MANY_REQUESTS);
 
     // Second auth request immediately after should be blocked (Auth Burst = 1)
-    let resp2 = client.post(format!("{}/v1/accounts", server_url))
+    let resp2 = client
+        .post(format!("{}/v1/accounts", server_url))
         .header("X-Forwarded-For", ip)
         .json(&reg_payload)
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp2.status(), StatusCode::TOO_MANY_REQUESTS, "Auth endpoint should be strictly limited");
 
     println!("Testing Standard Tier (Keys) from same IP...");
     // Standard endpoint should STILL WORK because it's a different bucket
     for _ in 0..5 {
-        let resp = client.get(format!("{}/v1/keys/{}", server_url, uuid::Uuid::new_v4()))
+        let resp = client
+            .get(format!("{}/v1/keys/{}", server_url, uuid::Uuid::new_v4()))
             .header("X-Forwarded-For", ip)
-            .send().await.unwrap();
-        assert_ne!(resp.status(), StatusCode::TOO_MANY_REQUESTS, "Standard tier should not be affected by auth exhaustion");
+            .send()
+            .await
+            .unwrap();
+        assert_ne!(
+            resp.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "Standard tier should not be affected by auth exhaustion"
+        );
     }
 }
 

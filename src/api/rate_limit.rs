@@ -12,10 +12,8 @@ pub struct IpKeyExtractor {
 
 impl IpKeyExtractor {
     pub fn new(trusted_proxies_str: &str) -> Self {
-        let trusted_proxies = trusted_proxies_str
-            .split(',')
-            .filter_map(|s| s.trim().parse::<IpNetwork>().ok())
-            .collect();
+        let trusted_proxies =
+            trusted_proxies_str.split(',').filter_map(|s| s.trim().parse::<IpNetwork>().ok()).collect();
         Self { trusted_proxies }
     }
 
@@ -25,18 +23,13 @@ impl IpKeyExtractor {
             return peer_addr;
         }
 
-        let xff = headers
-            .get("x-forwarded-for")
-            .and_then(|v| v.to_str().ok());
+        let xff = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok());
 
         if let Some(xff_val) = xff {
             // Walk the chain from right to left (most recent to original).
             // We skip any IPs that belong to our own infrastructure (trusted proxies).
             // The first IP we encounter that IS NOT trusted is considered the real client.
-            let ips: Vec<IpAddr> = xff_val
-                .split(',')
-                .filter_map(|s| s.trim().parse::<IpAddr>().ok())
-                .collect();
+            let ips: Vec<IpAddr> = xff_val.split(',').filter_map(|s| s.trim().parse::<IpAddr>().ok()).collect();
 
             for ip in ips.into_iter().rev() {
                 if !self.is_trusted(&ip) {
