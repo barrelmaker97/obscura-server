@@ -120,6 +120,47 @@ async fn test_messaging_flow() {
 }
 
 #[tokio::test]
+async fn test_send_message_recipient_not_found() {
+    // 1. Setup Server
+    let pool = common::get_test_pool().await;
+    let config = common::get_test_config();
+    let notifier = Arc::new(InMemoryNotifier::new(config.clone()));
+    let app = app_router(pool, config.clone(), notifier);
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server_url = format!("http://{}", addr);
+
+    tokio::spawn(async move {
+        axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
+    });
+
+    let client = reqwest::Client::new();
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+
+    // 2. Register User A
+    let user_a_name = format!("alice_{}", run_id);
+    let token_a = register_user(&client, &server_url, &user_a_name, 1).await;
+
+    // 3. Send Message to non-existent ID
+    let bad_id = Uuid::new_v4();
+    let outgoing = OutgoingMessage { r#type: 1, content: b"Hello".to_vec(), timestamp: 123456789 };
+    let mut buf = Vec::new();
+    outgoing.encode(&mut buf).unwrap();
+
+    let resp = client
+        .post(format!("{}/v1/messages/{}", server_url, bad_id))
+        .header("Authorization", format!("Bearer {}", token_a))
+        .header("Content-Type", "application/octet-stream")
+        .body(buf)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 404, "Expected 404 when recipient does not exist");
+}
+
+#[tokio::test]
 async fn test_websocket_auth_failure() {
     // 1. Setup Server
     let pool = common::get_test_pool().await;
