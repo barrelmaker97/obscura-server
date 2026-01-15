@@ -13,6 +13,7 @@ pub mod gateway;
 pub mod keys;
 pub mod messages;
 pub mod middleware;
+pub mod rate_limit;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -26,6 +27,7 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>) -> 
         GovernorConfigBuilder::default()
             .per_second(config.rate_limit_per_second as u64)
             .burst_size(config.rate_limit_burst)
+            .key_extractor(rate_limit::SmartIpKeyExtractor)
             .finish()
             .unwrap(),
     );
