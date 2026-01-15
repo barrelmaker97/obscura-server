@@ -28,26 +28,28 @@ impl KeyExtractor for IpKeyExtractor {
     type Key = IpAddr;
 
     fn extract<T>(&self, req: &Request<T>) -> Result<Self::Key, GovernorError> {
+        // Start with the immediate peer (e.g., the Ingress or Load Balancer)
         let peer_ip = req
             .extensions()
             .get::<ConnectInfo<SocketAddr>>()
             .map(|ConnectInfo(addr)| addr.ip())
             .ok_or(GovernorError::UnableToExtractKey)?;
 
-        // If peer is not trusted, we don't even look at X-Forwarded-For
+        // Only trust X-Forwarded-For if the request comes from a known proxy.
+        // If the peer is untrusted, we assume they are the client.
         if !self.is_trusted(&peer_ip) {
             return Ok(peer_ip);
         }
 
-        // If peer is trusted, try X-Forwarded-For header
         let xff = req
             .headers()
             .get("x-forwarded-for")
             .and_then(|v| v.to_str().ok());
 
         if let Some(xff_val) = xff {
-            // Walk the chain from right to left
-            // The rightmost IP is the one that talked to our trusted proxy.
+            // Walk the chain from right to left (most recent to original).
+            // We skip any IPs that belong to our own infrastructure (trusted proxies).
+            // The first IP we encounter that IS NOT trusted is considered the real client.
             let ips: Vec<IpAddr> = xff_val
                 .split(',')
                 .filter_map(|s| s.trim().parse::<IpAddr>().ok())
@@ -60,7 +62,7 @@ impl KeyExtractor for IpKeyExtractor {
             }
         }
 
-        // Fallback to peer IP if header is empty or all IPs are trusted
+        // Fallback to peer IP if header is missing or only contains trusted proxies
         Ok(peer_ip)
     }
 }

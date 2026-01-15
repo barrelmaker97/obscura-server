@@ -25,6 +25,8 @@ Command-line options take precedence over environment variables.
 | `--max-inbox-size` | Max pending messages per user | `MAX_INBOX_SIZE` | `1000` | No |
 | `--rate-limit-per-second` | API requests allowed per second | `RATE_LIMIT_PER_SECOND` | `10` | No |
 | `--rate-limit-burst` | Max API burst allowance per IP | `RATE_LIMIT_BURST` | `20` | No |
+| `--auth-rate-limit-per-second` | Auth requests allowed per second | `AUTH_RATE_LIMIT_PER_SECOND` | `1` | No |
+| `--auth-rate-limit-burst` | Auth API burst allowance per IP | `AUTH_RATE_LIMIT_BURST` | `3` | No |
 | `--trusted-proxies` | CIDR ranges of trusted proxies | `TRUSTED_PROXIES` | `10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.1/32` | No |
 
 ### Example

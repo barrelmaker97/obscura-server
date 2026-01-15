@@ -84,6 +84,8 @@ mod tests {
             jwt_secret: "".to_string(),
             rate_limit_per_second: 5,
             rate_limit_burst: 10,
+            auth_rate_limit_per_second: 1,
+            auth_rate_limit_burst: 3,
             server_host: "0.0.0.0".to_string(),
             server_port: 3000,
             message_ttl_days: 30,
@@ -91,6 +93,7 @@ mod tests {
             message_cleanup_interval_secs: 300,
             notification_gc_interval_secs: gc_interval,
             notification_channel_capacity: capacity,
+            trusted_proxies: "127.0.0.1/32".to_string(),
         }
     }
 

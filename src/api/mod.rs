@@ -28,35 +28,58 @@ pub struct AppState {
 }
 
 pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>) -> Router {
-    let interval_ns = 1_000_000_000 / config.rate_limit_per_second.max(1);
-    let governor_conf = Arc::new(
+    let extractor = rate_limit::IpKeyExtractor::new(&config.trusted_proxies);
+
+    // Standard Tier: For general API usage
+    let std_interval_ns = 1_000_000_000 / config.rate_limit_per_second.max(1);
+    let standard_conf = Arc::new(
         GovernorConfigBuilder::default()
-            .per_nanosecond(interval_ns as u64)
+            .per_nanosecond(std_interval_ns as u64)
             .burst_size(config.rate_limit_burst)
-            .key_extractor(rate_limit::IpKeyExtractor::new(&config.trusted_proxies))
+            .key_extractor(extractor.clone())
+            .finish()
+            .unwrap(),
+    );
+
+    // Auth Tier: Stricter limits for expensive/sensitive registration & login
+    let auth_interval_ns = 1_000_000_000 / config.auth_rate_limit_per_second.max(1);
+    let auth_conf = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_nanosecond(auth_interval_ns as u64)
+            .burst_size(config.auth_rate_limit_burst)
+            .key_extractor(extractor)
             .finish()
             .unwrap(),
     );
 
     let state = AppState { pool, config, notifier };
 
+    // Sensitive routes with strict limits
+    let auth_routes = Router::new()
+        .route("/accounts", post(auth::register))
+        .route("/sessions", post(auth::login))
+        .layer(GovernorLayer::new(auth_conf));
+
+    // Standard routes
+    let api_routes = Router::new()
+        .route("/keys", post(keys::upload_keys))
+        .route("/keys/{userId}", get(keys::get_pre_key_bundle))
+        .route("/messages/{recipientId}", post(messages::send_message))
+        .route("/gateway", get(gateway::websocket_handler))
+        .layer(GovernorLayer::new(standard_conf));
+
     Router::new()
-        .route("/v1/accounts", post(auth::register))
-        .route("/v1/sessions", post(auth::login))
-        .route("/v1/keys", post(keys::upload_keys))
-        .route("/v1/keys/{userId}", get(keys::get_pre_key_bundle))
-        .route("/v1/messages/{recipientId}", post(messages::send_message))
-        .route("/v1/gateway", get(gateway::websocket_handler))
+        .nest("/v1", auth_routes.merge(api_routes))
         .layer(from_fn(log_rate_limit_events))
-        .layer(GovernorLayer::new(governor_conf))
         .with_state(state)
 }
 
 async fn log_rate_limit_events(req: Request<Body>, next: Next) -> Response {
     let method = req.method().clone();
-    let path = req.uri().path().to_string(); // Simple allocation, but safe. 
-    // Optimization: We could use a Cow or only allocate on failure, 
-    // but req is consumed by next.run(req).
+    
+    // We must extract the path and IP information BEFORE calling next.run(req),
+    // as that consumes the request object.
+    let path = req.uri().path().to_string();
     
     let ip_header = req.headers().get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
@@ -79,6 +102,8 @@ async fn log_rate_limit_events(req: Request<Body>, next: Next) -> Response {
             ip, method, path
         );
 
+        // Map the internal x-ratelimit-after to the standard Retry-After header
+        // for better compatibility with standard HTTP clients.
         if let Some(after) = response.headers().get("x-ratelimit-after") {
             let after = after.clone();
             response.headers_mut().insert("retry-after", after);
