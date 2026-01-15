@@ -47,5 +47,6 @@ pub fn get_test_config() -> obscura_server::config::Config {
         message_cleanup_interval_secs: 300,
         notification_gc_interval_secs: 60,
         notification_channel_capacity: 16,
+        trusted_proxies: "127.0.0.1/32,::1/128".to_string(),
     }
 }

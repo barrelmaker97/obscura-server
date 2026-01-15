@@ -33,7 +33,7 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>) -> 
         GovernorConfigBuilder::default()
             .per_nanosecond(interval_ns as u64)
             .burst_size(config.rate_limit_burst)
-            .key_extractor(rate_limit::IpKeyExtractor)
+            .key_extractor(rate_limit::IpKeyExtractor::new(&config.trusted_proxies))
             .finish()
             .unwrap(),
     );

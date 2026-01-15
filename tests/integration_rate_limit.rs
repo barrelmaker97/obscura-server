@@ -64,6 +64,7 @@ async fn test_rate_limit_proxy_chain() {
     let chain = "9.9.9.9, 1.1.1.1, 2.2.2.2";
 
     println!("Testing proxy chain header parsing...");
+    // 2.2.2.2 is not trusted, so it is treated as the client IP
     for _ in 0..2 {
         let resp = client.get(format!("{}/v1/keys/{}", server_url, uuid::Uuid::new_v4()))
             .header("X-Forwarded-For", chain)
@@ -71,11 +72,11 @@ async fn test_rate_limit_proxy_chain() {
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
     
-    // Should be blocked based on the first IP (9.9.9.9)
+    // Should be blocked based on the LAST untrusted IP (2.2.2.2)
     let resp = client.get(format!("{}/v1/keys/{}", server_url, uuid::Uuid::new_v4()))
-        .header("X-Forwarded-For", "9.9.9.9, 4.4.4.4")
+        .header("X-Forwarded-For", "different.spoof, 2.2.2.2")
         .send().await.unwrap();
-    assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS, "Should block based on primary client IP");
+    assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS, "Should block based on the rightmost untrusted IP");
 }
 
 #[tokio::test]
@@ -116,6 +117,36 @@ async fn test_rate_limit_fallback_to_peer_ip() {
     let resp = client.get(format!("{}/v1/keys/{}", server_url, uuid::Uuid::new_v4()))
         .send().await.unwrap();
     assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS, "Should have fallen back to local peer IP and blocked");
+}
+
+#[tokio::test]
+async fn test_rate_limit_spoofing_protection() {
+    // Only 127.0.0.1 is trusted by default in get_test_config()
+    let server_url = setup_test_server(1, 1).await;
+    let client = Client::new();
+    
+    let spoofed_ip = "1.2.3.4";
+    let real_attacker_ip = "5.6.7.8";
+    
+    println!("Sending spoofed header X-Forwarded-For: {}, {}", spoofed_ip, real_attacker_ip);
+    
+    // First request - should be counted against 5.6.7.8, NOT 1.2.3.4
+    let _ = client.get(format!("{}/v1/keys/{}", server_url, uuid::Uuid::new_v4()))
+        .header("X-Forwarded-For", format!("{}, {}", spoofed_ip, real_attacker_ip))
+        .send().await.unwrap();
+
+    // Second request with same 'real' IP but different 'spoofed' IP - should be blocked
+    let resp = client.get(format!("{}/v1/keys/{}", server_url, uuid::Uuid::new_v4()))
+        .header("X-Forwarded-For", format!("9.9.9.9, {}", real_attacker_ip))
+        .send().await.unwrap();
+        
+    assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS, "Should block based on real IP, ignoring the spoofed part");
+
+    // Request from the 'spoofed' IP without the chain - should work (because it's a different person)
+    let resp_ok = client.get(format!("{}/v1/keys/{}", server_url, uuid::Uuid::new_v4()))
+        .header("X-Forwarded-For", spoofed_ip)
+        .send().await.unwrap();
+    assert_eq!(resp_ok.status(), StatusCode::NOT_FOUND, "The spoofed IP itself should not be affected");
 }
 
 #[tokio::test]
