@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:18-alpine
         env:
           POSTGRES_USER: user
           POSTGRES_PASSWORD: password
@@ -55,14 +55,17 @@ jobs:
       - name: Install Protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
-      - name: Build
-        run: cargo build --verbose
+      - name: Set up Rust toolchain
+        run: rustup show
+
+      - name: Cache dependencies
+        uses: swatinem/rust-cache@v2
 
       - name: Run tests
         env:
           DATABASE_URL: postgres://user:password@localhost:5432/signal_server
           JWT_SECRET: test_secret
-        run: cargo test --verbose
+        run: cargo test
 
   publish-crate:
     needs: test
@@ -74,6 +77,12 @@ jobs:
 
       - name: Install Protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Set up Rust toolchain
+        run: rustup show
+
+      - name: Cache dependencies
+        uses: swatinem/rust-cache@v2
 
       - name: Cargo Publish
         env:

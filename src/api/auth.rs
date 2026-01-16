@@ -50,7 +50,14 @@ pub async fn login(State(state): State<AppState>, Json(payload): Json<LoginReque
 
     let user = user_repo.find_by_username(&state.pool, &payload.username).await?.ok_or(AppError::AuthError)?; // Generic AuthError to avoid enumeration
 
-    if !auth::verify_password(&payload.password, &user.password_hash)? {
+    let password = payload.password.clone();
+    let password_hash = user.password_hash.clone();
+
+    let is_valid = tokio::task::spawn_blocking(move || auth::verify_password(&password, &password_hash))
+        .await
+        .map_err(|_| AppError::Internal)??;
+
+    if !is_valid {
         return Err(AppError::AuthError);
     }
 
@@ -66,8 +73,11 @@ pub async fn register(
     let user_repo = UserRepository::new();
     let key_repo = KeyRepository::new(state.pool.clone());
 
-    // 1. Hash Password (Blocking, TODO: Offload)
-    let password_hash = auth::hash_password(&payload.password)?;
+    // 1. Hash Password (Blocking, Offloaded)
+    let password = payload.password.clone();
+    let password_hash = tokio::task::spawn_blocking(move || auth::hash_password(&password))
+        .await
+        .map_err(|_| AppError::Internal)??;
 
     // 2. Start Transaction
     let mut tx = state.pool.begin().await?;
