@@ -65,7 +65,7 @@ jobs:
         env:
           DATABASE_URL: postgres://user:password@localhost:5432/signal_server
           JWT_SECRET: test_secret
-        run: cargo test --verbose
+        run: cargo test
 
   publish-crate:
     needs: test
