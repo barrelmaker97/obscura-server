@@ -11,7 +11,7 @@ use axum::{
     },
     response::IntoResponse,
 };
-use futures::SinkExt;
+use futures::{SinkExt, StreamExt};
 use prost::Message as ProstMessage;
 use serde::Deserialize;
 use uuid::Uuid;
@@ -120,32 +120,37 @@ async fn flush_messages(
     user_id: Uuid,
     sent_ids: &mut HashSet<String>,
 ) -> bool {
-    if let Ok(messages) = repo.fetch_pending(user_id).await {
-        for msg in messages {
-            let msg_id_str = msg.id.to_string();
-            if sent_ids.contains(&msg_id_str) {
-                continue;
-            }
+    let mut stream = repo.fetch_pending(user_id);
 
-            if let Ok(outgoing) = OutgoingMessage::decode(msg.content.as_slice()) {
-                let envelope = IncomingEnvelope {
-                    id: msg_id_str.clone(),
-                    r#type: outgoing.r#type,
-                    source_user_id: msg.sender_id.to_string(),
-                    timestamp: outgoing.timestamp,
-                    content: outgoing.content,
-                };
+    while let Some(result) = stream.next().await {
+        match result {
+            Ok(msg) => {
+                let msg_id_str = msg.id.to_string();
+                if sent_ids.contains(&msg_id_str) {
+                    continue;
+                }
 
-                let frame = WebSocketFrame { request_id: 0, payload: Some(Payload::Envelope(envelope)) };
+                if let Ok(outgoing) = OutgoingMessage::decode(msg.content.as_slice()) {
+                    let envelope = IncomingEnvelope {
+                        id: msg_id_str.clone(),
+                        r#type: outgoing.r#type,
+                        source_user_id: msg.sender_id.to_string(),
+                        timestamp: outgoing.timestamp,
+                        content: outgoing.content,
+                    };
 
-                let mut buf = Vec::new();
-                if frame.encode(&mut buf).is_ok() {
-                    if socket.send(WsMessage::Binary(buf.into())).await.is_err() {
-                        return false;
+                    let frame = WebSocketFrame { request_id: 0, payload: Some(Payload::Envelope(envelope)) };
+
+                    let mut buf = Vec::new();
+                    if frame.encode(&mut buf).is_ok() {
+                        if socket.send(WsMessage::Binary(buf.into())).await.is_err() {
+                            return false;
+                        }
+                        sent_ids.insert(msg_id_str);
                     }
-                    sent_ids.insert(msg_id_str);
                 }
             }
+            Err(_) => return false,
         }
     }
     true
