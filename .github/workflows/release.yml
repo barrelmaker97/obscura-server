@@ -55,8 +55,11 @@ jobs:
       - name: Install Protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
-      - name: Build
-        run: cargo build --verbose
+      - name: Set up Rust toolchain
+        run: rustup show
+
+      - name: Cache dependencies
+        uses: swatinem/rust-cache@v2
 
       - name: Run tests
         env:
@@ -74,6 +77,12 @@ jobs:
 
       - name: Install Protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Set up Rust toolchain
+        run: rustup show
+
+      - name: Cache dependencies
+        uses: swatinem/rust-cache@v2
 
       - name: Cargo Publish
         env:
