@@ -6,14 +6,14 @@ option java_package = "xyz.obscura.server.contracts";
 option java_outer_classname = "ObscuraProtocol";
 
 // ==============================================================================
-// WebSocket Protocol (Downstream / Receiving)
+// Gateway Protocol (WebSocket)
 // Endpoint: /v1/gateway
 // ==============================================================================
 
 // The top-level frame exchanged over the WebSocket connection.
 message WebSocketFrame {
   oneof payload {
-    // Server -> Client: A new encrypted message has arrived.
+    // Server -> Client: A new message has arrived.
     Envelope envelope = 10;
 
     // Client -> Server: Acknowledge receipt of a message (Triggers DB deletion).
@@ -27,22 +27,10 @@ message Envelope {
   string id = 1;            // Unique UUID of the message in the server queue.
   string source_user_id = 2;// UUID of the sender (Unencrypted metadata).
   uint64 timestamp = 3;     // Server-generated timestamp (ms) when the message was received.
-  EncryptedMessage message = 4; // The nested encrypted payload.
+  bytes content = 4;        // The opaque encrypted payload (Signal Ciphertext).
 }
 
 // Sent by Client to confirm processing. Server hard-deletes the message upon receipt.
 message AckMessage {
-  string message_id = 1;    // The UUID from the IncomingEnvelope.
-}
-
-// ==============================================================================
-// REST Protocol (Upstream / Sending)
-// Endpoint: POST /v1/messages/{deviceId}
-// ==============================================================================
-
-// The body of the HTTP POST request when sending a message.
-// The same structure is delivered nested inside an Envelope via WebSocket.
-message EncryptedMessage {
-  int32 type = 1;           // Signal Protocol type.
-  bytes content = 2;        // Encrypted ciphertext.
+  string message_id = 1;    // The UUID from the Envelope.
 }

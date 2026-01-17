@@ -2,7 +2,7 @@ use base64::Engine;
 use futures::{SinkExt, StreamExt};
 use obscura_server::{
     api::app_router, core::notification::InMemoryNotifier,
-    proto::obscura::v1::{EncryptedMessage, WebSocketFrame, web_socket_frame::Payload, AckMessage},
+    proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload, AckMessage},
 };
 use prost::Message as ProstMessage;
 use std::sync::Arc;
@@ -15,11 +15,10 @@ mod common;
 
 #[tokio::test]
 async fn test_ack_batching_behavior() {
-    // 1. Setup Server with specific batching config
     let pool = common::get_test_pool().await;
     let mut config = common::get_test_config();
-    config.ws_ack_batch_size = 5; // Batch of 5
-    config.ws_ack_flush_interval_ms = 1000; // 1 second flush interval
+    config.ws_ack_batch_size = 5;
+    config.ws_ack_flush_interval_ms = 1000;
 
     let notifier = Arc::new(InMemoryNotifier::new(config.clone()));
     let app = app_router(pool.clone(), config.clone(), notifier);
@@ -36,7 +35,6 @@ async fn test_ack_batching_behavior() {
     let client = reqwest::Client::new();
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
 
-    // 2. Register Users
     let user_a_name = format!("alice_{}", run_id);
     let token_a = register_user(&client, &server_url, &user_a_name, 1).await;
     let user_b_name = format!("bob_{}", run_id);
@@ -44,16 +42,13 @@ async fn test_ack_batching_behavior() {
     let claims_b = decode_jwt_claims(&token_b);
     let user_b_id = Uuid::parse_str(claims_b["sub"].as_str().unwrap()).unwrap();
 
-    // 3. Send 3 messages (less than batch size of 5)
     for i in 0..3 {
         send_message(&client, &server_url, &token_a, &user_b_id.to_string(), format!("msg {}", i).as_bytes()).await;
     }
 
-    // 4. Connect via WebSocket
     let (mut ws_stream, _) =
         connect_async(format!("{}?token={}", ws_url, token_b)).await.expect("Failed to connect WS");
 
-    // 5. Receive messages and collect their IDs
     let mut message_ids = Vec::new();
     for _ in 0..3 {
         if let Some(Ok(Message::Binary(bin))) = ws_stream.next().await {
@@ -65,7 +60,6 @@ async fn test_ack_batching_behavior() {
     }
     assert_eq!(message_ids.len(), 3);
 
-    // 6. Send ACKs for all 3 messages
     for id in &message_ids {
         let ack_frame = WebSocketFrame {
             payload: Some(Payload::Ack(AckMessage { message_id: id.clone() })),
@@ -75,8 +69,6 @@ async fn test_ack_batching_behavior() {
         ws_stream.send(Message::Binary(buf.into())).await.unwrap();
     }
 
-    // 7. Verify messages are STILL in DB (batch limit not hit, timer not hit)
-    // Small sleep to ensure the ACK processor task has received the ACKs into its buffer
     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
     let count: i64 = sqlx::query("SELECT COUNT(*) FROM messages WHERE recipient_id = $1")
         .bind(user_b_id)
@@ -86,25 +78,20 @@ async fn test_ack_batching_behavior() {
         .get(0);
     assert_eq!(count, 3, "Messages should still be in DB before batch flush");
 
-    // 8. Wait for flush interval (1s)
     tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
-    // 9. Verify messages are GONE from DB (timer flush)
     let count: i64 = sqlx::query("SELECT COUNT(*) FROM messages WHERE recipient_id = $1")
         .bind(user_b_id)
         .fetch_one(&pool)
         .await
         .unwrap()
         .get(0);
-    assert_eq!(count, 0, "Messages should be flushed after interval");
+    assert_eq!(count, 0, "Messages should have been flushed from DB after interval");
 
-    // 10. Test Batch Size Trigger
-    // Send 5 more messages
     for i in 0..5 {
         send_message(&client, &server_url, &token_a, &user_b_id.to_string(), format!("batch msg {}", i).as_bytes()).await;
     }
 
-    // Receive and ACK them
     for _ in 0..5 {
         if let Some(Ok(Message::Binary(bin))) = ws_stream.next().await {
             let frame = WebSocketFrame::decode(bin.as_ref()).unwrap();
@@ -119,8 +106,6 @@ async fn test_ack_batching_behavior() {
         }
     }
 
-    // 11. Verify messages are GONE immediately (batch size hit)
-    // Small sleep for async DB operation
     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
     let count: i64 = sqlx::query("SELECT COUNT(*) FROM messages WHERE recipient_id = $1")
         .bind(user_b_id)
@@ -128,7 +113,7 @@ async fn test_ack_batching_behavior() {
         .await
         .unwrap()
         .get(0);
-    assert_eq!(count, 0, "Messages should be flushed immediately when batch size is hit");
+    assert_eq!(count, 0, "Messages should have been flushed immediately when batch size hit");
 }
 
 async fn register_user(client: &reqwest::Client, server_url: &str, username: &str, reg_id: u32) -> String {
@@ -145,22 +130,20 @@ async fn register_user(client: &reqwest::Client, server_url: &str, username: &st
         "oneTimePreKeys": []
     });
     let resp = client.post(format!("{}/v1/accounts", server_url)).json(&reg).send().await.unwrap();
+    assert_eq!(resp.status(), 201, "User registration failed in batching test");
     resp.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string()
 }
 
 async fn send_message(client: &reqwest::Client, server_url: &str, token: &str, recipient_id: &str, content: &[u8]) {
-    let outgoing = EncryptedMessage { r#type: 1, content: content.to_vec() };
-    let mut buf = Vec::new();
-    outgoing.encode(&mut buf).unwrap();
-
-    client
+    let resp = client
         .post(format!("{}/v1/messages/{}", server_url, recipient_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/octet-stream")
-        .body(buf)
+        .body(content.to_vec())
         .send()
         .await
         .unwrap();
+    assert_eq!(resp.status(), 201, "Message sending failed in batching test");
 }
 
 fn decode_jwt_claims(token: &str) -> serde_json::Value {
