@@ -29,6 +29,10 @@ Command-line options take precedence over environment variables.
 | `--auth-rate-limit-per-second` | Auth requests allowed per second | `AUTH_RATE_LIMIT_PER_SECOND` | `1` | No |
 | `--auth-rate-limit-burst` | Auth API burst allowance per IP | `AUTH_RATE_LIMIT_BURST` | `3` | No |
 | `--trusted-proxies` | CIDR ranges of trusted proxies | `TRUSTED_PROXIES` | `10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.1/32` | No |
+| `--ws-outbound-buffer-size` | WS outbound channel capacity | `WS_OUTBOUND_BUFFER_SIZE` | `32` | No |
+| `--ws-ack-buffer-size` | WS ACK channel capacity | `WS_ACK_BUFFER_SIZE` | `100` | No |
+| `--ws-ack-batch-size` | WS ACK DB batch size | `WS_ACK_BATCH_SIZE` | `50` | No |
+| `--ws-ack-flush-interval-ms` | WS ACK DB flush interval | `WS_ACK_FLUSH_INTERVAL_MS` | `500` | No |
 
 ### Example
 

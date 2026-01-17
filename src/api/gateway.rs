@@ -83,12 +83,12 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
     // ACK Processor Task: Buffer -> DB Batch Delete
     let repo_ack = MessageRepository::new(state.pool.clone());
     let ack_batch_size = state.config.ws_ack_batch_size;
-    let ack_timeout_ms = state.config.ws_ack_batch_timeout_ms;
+    let ack_flush_interval_ms = state.config.ws_ack_flush_interval_ms;
     
     let mut ack_processor_task = tokio::spawn(async move {
         loop {
             let mut batch = Vec::new();
-            let timeout = tokio::time::sleep(std::time::Duration::from_millis(ack_timeout_ms));
+            let timeout = tokio::time::sleep(std::time::Duration::from_millis(ack_flush_interval_ms));
             tokio::pin!(timeout);
 
             // Collect batch

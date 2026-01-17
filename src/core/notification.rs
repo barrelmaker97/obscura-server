@@ -98,7 +98,7 @@ mod tests {
             ws_outbound_buffer_size: 32,
             ws_ack_buffer_size: 100,
             ws_ack_batch_size: 50,
-            ws_ack_batch_timeout_ms: 500,
+            ws_ack_flush_interval_ms: 500,
         }
     }
 
