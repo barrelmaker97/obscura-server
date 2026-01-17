@@ -87,8 +87,14 @@ impl MessageRepository {
         Ok(messages)
     }
 
-    pub async fn delete(&self, message_id: Uuid) -> Result<()> {
-        sqlx::query("DELETE FROM messages WHERE id = $1").bind(message_id).execute(&self.pool).await?;
+    pub async fn delete_batch(&self, message_ids: &[Uuid]) -> Result<()> {
+        if message_ids.is_empty() {
+            return Ok(());
+        }
+        sqlx::query("DELETE FROM messages WHERE id = ANY($1)")
+            .bind(message_ids)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 

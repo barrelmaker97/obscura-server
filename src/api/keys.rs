@@ -104,7 +104,7 @@ pub async fn upload_keys(
             STANDARD.decode(&k.public_key).map_err(|_| AppError::BadRequest("Invalid base64 oneTimePreKey".into()))?;
         otpk_vec.push((k.key_id, pub_key));
     }
-    key_repo.insert_one_time_pre_keys(&mut *tx, auth_user.user_id, &otpk_vec).await?;
+    key_repo.insert_one_time_pre_keys(&mut tx, auth_user.user_id, &otpk_vec).await?;
 
     tx.commit().await?;
 

@@ -51,5 +51,9 @@ pub fn get_test_config() -> obscura_server::config::Config {
         notification_channel_capacity: 16,
         message_batch_limit: 50,
         trusted_proxies: "127.0.0.1/32,::1/128".to_string(),
+        ws_outbound_buffer_size: 32,
+        ws_ack_buffer_size: 100,
+        ws_ack_batch_size: 50,
+        ws_ack_batch_timeout_ms: 500,
     }
 }

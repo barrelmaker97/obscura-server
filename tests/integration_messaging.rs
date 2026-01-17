@@ -301,8 +301,8 @@ async fn test_redelivery_on_reconnect() {
     ack_frame.encode(&mut ack_buf).unwrap();
     ws_stream.send(Message::Binary(ack_buf.into())).await.expect("Failed to send ACK");
 
-    // Small delay to ensure DB deletion
-    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    // Small delay to ensure DB deletion (batch processing is 500ms)
+    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
     // 8. B Disconnects and Reconnects again
     drop(ws_stream);

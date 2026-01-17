@@ -11,9 +11,11 @@ use axum::{
     },
     response::IntoResponse,
 };
-use futures::SinkExt;
+use futures::{SinkExt, StreamExt};
+use tokio::sync::mpsc;
 use prost::Message as ProstMessage;
 use serde::Deserialize;
+use tracing::{warn, error};
 use uuid::Uuid;
 
 #[derive(Deserialize)]
@@ -34,9 +36,7 @@ pub async fn websocket_handler(
 }
 
 async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
-    let repo = MessageRepository::new(state.pool.clone());
     let key_repo = KeyRepository::new(state.pool.clone());
-    let mut cursor: Option<(time::OffsetDateTime, Uuid)> = None;
 
     // Check for Identity Key
     if let Ok(None) = key_repo.fetch_identity_key(user_id).await {
@@ -45,22 +45,95 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
         return;
     }
 
-    let mut rx = state.notifier.subscribe(user_id);
+    let (mut ws_sink, mut ws_stream) = socket.split();
+    let (outbound_tx, mut outbound_rx) = mpsc::channel::<WsMessage>(state.config.ws_outbound_buffer_size);
+    let (fetch_trigger, mut fetch_signal) = mpsc::channel::<()>(1);
+    // Bounded channel for ACKs (DoS protection)
+    let (ack_tx, mut ack_rx) = mpsc::channel::<Uuid>(state.config.ws_ack_buffer_size);
 
-    // Initial check for pending messages on connect
-    if !flush_messages(&mut socket, &repo, user_id, state.config.message_batch_limit, &mut cursor).await {
-        return;
-    }
+    // Writer Task: Message Channel -> Socket
+    let mut socket_writer_task = tokio::spawn(async move {
+        while let Some(msg) = outbound_rx.recv().await {
+            if ws_sink.send(msg).await.is_err() {
+                break;
+            }
+        }
+        let _ = ws_sink.close().await;
+    });
+
+    // Fetcher Task: Trigger -> DB -> Message Channel
+    let pool = state.pool.clone();
+    let batch_limit = state.config.message_batch_limit;
+    let mut db_poller_task = tokio::spawn(async move {
+        let repo = MessageRepository::new(pool);
+        let mut cursor: Option<(time::OffsetDateTime, Uuid)> = None;
+
+        // Initial fetch
+        if !flush_messages(&outbound_tx, &repo, user_id, batch_limit, &mut cursor).await {
+            return;
+        }
+
+        while fetch_signal.recv().await.is_some() {
+            if !flush_messages(&outbound_tx, &repo, user_id, batch_limit, &mut cursor).await {
+                break;
+            }
+        }
+    });
+
+    // ACK Processor Task: Buffer -> DB Batch Delete
+    let repo_ack = MessageRepository::new(state.pool.clone());
+    let ack_batch_size = state.config.ws_ack_batch_size;
+    let ack_timeout_ms = state.config.ws_ack_batch_timeout_ms;
+    
+    let mut ack_processor_task = tokio::spawn(async move {
+        loop {
+            let mut batch = Vec::new();
+            let timeout = tokio::time::sleep(std::time::Duration::from_millis(ack_timeout_ms));
+            tokio::pin!(timeout);
+
+            // Collect batch
+            loop {
+                tokio::select! {
+                    res = ack_rx.recv() => {
+                        match res {
+                            Some(id) => {
+                                batch.push(id);
+                                if batch.len() >= ack_batch_size {
+                                    break;
+                                }
+                            }
+                            None => return, // Channel closed
+                        }
+                    }
+                    _ = &mut timeout => {
+                        break;
+                    }
+                }
+            }
+
+            if !batch.is_empty() {
+                if let Err(e) = repo_ack.delete_batch(&batch).await {
+                    error!("Failed to process ACK batch: {}", e);
+                }
+            }
+        }
+    });
+
+    let mut rx = state.notifier.subscribe(user_id);
 
     loop {
         tokio::select! {
-            msg = socket.recv() => {
+            msg = ws_stream.next() => {
                 match msg {
                     Some(Ok(WsMessage::Binary(bin))) => {
                          if let Ok(frame) = WebSocketFrame::decode(bin.as_ref())
                              && let Some(Payload::Ack(ack)) = frame.payload
                              && let Ok(msg_id) = Uuid::parse_str(&ack.message_id) {
-                                 let _ = repo.delete(msg_id).await;
+                                 // Non-blocking send. If buffer is full, we drop the ACK.
+                                 // The server will re-deliver the message later, which is safe.
+                                 if let Err(_) = ack_tx.try_send(msg_id) {
+                                     warn!("Dropped ACK for message {} due to full buffer", msg_id);
+                                 }
                          }
                     }
                     Some(Ok(WsMessage::Close(_))) => break,
@@ -78,17 +151,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
                             UserEvent::Disconnect => break,
                         }
                     },
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                         // Lagged: Assume message received
-                         true
-                    },
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                        break;
-                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => true,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 };
 
-                // Drain any pending notifications to avoid redundant DB checks
-                // If we see a Disconnect while draining, we should break immediately
                 let mut disconnect_seen = false;
                 while let Ok(evt) = rx.try_recv() {
                     match evt {
@@ -102,17 +168,22 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
                 }
 
                 if should_fetch {
-                    if !flush_messages(&mut socket, &repo, user_id, state.config.message_batch_limit, &mut cursor).await {
-                        break;
-                    }
+                    let _ = fetch_trigger.try_send(());
                 }
             }
+            _ = &mut socket_writer_task => break,
+            _ = &mut db_poller_task => break,
+            _ = &mut ack_processor_task => break,
         }
     }
+
+    socket_writer_task.abort();
+    db_poller_task.abort();
+    ack_processor_task.abort();
 }
 
 async fn flush_messages(
-    socket: &mut WebSocket,
+    tx: &mpsc::Sender<WsMessage>,
     repo: &MessageRepository,
     user_id: Uuid,
     limit: i64,
@@ -128,10 +199,9 @@ async fn flush_messages(
                 let batch_size = messages.len();
 
                 // Update cursor for next iteration based on the last message
-                if let Some(last_msg) = messages.last() {
-                    if let Some(ts) = last_msg.created_at {
+                if let Some(last_msg) = messages.last()
+                    && let Some(ts) = last_msg.created_at {
                         *cursor = Some((ts, last_msg.id));
-                    }
                 }
 
                 for msg in messages {
@@ -147,10 +217,9 @@ async fn flush_messages(
                         let frame = WebSocketFrame { request_id: 0, payload: Some(Payload::Envelope(envelope)) };
 
                         let mut buf = Vec::new();
-                        if frame.encode(&mut buf).is_ok() {
-                            if socket.send(WsMessage::Binary(buf.into())).await.is_err() {
+                        if frame.encode(&mut buf).is_ok()
+                            && tx.send(WsMessage::Binary(buf.into())).await.is_err() {
                                 return false;
-                            }
                         }
                     }
                 }
@@ -159,7 +228,10 @@ async fn flush_messages(
                     break;
                 }
             }
-            Err(_) => return false,
+            Err(e) => {
+                error!("Failed to fetch pending messages for user {}: {}", user_id, e);
+                return false;
+            }
         }
     }
     true
