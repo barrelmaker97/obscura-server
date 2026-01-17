@@ -3,7 +3,7 @@ use crate::api::middleware::AuthUser;
 use crate::core::message_service::MessageService;
 use crate::core::notification::UserEvent;
 use crate::error::{AppError, Result};
-use crate::proto::obscura::v1::OutgoingMessage;
+use crate::proto::obscura::v1::EncryptedMessage;
 use crate::storage::message_repo::MessageRepository;
 use axum::{
     body::Bytes,
@@ -21,11 +21,11 @@ pub async fn send_message(
     body: Bytes,
 ) -> Result<impl IntoResponse> {
     // Validate Protobuf
-    let _ = OutgoingMessage::decode(body.clone()).map_err(|_| AppError::BadRequest("Invalid protobuf".into()))?;
+    let _ = EncryptedMessage::decode(body.clone()).map_err(|_| AppError::BadRequest("Invalid protobuf".into()))?;
 
     let service = MessageService::new(MessageRepository::new(state.pool), state.config.clone());
 
-    // Store raw body (OutgoingMessage serialized)
+    // Store raw body (Message serialized)
     service.enqueue_message(auth_user.user_id, recipient_id, body.to_vec()).await?;
 
     // Notify the user if they are connected

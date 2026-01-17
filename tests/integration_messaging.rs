@@ -1,7 +1,10 @@
 use base64::Engine;
 use futures::{SinkExt, StreamExt};
-use obscura_server::proto::obscura::v1::{AckMessage, OutgoingMessage, WebSocketFrame, web_socket_frame::Payload};
-use obscura_server::{api::app_router, core::notification::InMemoryNotifier};
+use obscura_server::{
+    api::app_router,
+    core::notification::InMemoryNotifier,
+    proto::obscura::v1::{AckMessage, EncryptedMessage, WebSocketFrame, web_socket_frame::Payload},
+};
 use prost::Message as ProstMessage;
 use serde_json::json;
 use std::sync::Arc;
@@ -73,7 +76,7 @@ async fn test_messaging_flow() {
     let user_b_id = claims_b["sub"].as_str().unwrap();
 
     // 4. Send Message from A to B
-    let outgoing = OutgoingMessage { r#type: 1, content: b"Hello World".to_vec() };
+    let outgoing = EncryptedMessage { r#type: 1, content: b"Hello World".to_vec() };
     let mut buf = Vec::new();
     outgoing.encode(&mut buf).unwrap();
 
@@ -99,7 +102,7 @@ async fn test_messaging_flow() {
             // Using as_ref() to get &[u8]
             let frame = WebSocketFrame::decode(bin.as_ref()).unwrap();
             if let Some(Payload::Envelope(env)) = frame.payload {
-                assert_eq!(env.content, b"Hello World");
+                assert_eq!(env.message.unwrap().content, b"Hello World");
 
                 // Send ACK
                 let ack = AckMessage { message_id: env.id.clone() };
@@ -144,7 +147,7 @@ async fn test_send_message_recipient_not_found() {
 
     // 3. Send Message to non-existent ID
     let bad_id = Uuid::new_v4();
-    let outgoing = OutgoingMessage { r#type: 1, content: b"Hello".to_vec() };
+    let outgoing = EncryptedMessage { r#type: 1, content: b"Hello".to_vec() };
     let mut buf = Vec::new();
     outgoing.encode(&mut buf).unwrap();
 
@@ -344,7 +347,7 @@ async fn register_user(client: &reqwest::Client, server_url: &str, username: &st
 }
 
 async fn send_message(client: &reqwest::Client, server_url: &str, token: &str, recipient_id: &str, content: &[u8]) {
-    let outgoing = OutgoingMessage { r#type: 1, content: content.to_vec() };
+    let outgoing = EncryptedMessage { r#type: 1, content: content.to_vec() };
     let mut buf = Vec::new();
     outgoing.encode(&mut buf).unwrap();
 

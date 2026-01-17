@@ -14,7 +14,7 @@ option java_outer_classname = "ObscuraProtocol";
 message WebSocketFrame {
   oneof payload {
     // Server -> Client: A new encrypted message has arrived.
-    IncomingEnvelope envelope = 10;
+    Envelope envelope = 10;
 
     // Client -> Server: Acknowledge receipt of a message (Triggers DB deletion).
     AckMessage ack = 11;
@@ -23,12 +23,11 @@ message WebSocketFrame {
 
 // Represents a message waiting in the queue for the connected device.
 // The client MUST reply with an `AckMessage` containing this message's ID.
-message IncomingEnvelope {
+message Envelope {
   string id = 1;            // Unique UUID of the message in the server queue.
-  int32 type = 2;           // Signal Protocol type (1=Ciphertext, 2=KeyBundle, etc).
-  string source_user_id = 3;// UUID of the sender (Unencrypted metadata).
-  uint64 timestamp = 4;     // Server-generated timestamp (ms) when the message was received.
-  bytes content = 5;        // THE BLACK BOX: Encrypted ciphertext (Opaque to server).
+  string source_user_id = 2;// UUID of the sender (Unencrypted metadata).
+  uint64 timestamp = 3;     // Server-generated timestamp (ms) when the message was received.
+  EncryptedMessage message = 4; // The nested encrypted payload.
 }
 
 // Sent by Client to confirm processing. Server hard-deletes the message upon receipt.
@@ -42,8 +41,8 @@ message AckMessage {
 // ==============================================================================
 
 // The body of the HTTP POST request when sending a message.
-// Content-Type: application/x-protobuf
-message OutgoingMessage {
+// The same structure is delivered nested inside an Envelope via WebSocket.
+message EncryptedMessage {
   int32 type = 1;           // Signal Protocol type.
   bytes content = 2;        // Encrypted ciphertext.
 }

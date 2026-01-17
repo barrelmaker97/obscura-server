@@ -1,6 +1,6 @@
 use base64::Engine;
 use futures::StreamExt;
-use obscura_server::proto::obscura::v1::{OutgoingMessage, WebSocketFrame, web_socket_frame::Payload};
+use obscura_server::proto::obscura::v1::{EncryptedMessage, WebSocketFrame, web_socket_frame::Payload};
 use obscura_server::{api::app_router, core::notification::InMemoryNotifier};
 use prost::Message as ProstMessage;
 use serde_json::json;
@@ -53,6 +53,7 @@ async fn test_message_pagination_large_backlog() {
 
     // 5. Receive and Verify All Messages
     let mut received_messages = Vec::new();
+    let mut received_ids = Vec::new();
     let timeout = std::time::Duration::from_secs(10);
     let start = std::time::Instant::now();
 
@@ -60,9 +61,12 @@ async fn test_message_pagination_large_backlog() {
         match tokio::time::timeout(std::time::Duration::from_millis(1000), ws_stream.next()).await {
             Ok(Some(Ok(Message::Binary(bin)))) => {
                 let frame = WebSocketFrame::decode(bin.as_ref()).unwrap();
-                if let Some(Payload::Envelope(env)) = frame.payload {
-                    received_messages.push(String::from_utf8(env.content).unwrap());
-                }
+        if let Some(Payload::Envelope(env)) = frame.payload {
+            if !received_ids.contains(&env.id) {
+                received_ids.push(env.id);
+                received_messages.push(String::from_utf8(env.message.unwrap().content).unwrap());
+            }
+        }
             }
             _ => break,
         }
@@ -95,7 +99,7 @@ async fn register_user(client: &reqwest::Client, server_url: &str, username: &st
 }
 
 async fn send_message(client: &reqwest::Client, server_url: &str, token: &str, recipient_id: &str, content: &[u8]) {
-    let outgoing = OutgoingMessage { r#type: 1, content: content.to_vec() };
+    let outgoing = EncryptedMessage { r#type: 1, content: content.to_vec() };
     let mut buf = Vec::new();
     outgoing.encode(&mut buf).unwrap();
 

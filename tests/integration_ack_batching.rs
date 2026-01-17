@@ -2,7 +2,7 @@ use base64::Engine;
 use futures::{SinkExt, StreamExt};
 use obscura_server::{
     api::app_router, core::notification::InMemoryNotifier,
-    proto::obscura::v1::{OutgoingMessage, WebSocketFrame, web_socket_frame::Payload, AckMessage},
+    proto::obscura::v1::{EncryptedMessage, WebSocketFrame, web_socket_frame::Payload, AckMessage},
 };
 use prost::Message as ProstMessage;
 use std::sync::Arc;
@@ -149,7 +149,7 @@ async fn register_user(client: &reqwest::Client, server_url: &str, username: &st
 }
 
 async fn send_message(client: &reqwest::Client, server_url: &str, token: &str, recipient_id: &str, content: &[u8]) {
-    let outgoing = OutgoingMessage { r#type: 1, content: content.to_vec() };
+    let outgoing = EncryptedMessage { r#type: 1, content: content.to_vec() };
     let mut buf = Vec::new();
     outgoing.encode(&mut buf).unwrap();
 

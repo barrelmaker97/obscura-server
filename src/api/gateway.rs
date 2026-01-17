@@ -1,7 +1,7 @@
 use crate::api::AppState;
 use crate::api::middleware::verify_jwt;
 use crate::core::notification::UserEvent;
-use crate::proto::obscura::v1::{IncomingEnvelope, OutgoingMessage, WebSocketFrame, web_socket_frame::Payload};
+use crate::proto::obscura::v1::{EncryptedMessage, Envelope, WebSocketFrame, web_socket_frame::Payload};
 use crate::storage::key_repo::KeyRepository;
 use crate::storage::message_repo::MessageRepository;
 use axum::{
@@ -204,17 +204,16 @@ async fn flush_messages(
                 }
 
                 for msg in messages {
-                    if let Ok(outgoing) = OutgoingMessage::decode(msg.content.as_slice()) {
+                    if let Ok(proto_msg) = EncryptedMessage::decode(msg.content.as_slice()) {
                         let timestamp = msg.created_at
                             .map(|ts| (ts.unix_timestamp_nanos() / 1_000_000) as u64)
                             .unwrap_or_else(|| (time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000) as u64);
 
-                        let envelope = IncomingEnvelope {
+                        let envelope = Envelope {
                             id: msg.id.to_string(),
-                            r#type: outgoing.r#type,
                             source_user_id: msg.sender_id.to_string(),
                             timestamp,
-                            content: outgoing.content,
+                            message: Some(proto_msg),
                         };
 
                         let frame = WebSocketFrame { payload: Some(Payload::Envelope(envelope)) };

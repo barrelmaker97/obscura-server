@@ -1,6 +1,6 @@
 use base64::Engine;
 use futures::StreamExt;
-use obscura_server::proto::obscura::v1::{OutgoingMessage, WebSocketFrame, web_socket_frame::Payload};
+use obscura_server::proto::obscura::v1::{EncryptedMessage, WebSocketFrame, web_socket_frame::Payload};
 use obscura_server::{api::app_router, core::notification::InMemoryNotifier, storage::message_repo::MessageRepository};
 use prost::Message as ProstMessage;
 use serde_json::json;
@@ -78,7 +78,7 @@ async fn test_message_limit_fifo() {
     // Messages 0, 1, 2, 3, 4 should be gone. Message 5 should be the first one.
     for i in 0..1005 {
         let payload = format!("msg_{}", i).into_bytes();
-        let outgoing = OutgoingMessage { r#type: 1, content: payload };
+        let outgoing = EncryptedMessage { r#type: 1, content: payload };
         let mut buf = Vec::new();
         outgoing.encode(&mut buf).unwrap();
 
@@ -107,8 +107,7 @@ async fn test_message_limit_fifo() {
         if let Message::Binary(bin) = msg {
             let frame = WebSocketFrame::decode(bin.as_ref()).unwrap();
             if let Some(Payload::Envelope(env)) = frame.payload {
-                // The oldest available message should be "msg_5"
-                assert_eq!(env.content, b"msg_5");
+                assert_eq!(env.message.unwrap().content, b"msg_5", "First received message should be msg_5 (0-4 dropped)");
             }
         }
     } else {

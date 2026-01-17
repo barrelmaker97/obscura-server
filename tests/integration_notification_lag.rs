@@ -1,6 +1,6 @@
 use base64::Engine;
 use futures::StreamExt;
-use obscura_server::proto::obscura::v1::OutgoingMessage;
+use obscura_server::proto::obscura::v1::EncryptedMessage;
 use obscura_server::{api::app_router, core::notification::InMemoryNotifier};
 use prost::Message as ProstMessage;
 use serde_json::json;
@@ -82,7 +82,7 @@ async fn test_slow_consumer_notification_drop() {
     let message_count = 30;
     for i in 0..message_count {
         let outgoing =
-            OutgoingMessage { r#type: 1, content: format!("Message {}", i).into_bytes() };
+            EncryptedMessage { r#type: 1, content: format!("Message {}", i).into_bytes() };
         let mut buf = Vec::new();
         outgoing.encode(&mut buf).unwrap();
 
