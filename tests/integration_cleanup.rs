@@ -23,7 +23,7 @@ async fn test_expired_message_cleanup() {
     let msg_id = Uuid::new_v4();
     let expired_time = OffsetDateTime::now_utc() - Duration::days(1);
 
-    sqlx::query("INSERT INTO messages (id, sender_id, recipient_id, content, expires_at) VALUES ($1, $2, $2, $3, $4)")
+    sqlx::query("INSERT INTO messages (id, sender_id, recipient_id, message_type, content, expires_at) VALUES ($1, $2, $2, 2, $3, $4)")
         .bind(msg_id)
         .bind(user_id)
         .bind(b"expired content".to_vec())
@@ -36,7 +36,7 @@ async fn test_expired_message_cleanup() {
     let active_msg_id = Uuid::new_v4();
     let active_time = OffsetDateTime::now_utc() + Duration::days(1);
 
-    sqlx::query("INSERT INTO messages (id, sender_id, recipient_id, content, expires_at) VALUES ($1, $2, $2, $3, $4)")
+    sqlx::query("INSERT INTO messages (id, sender_id, recipient_id, message_type, content, expires_at) VALUES ($1, $2, $2, 2, $3, $4)")
         .bind(active_msg_id)
         .bind(user_id)
         .bind(b"active content".to_vec())

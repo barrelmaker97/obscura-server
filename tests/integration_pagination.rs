@@ -1,6 +1,6 @@
 use base64::Engine;
 use futures::StreamExt;
-use obscura_server::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
+use obscura_server::proto::obscura::v1::{EncryptedMessage, WebSocketFrame, web_socket_frame::Payload};
 use obscura_server::{api::app_router, core::notification::InMemoryNotifier};
 use prost::Message as ProstMessage;
 use serde_json::json;
@@ -58,7 +58,8 @@ async fn test_message_pagination_large_backlog() {
                 if let Some(Payload::Envelope(env)) = frame.payload {
                     if !received_ids.contains(&env.id) {
                         received_ids.push(env.id);
-                        received_messages.push(String::from_utf8(env.content).unwrap());
+                        let content = env.message.unwrap().content;
+                        received_messages.push(String::from_utf8(content).unwrap());
                     }
                 }
             }
@@ -92,11 +93,18 @@ async fn register_user(client: &reqwest::Client, server_url: &str, username: &st
 }
 
 async fn send_message(client: &reqwest::Client, server_url: &str, token: &str, recipient_id: &str, content: &[u8]) {
+    let enc_msg = EncryptedMessage {
+        r#type: 2,
+        content: content.to_vec(),
+    };
+    let mut buf = Vec::new();
+    enc_msg.encode(&mut buf).unwrap();
+
     let resp = client
         .post(format!("{}/v1/messages/{}", server_url, recipient_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/octet-stream")
-        .body(content.to_vec())
+        .body(buf)
         .send()
         .await
         .unwrap();
