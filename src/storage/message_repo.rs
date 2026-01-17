@@ -1,6 +1,5 @@
 use crate::core::message::Message;
 use crate::error::{AppError, Result};
-use futures::stream::{BoxStream, StreamExt};
 use sqlx::PgPool;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
@@ -41,19 +40,51 @@ impl MessageRepository {
         }
     }
 
-    pub fn fetch_pending(&self, recipient_id: Uuid) -> BoxStream<'_, Result<Message>> {
-        sqlx::query_as::<_, Message>(
-            r#"
-            SELECT id, sender_id, recipient_id, content, created_at, expires_at
-            FROM messages
-            WHERE recipient_id = $1 AND expires_at > NOW()
-            ORDER BY created_at ASC
-            "#,
-        )
-        .bind(recipient_id)
-        .fetch(&self.pool)
-        .map(|res| res.map_err(AppError::Database))
-        .boxed()
+    pub async fn fetch_pending_batch(
+        &self,
+        recipient_id: Uuid,
+        cursor: Option<(OffsetDateTime, Uuid)>,
+        limit: i64,
+    ) -> Result<Vec<Message>> {
+        let messages = match cursor {
+            Some((last_ts, last_id)) => {
+                sqlx::query_as::<_, Message>(
+                    r#"
+                    SELECT id, sender_id, recipient_id, content, created_at, expires_at
+                    FROM messages
+                    WHERE recipient_id = $1 
+                      AND expires_at > NOW()
+                      AND (created_at, id) > ($2, $3)
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT $4
+                    "#,
+                )
+                .bind(recipient_id)
+                .bind(last_ts)
+                .bind(last_id)
+                .bind(limit)
+                .fetch_all(&self.pool)
+                .await?
+            }
+            None => {
+                sqlx::query_as::<_, Message>(
+                    r#"
+                    SELECT id, sender_id, recipient_id, content, created_at, expires_at
+                    FROM messages
+                    WHERE recipient_id = $1 
+                      AND expires_at > NOW()
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT $2
+                    "#,
+                )
+                .bind(recipient_id)
+                .bind(limit)
+                .fetch_all(&self.pool)
+                .await?
+            }
+        };
+
+        Ok(messages)
     }
 
     pub async fn delete(&self, message_id: Uuid) -> Result<()> {

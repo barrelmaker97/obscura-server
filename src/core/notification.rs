@@ -93,6 +93,7 @@ mod tests {
             message_cleanup_interval_secs: 300,
             notification_gc_interval_secs: gc_interval,
             notification_channel_capacity: capacity,
+            message_batch_limit: 50,
             trusted_proxies: "127.0.0.1/32".to_string(),
         }
     }

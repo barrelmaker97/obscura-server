@@ -66,13 +66,7 @@ async fn test_device_takeover_success() {
     // 3. Populate Data (PreKeys exist from reg, add a pending message)
     let msg_repo = MessageRepository::new(pool.clone());
     msg_repo.create(user_id, user_id, vec![1, 2, 3], 30).await.unwrap();
-    let pending_before: Vec<_> = msg_repo
-        .fetch_pending(user_id)
-        .collect::<Vec<_>>()
-        .await
-        .into_iter()
-        .collect::<Result<_, _>>()
-        .unwrap();
+    let pending_before = msg_repo.fetch_pending_batch(user_id, None, 100).await.unwrap();
     assert_eq!(pending_before.len(), 1);
 
     // 4. Connect WebSocket (Device A)
@@ -124,13 +118,7 @@ async fn test_device_takeover_success() {
 
     // 7. Verify Cleanup
     // Pending messages should be gone
-    let pending_after: Vec<_> = msg_repo
-        .fetch_pending(user_id)
-        .collect::<Vec<_>>()
-        .await
-        .into_iter()
-        .collect::<Result<_, _>>()
-        .unwrap();
+    let pending_after = msg_repo.fetch_pending_batch(user_id, None, 100).await.unwrap();
     assert_eq!(pending_after.len(), 0);
 
     // Old PreKeys should be gone (Key ID 1 was uploaded initially, Key ID 2 is new)

@@ -11,7 +11,7 @@ use axum::{
     },
     response::IntoResponse,
 };
-use futures::{SinkExt, StreamExt};
+use futures::SinkExt;
 use prost::Message as ProstMessage;
 use serde::Deserialize;
 use uuid::Uuid;
@@ -21,7 +21,6 @@ pub struct WsParams {
     token: String,
 }
 
-use std::collections::HashSet;
 
 pub async fn websocket_handler(
     ws: WebSocketUpgrade,
@@ -37,7 +36,7 @@ pub async fn websocket_handler(
 async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
     let repo = MessageRepository::new(state.pool.clone());
     let key_repo = KeyRepository::new(state.pool.clone());
-    let mut sent_message_ids = HashSet::new();
+    let mut cursor: Option<(time::OffsetDateTime, Uuid)> = None;
 
     // Check for Identity Key
     if let Ok(None) = key_repo.fetch_identity_key(user_id).await {
@@ -49,7 +48,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
     let mut rx = state.notifier.subscribe(user_id);
 
     // Initial check for pending messages on connect
-    if !flush_messages(&mut socket, &repo, user_id, &mut sent_message_ids).await {
+    if !flush_messages(&mut socket, &repo, user_id, state.config.message_batch_limit, &mut cursor).await {
         return;
     }
 
@@ -61,9 +60,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
                          if let Ok(frame) = WebSocketFrame::decode(bin.as_ref())
                              && let Some(Payload::Ack(ack)) = frame.payload
                              && let Ok(msg_id) = Uuid::parse_str(&ack.message_id) {
-                                 if repo.delete(msg_id).await.is_ok() {
-                                     sent_message_ids.remove(&ack.message_id);
-                                 }
+                                 let _ = repo.delete(msg_id).await;
                          }
                     }
                     Some(Ok(WsMessage::Close(_))) => break,
@@ -105,7 +102,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
                 }
 
                 if should_fetch {
-                    if !flush_messages(&mut socket, &repo, user_id, &mut sent_message_ids).await {
+                    if !flush_messages(&mut socket, &repo, user_id, state.config.message_batch_limit, &mut cursor).await {
                         break;
                     }
                 }
@@ -118,36 +115,48 @@ async fn flush_messages(
     socket: &mut WebSocket,
     repo: &MessageRepository,
     user_id: Uuid,
-    sent_ids: &mut HashSet<String>,
+    limit: i64,
+    cursor: &mut Option<(time::OffsetDateTime, Uuid)>,
 ) -> bool {
-    let mut stream = repo.fetch_pending(user_id);
-
-    while let Some(result) = stream.next().await {
-        match result {
-            Ok(msg) => {
-                let msg_id_str = msg.id.to_string();
-                if sent_ids.contains(&msg_id_str) {
-                    continue;
+    loop {
+        match repo.fetch_pending_batch(user_id, *cursor, limit).await {
+            Ok(messages) => {
+                if messages.is_empty() {
+                    break;
                 }
 
-                if let Ok(outgoing) = OutgoingMessage::decode(msg.content.as_slice()) {
-                    let envelope = IncomingEnvelope {
-                        id: msg_id_str.clone(),
-                        r#type: outgoing.r#type,
-                        source_user_id: msg.sender_id.to_string(),
-                        timestamp: outgoing.timestamp,
-                        content: outgoing.content,
-                    };
+                let batch_size = messages.len();
 
-                    let frame = WebSocketFrame { request_id: 0, payload: Some(Payload::Envelope(envelope)) };
-
-                    let mut buf = Vec::new();
-                    if frame.encode(&mut buf).is_ok() {
-                        if socket.send(WsMessage::Binary(buf.into())).await.is_err() {
-                            return false;
-                        }
-                        sent_ids.insert(msg_id_str);
+                // Update cursor for next iteration based on the last message
+                if let Some(last_msg) = messages.last() {
+                    if let Some(ts) = last_msg.created_at {
+                        *cursor = Some((ts, last_msg.id));
                     }
+                }
+
+                for msg in messages {
+                    if let Ok(outgoing) = OutgoingMessage::decode(msg.content.as_slice()) {
+                        let envelope = IncomingEnvelope {
+                            id: msg.id.to_string(),
+                            r#type: outgoing.r#type,
+                            source_user_id: msg.sender_id.to_string(),
+                            timestamp: outgoing.timestamp,
+                            content: outgoing.content,
+                        };
+
+                        let frame = WebSocketFrame { request_id: 0, payload: Some(Payload::Envelope(envelope)) };
+
+                        let mut buf = Vec::new();
+                        if frame.encode(&mut buf).is_ok() {
+                            if socket.send(WsMessage::Binary(buf.into())).await.is_err() {
+                                return false;
+                            }
+                        }
+                    }
+                }
+
+                if batch_size < limit as usize {
+                    break;
                 }
             }
             Err(_) => return false,

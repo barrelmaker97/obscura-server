@@ -246,6 +246,85 @@ async fn test_no_duplicate_delivery() {
     }
 }
 
+#[tokio::test]
+async fn test_redelivery_on_reconnect() {
+    // 1. Setup Server
+    let pool = common::get_test_pool().await;
+    let config = common::get_test_config();
+    let notifier = Arc::new(InMemoryNotifier::new(config.clone()));
+    let app = app_router(pool, config.clone(), notifier);
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server_url = format!("http://{}", addr);
+    let ws_url = format!("ws://{}/v1/gateway", addr);
+
+    tokio::spawn(async move {
+        axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
+    });
+
+    let client = reqwest::Client::new();
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+
+    // 2. Register Users
+    let user_a_name = format!("alice_{}", run_id);
+    let token_a = register_user(&client, &server_url, &user_a_name, 1).await;
+    let user_b_name = format!("bob_{}", run_id);
+    let token_b = register_user(&client, &server_url, &user_b_name, 2).await;
+    let claims_b = decode_jwt_claims(&token_b);
+    let user_b_id = claims_b["sub"].as_str().unwrap();
+
+    // 3. Send Message (A -> B)
+    send_message(&client, &server_url, &token_a, user_b_id, b"Persistent Message").await;
+
+    // 4. B Connects and receives Message (but DOES NOT ACK)
+    {
+        let (mut ws_stream, _) =
+            connect_async(format!("{}?token={}", ws_url, token_b)).await.expect("Failed to connect WS");
+        let msg_id = receive_envelope(&mut ws_stream).await;
+        assert!(!msg_id.is_empty());
+        // Dropping ws_stream closes the connection without ACK
+    }
+
+    // 5. B Reconnects
+    let (mut ws_stream, _) =
+        connect_async(format!("{}?token={}", ws_url, token_b)).await.expect("Failed to connect WS again");
+
+    // 6. B should receive the SAME message again
+    let msg_id_again = receive_envelope(&mut ws_stream).await;
+    assert!(!msg_id_again.is_empty());
+
+    // 7. Now ACK the message
+    let ack = AckMessage { message_id: msg_id_again.clone() };
+    let ack_frame = WebSocketFrame { request_id: 0, payload: Some(Payload::Ack(ack)) };
+    let mut ack_buf = Vec::new();
+    ack_frame.encode(&mut ack_buf).unwrap();
+    ws_stream.send(Message::Binary(ack_buf.into())).await.expect("Failed to send ACK");
+
+    // Small delay to ensure DB deletion
+    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
+    // 8. B Disconnects and Reconnects again
+    drop(ws_stream);
+    let (mut ws_stream, _) =
+        connect_async(format!("{}?token={}", ws_url, token_b)).await.expect("Failed to connect WS third time");
+
+    // 9. B should receive NOTHING
+    tokio::select! {
+        _ = tokio::time::sleep(tokio::time::Duration::from_millis(500)) => {
+            // Success
+        }
+        msg = ws_stream.next() => {
+            if let Some(Ok(Message::Binary(bin))) = msg {
+                 let frame = WebSocketFrame::decode(bin.as_ref()).unwrap();
+                 if let Some(Payload::Envelope(env)) = frame.payload {
+                     panic!("Received message after ACK: {:?}", env.id);
+                 }
+            }
+        }
+    }
+}
+
 async fn register_user(client: &reqwest::Client, server_url: &str, username: &str, reg_id: u32) -> String {
     let reg = json!({
         "username": username,
