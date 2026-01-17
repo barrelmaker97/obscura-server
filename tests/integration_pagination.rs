@@ -70,9 +70,9 @@ async fn test_message_pagination_large_backlog() {
 
     assert_eq!(received_messages.len(), message_count, "Did not receive all messages");
 
-    // 6. Verify Order
-    for i in 0..message_count {
-        assert_eq!(received_messages[i], format!("Message {}", i), "Message at index {} is out of order", i);
+    // Verify ordering and content
+    for (i, msg) in received_messages.iter().enumerate().take(message_count) {
+        assert_eq!(msg.as_bytes(), format!("Message {}", i).as_bytes());
     }
 }
 

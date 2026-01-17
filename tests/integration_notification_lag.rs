@@ -1,13 +1,13 @@
 use base64::Engine;
 use futures::StreamExt;
-use obscura_server::proto::obscura::v1::{OutgoingMessage, WebSocketFrame, web_socket_frame::Payload};
+use obscura_server::proto::obscura::v1::OutgoingMessage;
 use obscura_server::{api::app_router, core::notification::InMemoryNotifier};
 use prost::Message as ProstMessage;
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
-use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
+use tokio_tungstenite::connect_async;
 use uuid::Uuid;
 
 mod common;
@@ -116,25 +116,23 @@ async fn test_slow_consumer_notification_drop() {
             break;
         }
 
-        match tokio::time::timeout(Duration::from_millis(500), ws_stream.next()).await {
-            Ok(Some(Ok(Message::Binary(bin)))) => {
-                if let Ok(frame) = WebSocketFrame::decode(bin.as_ref()) {
-                    if let Some(Payload::Envelope(_)) = frame.payload {
-                        received_count += 1;
-                        if received_count == message_count {
-                            break;
-                        }
+        if let Ok(Some(msg)) = tokio::time::timeout(Duration::from_millis(500), ws_stream.next()).await {
+            match msg {
+                Ok(tokio_tungstenite::tungstenite::protocol::Message::Binary(bin)) => {
+                    use obscura_server::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
+                    if let Ok(frame) = WebSocketFrame::decode(bin.as_ref())
+                        && let Some(Payload::Envelope(_)) = frame.payload {
+                            received_count += 1;
+                            if received_count == message_count {
+                                break;
+                            }
                     }
                 }
+                Ok(tokio_tungstenite::tungstenite::protocol::Message::Close(_)) | Ok(tokio_tungstenite::tungstenite::protocol::Message::Frame(_)) => break,
+                Err(_) | Ok(tokio_tungstenite::tungstenite::protocol::Message::Ping(_)) | Ok(tokio_tungstenite::tungstenite::protocol::Message::Pong(_)) | Ok(tokio_tungstenite::tungstenite::protocol::Message::Text(_)) => {}
             }
-            Ok(Some(Ok(Message::Close(_)))) => break,
-            Ok(Some(Err(_))) => break,
-            Ok(None) => break,
-            Err(_) => {
-                // Timeout on individual read, continue loop
-                continue;
-            }
-            _ => {}
+        } else if std::time::Instant::now().duration_since(start) > timeout {
+             break;
         }
     }
 

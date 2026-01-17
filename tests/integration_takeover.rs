@@ -225,21 +225,16 @@ async fn test_no_identity_key_rejects_websocket() {
     // Generate a token for this user
     let token = obscura_server::api::middleware::create_jwt(user.id, &config.jwt_secret).unwrap();
 
-    // 2. Connect WS
+    // Verify connection is rejected or closed immediately
     let res = connect_async(format!("{}?token={}", ws_url, token)).await;
-
-    // 3. Verify Rejection
-    match res {
-        Ok((mut ws, _)) => {
-            // If connection succeeds, it should close immediately
-            match ws.next().await {
-                Some(Ok(Message::Close(_))) => {}
-                None => {}         // Closed
-                Some(Err(_)) => {} // Error/Closed
-                _ => {} // Anything else implies connection is open, but if it closes right after, that's fine too.
-                        // Ideally we want to see a close or stream end.
-            }
+    if let Ok((mut ws, _)) = res {
+        // If connection succeeds, it should close immediately
+        match ws.next().await {
+            Some(Ok(Message::Close(_))) => {}
+            None => {}         // Closed
+            Some(Err(_)) => {} // Error/Closed
+            _ => {} // Anything else implies connection is open, but if it closes right after, that's fine too.
+                    // Ideally we want to see a close or stream end.
         }
-        Err(_) => {} // Handshake failure is also acceptable
     }
 }

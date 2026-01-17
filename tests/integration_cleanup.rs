@@ -14,7 +14,7 @@ async fn test_expired_message_cleanup() {
     let user_id = Uuid::new_v4();
     sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
         .bind(user_id)
-        .bind(format!("cleanup_user_{}", user_id.to_string()[..8].to_string()))
+        .bind(format!("cleanup_user_{}", &user_id.to_string()[..8]))
         .execute(&pool)
         .await
         .unwrap();

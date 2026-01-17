@@ -111,10 +111,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
                 }
             }
 
-            if !batch.is_empty() {
-                if let Err(e) = repo_ack.delete_batch(&batch).await {
+            if !batch.is_empty()
+                && let Err(e) = repo_ack.delete_batch(&batch).await {
                     error!("Failed to process ACK batch: {}", e);
-                }
             }
         }
     });
@@ -131,7 +130,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
                              && let Ok(msg_id) = Uuid::parse_str(&ack.message_id) {
                                  // Non-blocking send. If buffer is full, we drop the ACK.
                                  // The server will re-deliver the message later, which is safe.
-                                 if let Err(_) = ack_tx.try_send(msg_id) {
+                                 if ack_tx.try_send(msg_id).is_err() {
                                      warn!("Dropped ACK for message {} due to full buffer", msg_id);
                                  }
                          }
