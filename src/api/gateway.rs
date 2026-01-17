@@ -51,16 +51,6 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
     // Bounded channel for ACKs (DoS protection)
     let (ack_tx, mut ack_rx) = mpsc::channel::<Uuid>(state.config.ws_ack_buffer_size);
 
-    // Writer Task: Message Channel -> Socket
-    let mut socket_writer_task = tokio::spawn(async move {
-        while let Some(msg) = outbound_rx.recv().await {
-            if ws_sink.send(msg).await.is_err() {
-                break;
-            }
-        }
-        let _ = ws_sink.close().await;
-    });
-
     // Fetcher Task: Trigger -> DB -> Message Channel
     let pool = state.pool.clone();
     let batch_limit = state.config.message_batch_limit;
@@ -122,6 +112,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
 
     loop {
         tokio::select! {
+            biased;
+
+            // 1. Process incoming messages (highest priority for responsiveness)
             msg = ws_stream.next() => {
                 match msg {
                     Some(Ok(WsMessage::Binary(bin))) => {
@@ -141,7 +134,20 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
                     _ => {}
                 }
             }
-            // Event-driven trigger
+
+            // 2. Process outgoing messages
+            res = outbound_rx.recv() => {
+                match res {
+                    Some(msg) => {
+                        if ws_sink.send(msg).await.is_err() {
+                            break;
+                        }
+                    }
+                    None => break,
+                }
+            }
+
+            // 3. Event-driven trigger for new messages
             result = rx.recv() => {
                 let mut should_fetch = match result {
                     Ok(event) => {
@@ -170,13 +176,14 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
                     let _ = fetch_trigger.try_send(());
                 }
             }
-            _ = &mut socket_writer_task => break,
+
+            // 4. Background task failures
             _ = &mut db_poller_task => break,
             _ = &mut ack_processor_task => break,
         }
     }
 
-    socket_writer_task.abort();
+    let _ = ws_sink.close().await;
     db_poller_task.abort();
     ack_processor_task.abort();
 }
