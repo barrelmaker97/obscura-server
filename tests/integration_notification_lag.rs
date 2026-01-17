@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use uuid::Uuid;
-use obscura_server::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
+use obscura_server::proto::obscura::v1::{EncryptedMessage, WebSocketFrame, web_socket_frame::Payload};
 
 mod common;
 
@@ -57,11 +57,17 @@ async fn test_notification_lag_recovery() {
     let message_count = 100;
     for i in 0..message_count {
         let content = format!("Message {}", i).into_bytes();
+                let enc_msg = EncryptedMessage {
+                r#type: 2,
+                content,
+            };        let mut buf = Vec::new();
+        enc_msg.encode(&mut buf).unwrap();
+
         client
             .post(format!("{}/v1/messages/{}", server_url, user_b_id))
             .header("Authorization", format!("Bearer {}", token_a))
             .header("Content-Type", "application/octet-stream")
-            .body(content)
+            .body(buf)
             .send()
             .await
             .unwrap();

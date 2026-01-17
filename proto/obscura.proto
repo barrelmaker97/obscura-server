@@ -27,7 +27,17 @@ message Envelope {
   string id = 1;            // Unique UUID of the message in the server queue.
   string source_user_id = 2;// UUID of the sender (Unencrypted metadata).
   uint64 timestamp = 3;     // Server-generated timestamp (ms) when the message was received.
-  bytes content = 4;        // The opaque encrypted payload (Signal Ciphertext).
+  EncryptedMessage message = 4;
+}
+
+message EncryptedMessage {
+  enum Type {
+    UNKNOWN = 0;
+    PREKEY_MESSAGE = 1; // Initial handshake
+    ENCRYPTED_MESSAGE = 2; // Standard encrypted message
+  }
+  Type type = 1;
+  bytes content = 2; // The actual ciphertext
 }
 
 // Sent by Client to confirm processing. Server hard-deletes the message upon receipt.

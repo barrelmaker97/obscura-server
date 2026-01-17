@@ -1,0 +1,1 @@
+ALTER TABLE messages ADD COLUMN message_type INTEGER NOT NULL DEFAULT 2;

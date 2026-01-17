@@ -65,7 +65,7 @@ async fn test_device_takeover_success() {
 
     // 3. Populate Data (PreKeys exist from reg, add a pending message)
     let msg_repo = MessageRepository::new(pool.clone());
-    msg_repo.create(user_id, user_id, vec![1, 2, 3], 30).await.unwrap();
+    msg_repo.create(user_id, user_id, 2, vec![1, 2, 3], 30).await.unwrap();
     let pending_before = msg_repo.fetch_pending_batch(user_id, None, 100).await.unwrap();
     assert_eq!(pending_before.len(), 1);
 

@@ -3,7 +3,7 @@ use futures::{SinkExt, StreamExt};
 use obscura_server::{
     api::app_router,
     core::notification::InMemoryNotifier,
-    proto::obscura::v1::{AckMessage, WebSocketFrame, web_socket_frame::Payload},
+    proto::obscura::v1::{AckMessage, EncryptedMessage, WebSocketFrame, web_socket_frame::Payload},
 };
 use prost::Message as ProstMessage;
 use serde_json::json;
@@ -44,14 +44,20 @@ async fn test_messaging_flow() {
     let claims_b = decode_jwt_claims(&token_b);
     let user_b_id = claims_b["sub"].as_str().unwrap();
 
-    // 4. Send Message from A to B (Raw bytes)
+    // 4. Send Message from A to B (EncryptedMessage protobuf)
     let content = b"Hello World".to_vec();
+    let enc_msg = EncryptedMessage {
+        r#type: 2, // WHISPER_MESSAGE
+        content: content.clone(),
+    };
+    let mut body_buf = Vec::new();
+    enc_msg.encode(&mut body_buf).unwrap();
 
     let resp_msg = client
         .post(format!("{}/v1/messages/{}", server_url, user_b_id))
         .header("Authorization", format!("Bearer {}", token_a))
         .header("Content-Type", "application/octet-stream")
-        .body(content.clone())
+        .body(body_buf)
         .send()
         .await
         .unwrap();
@@ -68,7 +74,9 @@ async fn test_messaging_flow() {
         if let Message::Binary(bin) = msg {
             let frame = WebSocketFrame::decode(bin.as_ref()).unwrap();
             if let Some(Payload::Envelope(env)) = frame.payload {
-                assert_eq!(env.content, content);
+                let received_msg = env.message.expect("Envelope missing message");
+                assert_eq!(received_msg.content, content);
+                assert_eq!(received_msg.r#type, 2);
 
                 // Send ACK
                 let ack = AckMessage { message_id: env.id.clone() };
@@ -109,19 +117,24 @@ async fn test_send_message_recipient_not_found() {
     let token_a = register_user(&client, &server_url, &user_a_name, 1).await;
 
     let bad_id = Uuid::new_v4();
-    let content = b"Hello".to_vec();
+    // Prepare valid EncryptedMessage even for bad recipient test, though server might fail before decoding if auth/path fails first.
+    // However, to be safe and cleaner, we send a valid body.
+    let enc_msg = EncryptedMessage { r#type: 2, content: b"Hello".to_vec() };
+    let mut buf = Vec::new();
+    enc_msg.encode(&mut buf).unwrap();
 
     let resp = client
         .post(format!("{}/v1/messages/{}", server_url, bad_id))
         .header("Authorization", format!("Bearer {}", token_a))
         .header("Content-Type", "application/octet-stream")
-        .body(content)
+        .body(buf)
         .send()
         .await
         .unwrap();
 
     assert_eq!(resp.status(), 404);
 }
+
 
 #[tokio::test]
 async fn test_websocket_auth_failure() {
@@ -278,11 +291,18 @@ async fn register_user(client: &reqwest::Client, server_url: &str, username: &st
 }
 
 async fn send_message(client: &reqwest::Client, server_url: &str, token: &str, recipient_id: &str, content: &[u8]) {
+    let enc_msg = obscura_server::proto::obscura::v1::EncryptedMessage {
+        r#type: 2,
+        content: content.to_vec(),
+    };
+    let mut buf = Vec::new();
+    enc_msg.encode(&mut buf).unwrap();
+
     let resp = client
         .post(format!("{}/v1/messages/{}", server_url, recipient_id))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/octet-stream")
-        .body(content.to_vec())
+        .body(buf)
         .send()
         .await
         .unwrap();

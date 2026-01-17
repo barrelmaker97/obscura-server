@@ -14,17 +14,18 @@ impl MessageRepository {
         Self { pool }
     }
 
-    pub async fn create(&self, sender_id: Uuid, recipient_id: Uuid, content: Vec<u8>, ttl_days: i64) -> Result<()> {
+    pub async fn create(&self, sender_id: Uuid, recipient_id: Uuid, message_type: i32, content: Vec<u8>, ttl_days: i64) -> Result<()> {
         let expires_at = OffsetDateTime::now_utc() + Duration::days(ttl_days);
 
         let result = sqlx::query(
             r#"
-            INSERT INTO messages (sender_id, recipient_id, content, expires_at)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO messages (sender_id, recipient_id, message_type, content, expires_at)
+            VALUES ($1, $2, $3, $4, $5)
             "#,
         )
         .bind(sender_id)
         .bind(recipient_id)
+        .bind(message_type)
         .bind(content)
         .bind(expires_at)
         .execute(&self.pool)
@@ -50,7 +51,7 @@ impl MessageRepository {
             Some((last_ts, last_id)) => {
                 sqlx::query_as::<_, Message>(
                     r#"
-                    SELECT id, sender_id, recipient_id, content, created_at, expires_at
+                    SELECT id, sender_id, recipient_id, message_type, content, created_at, expires_at
                     FROM messages
                     WHERE recipient_id = $1
                       AND expires_at > NOW()
@@ -69,7 +70,7 @@ impl MessageRepository {
             None => {
                 sqlx::query_as::<_, Message>(
                     r#"
-                    SELECT id, sender_id, recipient_id, content, created_at, expires_at
+                    SELECT id, sender_id, recipient_id, message_type, content, created_at, expires_at
                     FROM messages
                     WHERE recipient_id = $1
                       AND expires_at > NOW()

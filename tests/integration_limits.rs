@@ -1,6 +1,6 @@
 use base64::Engine;
 use futures::StreamExt;
-use obscura_server::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
+use obscura_server::proto::obscura::v1::{EncryptedMessage, WebSocketFrame, web_socket_frame::Payload};
 use obscura_server::{api::app_router, core::notification::InMemoryNotifier, storage::message_repo::MessageRepository};
 use prost::Message as ProstMessage;
 use serde_json::json;
@@ -43,11 +43,17 @@ async fn test_message_limit_fifo() {
 
     for i in 0..1005 {
         let payload = format!("msg_{}", i).into_bytes();
+                let enc_msg = EncryptedMessage {
+                r#type: 2, // ENCRYPTED_MESSAGE
+                content: payload,
+            };        let mut buf = Vec::new();
+        enc_msg.encode(&mut buf).unwrap();
+
         let resp = client
             .post(format!("{}/v1/messages/{}", server_url, user_b_id))
             .header("Authorization", format!("Bearer {}", token_a))
             .header("Content-Type", "application/octet-stream")
-            .body(payload)
+            .body(buf)
             .send()
             .await
             .unwrap();
@@ -65,7 +71,8 @@ async fn test_message_limit_fifo() {
         if let Message::Binary(bin) = msg {
             let frame = WebSocketFrame::decode(bin.as_ref()).unwrap();
             if let Some(Payload::Envelope(env)) = frame.payload {
-                assert_eq!(env.content, b"msg_5", "First message should be msg_5 (0-4 should have been pruned)");
+                let content = env.message.unwrap().content;
+                assert_eq!(content, b"msg_5", "First message should be msg_5 (0-4 should have been pruned)");
             }
         }
     } else {
