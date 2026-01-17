@@ -23,11 +23,16 @@ Command-line options take precedence over environment variables.
 | `--port` | Port to bind the server to | `PORT` | `3000` | No |
 | `--message-ttl-days` | Days before a message is auto-deleted | `MESSAGE_TTL_DAYS` | `30` | No |
 | `--max-inbox-size` | Max pending messages per user | `MAX_INBOX_SIZE` | `1000` | No |
+| `--message-batch-limit` | Max messages sent per DB fetch loop | `MESSAGE_BATCH_LIMIT` | `50` | No |
 | `--rate-limit-per-second` | API requests allowed per second | `RATE_LIMIT_PER_SECOND` | `10` | No |
 | `--rate-limit-burst` | Max API burst allowance per IP | `RATE_LIMIT_BURST` | `20` | No |
 | `--auth-rate-limit-per-second` | Auth requests allowed per second | `AUTH_RATE_LIMIT_PER_SECOND` | `1` | No |
 | `--auth-rate-limit-burst` | Auth API burst allowance per IP | `AUTH_RATE_LIMIT_BURST` | `3` | No |
 | `--trusted-proxies` | CIDR ranges of trusted proxies | `TRUSTED_PROXIES` | `10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.1/32` | No |
+| `--ws-outbound-buffer-size` | WS outbound channel capacity | `WS_OUTBOUND_BUFFER_SIZE` | `32` | No |
+| `--ws-ack-buffer-size` | WS ACK channel capacity | `WS_ACK_BUFFER_SIZE` | `100` | No |
+| `--ws-ack-batch-size` | WS ACK DB batch size | `WS_ACK_BATCH_SIZE` | `50` | No |
+| `--ws-ack-flush-interval-ms` | WS ACK DB flush interval | `WS_ACK_FLUSH_INTERVAL_MS` | `500` | No |
 
 ### Example
 

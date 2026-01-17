@@ -66,7 +66,7 @@ async fn test_device_takeover_success() {
     // 3. Populate Data (PreKeys exist from reg, add a pending message)
     let msg_repo = MessageRepository::new(pool.clone());
     msg_repo.create(user_id, user_id, vec![1, 2, 3], 30).await.unwrap();
-    let pending_before = msg_repo.fetch_pending(user_id).await.unwrap();
+    let pending_before = msg_repo.fetch_pending_batch(user_id, None, 100).await.unwrap();
     assert_eq!(pending_before.len(), 1);
 
     // 4. Connect WebSocket (Device A)
@@ -118,7 +118,7 @@ async fn test_device_takeover_success() {
 
     // 7. Verify Cleanup
     // Pending messages should be gone
-    let pending_after = msg_repo.fetch_pending(user_id).await.unwrap();
+    let pending_after = msg_repo.fetch_pending_batch(user_id, None, 100).await.unwrap();
     assert_eq!(pending_after.len(), 0);
 
     // Old PreKeys should be gone (Key ID 1 was uploaded initially, Key ID 2 is new)
@@ -225,21 +225,16 @@ async fn test_no_identity_key_rejects_websocket() {
     // Generate a token for this user
     let token = obscura_server::api::middleware::create_jwt(user.id, &config.jwt_secret).unwrap();
 
-    // 2. Connect WS
+    // Verify connection is rejected or closed immediately
     let res = connect_async(format!("{}?token={}", ws_url, token)).await;
-
-    // 3. Verify Rejection
-    match res {
-        Ok((mut ws, _)) => {
-            // If connection succeeds, it should close immediately
-            match ws.next().await {
-                Some(Ok(Message::Close(_))) => {}
-                None => {}         // Closed
-                Some(Err(_)) => {} // Error/Closed
-                _ => {} // Anything else implies connection is open, but if it closes right after, that's fine too.
-                        // Ideally we want to see a close or stream end.
-            }
+    if let Ok((mut ws, _)) = res {
+        // If connection succeeds, it should close immediately
+        match ws.next().await {
+            Some(Ok(Message::Close(_))) => {}
+            None => {}         // Closed
+            Some(Err(_)) => {} // Error/Closed
+            _ => {} // Anything else implies connection is open, but if it closes right after, that's fine too.
+                    // Ideally we want to see a close or stream end.
         }
-        Err(_) => {} // Handshake failure is also acceptable
     }
 }

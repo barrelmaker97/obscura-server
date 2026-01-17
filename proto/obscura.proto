@@ -6,63 +6,31 @@ option java_package = "xyz.obscura.server.contracts";
 option java_outer_classname = "ObscuraProtocol";
 
 // ==============================================================================
-// WebSocket Protocol (Downstream / Receiving)
+// Gateway Protocol (WebSocket)
 // Endpoint: /v1/gateway
 // ==============================================================================
 
 // The top-level frame exchanged over the WebSocket connection.
 message WebSocketFrame {
-  // Correlation ID for async request/response tracking (optional).
-  uint64 request_id = 1;
-
   oneof payload {
-    // Server -> Client: A new encrypted message has arrived.
-    IncomingEnvelope envelope = 10;
+    // Server -> Client: A new message has arrived.
+    Envelope envelope = 10;
 
     // Client -> Server: Acknowledge receipt of a message (Triggers DB deletion).
     AckMessage ack = 11;
-
-    // Bidirectional: Keep connection alive.
-    Heartbeat heartbeat = 12;
-
-    // Server -> Client: Error notification.
-    ErrorMessage error = 13;
   }
 }
 
 // Represents a message waiting in the queue for the connected device.
 // The client MUST reply with an `AckMessage` containing this message's ID.
-message IncomingEnvelope {
+message Envelope {
   string id = 1;            // Unique UUID of the message in the server queue.
-  int32 type = 2;           // Signal Protocol type (1=Ciphertext, 2=KeyBundle, etc).
-  string source_user_id = 3;// UUID of the sender (Unencrypted metadata).
-  uint64 timestamp = 4;     // Client-generated timestamp (ms).
-  bytes content = 5;        // THE BLACK BOX: Encrypted ciphertext (Opaque to server).
+  string source_user_id = 2;// UUID of the sender (Unencrypted metadata).
+  uint64 timestamp = 3;     // Server-generated timestamp (ms) when the message was received.
+  bytes content = 4;        // The opaque encrypted payload (Signal Ciphertext).
 }
 
 // Sent by Client to confirm processing. Server hard-deletes the message upon receipt.
 message AckMessage {
-  string message_id = 1;    // The UUID from the IncomingEnvelope.
-}
-
-message Heartbeat {
-  uint64 timestamp = 1;
-}
-
-message ErrorMessage {
-  uint32 code = 1;
-  string message = 2;
-}
-
-// ==============================================================================
-// REST Protocol (Upstream / Sending)
-// Endpoint: POST /v1/messages/{deviceId}
-// ==============================================================================
-
-// The body of the HTTP POST request when sending a message.
-// Content-Type: application/x-protobuf
-message OutgoingMessage {
-  int32 type = 1;           // Signal Protocol type.
-  bytes content = 2;        // Encrypted ciphertext.
-  uint64 timestamp = 3;     // Creation timestamp.
+  string message_id = 1;    // The UUID from the Envelope.
 }

@@ -11,7 +11,12 @@ const DEFAULT_MAX_INBOX_SIZE: i64 = 1000;
 const DEFAULT_MESSAGE_CLEANUP_INTERVAL_SECS: u64 = 300;
 const DEFAULT_NOTIFICATION_GC_INTERVAL_SECS: u64 = 60;
 const DEFAULT_NOTIFICATION_CHANNEL_CAPACITY: usize = 16;
+const DEFAULT_MESSAGE_BATCH_LIMIT: i64 = 50;
 const DEFAULT_TRUSTED_PROXIES: &str = "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32";
+const DEFAULT_WS_OUTBOUND_BUFFER_SIZE: usize = 32;
+const DEFAULT_WS_ACK_BUFFER_SIZE: usize = 100;
+const DEFAULT_WS_ACK_BATCH_SIZE: usize = 50;
+const DEFAULT_WS_ACK_FLUSH_INTERVAL_MS: u64 = 500;
 
 #[derive(Clone, Debug, Parser)]
 #[command(version, about, long_about = None)]
@@ -57,9 +62,24 @@ pub struct Config {
     #[arg(long, env, default_value_t = DEFAULT_NOTIFICATION_CHANNEL_CAPACITY)]
     pub notification_channel_capacity: usize,
 
+    #[arg(long, env, default_value_t = DEFAULT_MESSAGE_BATCH_LIMIT)]
+    pub message_batch_limit: i64,
+
     /// Comma-separated list of CIDRs to trust for X-Forwarded-For IP extraction
     #[arg(long, env, default_value = DEFAULT_TRUSTED_PROXIES)]
     pub trusted_proxies: String,
+
+    #[arg(long, env, default_value_t = DEFAULT_WS_OUTBOUND_BUFFER_SIZE)]
+    pub ws_outbound_buffer_size: usize,
+
+    #[arg(long, env, default_value_t = DEFAULT_WS_ACK_BUFFER_SIZE)]
+    pub ws_ack_buffer_size: usize,
+
+    #[arg(long, env, default_value_t = DEFAULT_WS_ACK_BATCH_SIZE)]
+    pub ws_ack_batch_size: usize,
+
+    #[arg(long, env, default_value_t = DEFAULT_WS_ACK_FLUSH_INTERVAL_MS)]
+    pub ws_ack_flush_interval_ms: u64,
 }
 
 impl Config {

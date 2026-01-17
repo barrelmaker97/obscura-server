@@ -40,24 +40,61 @@ impl MessageRepository {
         }
     }
 
-    pub async fn fetch_pending(&self, recipient_id: Uuid) -> Result<Vec<Message>> {
-        let messages = sqlx::query_as::<_, Message>(
-            r#"
-            SELECT id, sender_id, recipient_id, content, created_at, expires_at
-            FROM messages
-            WHERE recipient_id = $1 AND expires_at > NOW()
-            ORDER BY created_at ASC
-            "#,
-        )
-        .bind(recipient_id)
-        .fetch_all(&self.pool)
-        .await?;
+    pub async fn fetch_pending_batch(
+        &self,
+        recipient_id: Uuid,
+        cursor: Option<(OffsetDateTime, Uuid)>,
+        limit: i64,
+    ) -> Result<Vec<Message>> {
+        let messages = match cursor {
+            Some((last_ts, last_id)) => {
+                sqlx::query_as::<_, Message>(
+                    r#"
+                    SELECT id, sender_id, recipient_id, content, created_at, expires_at
+                    FROM messages
+                    WHERE recipient_id = $1
+                      AND expires_at > NOW()
+                      AND (created_at, id) > ($2, $3)
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT $4
+                    "#,
+                )
+                .bind(recipient_id)
+                .bind(last_ts)
+                .bind(last_id)
+                .bind(limit)
+                .fetch_all(&self.pool)
+                .await?
+            }
+            None => {
+                sqlx::query_as::<_, Message>(
+                    r#"
+                    SELECT id, sender_id, recipient_id, content, created_at, expires_at
+                    FROM messages
+                    WHERE recipient_id = $1
+                      AND expires_at > NOW()
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT $2
+                    "#,
+                )
+                .bind(recipient_id)
+                .bind(limit)
+                .fetch_all(&self.pool)
+                .await?
+            }
+        };
 
         Ok(messages)
     }
 
-    pub async fn delete(&self, message_id: Uuid) -> Result<()> {
-        sqlx::query("DELETE FROM messages WHERE id = $1").bind(message_id).execute(&self.pool).await?;
+    pub async fn delete_batch(&self, message_ids: &[Uuid]) -> Result<()> {
+        if message_ids.is_empty() {
+            return Ok(());
+        }
+        sqlx::query("DELETE FROM messages WHERE id = ANY($1)")
+            .bind(message_ids)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
