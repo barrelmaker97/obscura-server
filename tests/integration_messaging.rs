@@ -73,7 +73,7 @@ async fn test_messaging_flow() {
     let user_b_id = claims_b["sub"].as_str().unwrap();
 
     // 4. Send Message from A to B
-    let outgoing = OutgoingMessage { r#type: 1, content: b"Hello World".to_vec(), timestamp: 123456789 };
+    let outgoing = OutgoingMessage { r#type: 1, content: b"Hello World".to_vec() };
     let mut buf = Vec::new();
     outgoing.encode(&mut buf).unwrap();
 
@@ -144,7 +144,7 @@ async fn test_send_message_recipient_not_found() {
 
     // 3. Send Message to non-existent ID
     let bad_id = Uuid::new_v4();
-    let outgoing = OutgoingMessage { r#type: 1, content: b"Hello".to_vec(), timestamp: 123456789 };
+    let outgoing = OutgoingMessage { r#type: 1, content: b"Hello".to_vec() };
     let mut buf = Vec::new();
     outgoing.encode(&mut buf).unwrap();
 
@@ -344,7 +344,7 @@ async fn register_user(client: &reqwest::Client, server_url: &str, username: &st
 }
 
 async fn send_message(client: &reqwest::Client, server_url: &str, token: &str, recipient_id: &str, content: &[u8]) {
-    let outgoing = OutgoingMessage { r#type: 1, content: content.to_vec(), timestamp: 123456789 };
+    let outgoing = OutgoingMessage { r#type: 1, content: content.to_vec() };
     let mut buf = Vec::new();
     outgoing.encode(&mut buf).unwrap();
 

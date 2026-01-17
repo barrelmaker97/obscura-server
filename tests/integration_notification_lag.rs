@@ -82,7 +82,7 @@ async fn test_slow_consumer_notification_drop() {
     let message_count = 30;
     for i in 0..message_count {
         let outgoing =
-            OutgoingMessage { r#type: 1, content: format!("Message {}", i).into_bytes(), timestamp: 123456789 };
+            OutgoingMessage { r#type: 1, content: format!("Message {}", i).into_bytes() };
         let mut buf = Vec::new();
         outgoing.encode(&mut buf).unwrap();
 

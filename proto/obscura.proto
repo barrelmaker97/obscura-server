@@ -27,7 +27,7 @@ message IncomingEnvelope {
   string id = 1;            // Unique UUID of the message in the server queue.
   int32 type = 2;           // Signal Protocol type (1=Ciphertext, 2=KeyBundle, etc).
   string source_user_id = 3;// UUID of the sender (Unencrypted metadata).
-  uint64 timestamp = 4;     // Client-generated timestamp (ms).
+  uint64 timestamp = 4;     // Server-generated timestamp (ms) when the message was received.
   bytes content = 5;        // THE BLACK BOX: Encrypted ciphertext (Opaque to server).
 }
 
@@ -46,5 +46,4 @@ message AckMessage {
 message OutgoingMessage {
   int32 type = 1;           // Signal Protocol type.
   bytes content = 2;        // Encrypted ciphertext.
-  uint64 timestamp = 3;     // Creation timestamp.
 }

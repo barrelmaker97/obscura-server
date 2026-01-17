@@ -149,7 +149,7 @@ async fn register_user(client: &reqwest::Client, server_url: &str, username: &st
 }
 
 async fn send_message(client: &reqwest::Client, server_url: &str, token: &str, recipient_id: &str, content: &[u8]) {
-    let outgoing = OutgoingMessage { r#type: 1, content: content.to_vec(), timestamp: 123456789 };
+    let outgoing = OutgoingMessage { r#type: 1, content: content.to_vec() };
     let mut buf = Vec::new();
     outgoing.encode(&mut buf).unwrap();
 

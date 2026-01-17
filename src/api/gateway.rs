@@ -205,11 +205,15 @@ async fn flush_messages(
 
                 for msg in messages {
                     if let Ok(outgoing) = OutgoingMessage::decode(msg.content.as_slice()) {
+                        let timestamp = msg.created_at
+                            .map(|ts| (ts.unix_timestamp_nanos() / 1_000_000) as u64)
+                            .unwrap_or_else(|| (time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000) as u64);
+
                         let envelope = IncomingEnvelope {
                             id: msg.id.to_string(),
                             r#type: outgoing.r#type,
                             source_user_id: msg.sender_id.to_string(),
-                            timestamp: outgoing.timestamp,
+                            timestamp,
                             content: outgoing.content,
                         };
 

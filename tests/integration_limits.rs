@@ -78,7 +78,7 @@ async fn test_message_limit_fifo() {
     // Messages 0, 1, 2, 3, 4 should be gone. Message 5 should be the first one.
     for i in 0..1005 {
         let payload = format!("msg_{}", i).into_bytes();
-        let outgoing = OutgoingMessage { r#type: 1, content: payload, timestamp: 123456789 };
+        let outgoing = OutgoingMessage { r#type: 1, content: payload };
         let mut buf = Vec::new();
         outgoing.encode(&mut buf).unwrap();
 
