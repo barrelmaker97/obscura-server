@@ -84,7 +84,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
     let repo_ack = MessageRepository::new(state.pool.clone());
     let ack_batch_size = state.config.ws_ack_batch_size;
     let ack_flush_interval_ms = state.config.ws_ack_flush_interval_ms;
-    
+
     let mut ack_processor_task = tokio::spawn(async move {
         loop {
             let mut batch = Vec::new();

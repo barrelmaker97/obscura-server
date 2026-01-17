@@ -18,8 +18,8 @@ async fn test_ping_pong_under_load() {
     let mut config = common::get_test_config();
     // Batch limit larger than internal channel (32) to ensure we hit backpressure
     // if the TCP buffer fills.
-    config.message_batch_limit = 100; 
-    
+    config.message_batch_limit = 100;
+
     let notifier = Arc::new(InMemoryNotifier::new(config.clone()));
     let app = app_router(pool, config.clone(), notifier);
 
@@ -64,7 +64,7 @@ async fn test_ping_pong_under_load() {
     ws_stream.send(Message::Ping(vec![1, 2, 3].into())).await.unwrap();
 
     // 7. Measure how many binary messages arrive before the PONG.
-    // On a blocking server, it must finish the batch (or at least the current loop) 
+    // On a blocking server, it must finish the batch (or at least the current loop)
     // before it even checks for the Ping.
     let mut binary_count = 0;
     let mut pong_received = false;
@@ -93,8 +93,8 @@ async fn test_ping_pong_under_load() {
 
     println!("Binary messages received before Pong: {}", binary_count);
     assert!(pong_received, "Did not receive Pong");
-    
-    // On a blocking implementation with 100 messages, the server would have sent 
+
+    // On a blocking implementation with 100 messages, the server would have sent
     // most of them before seeing the Ping.
     // If it's truly concurrent, the Ping should be processed almost immediately.
     assert!(binary_count < 10, "Server blocked! Received {} binary messages before Pong", binary_count);

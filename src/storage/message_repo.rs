@@ -52,7 +52,7 @@ impl MessageRepository {
                     r#"
                     SELECT id, sender_id, recipient_id, content, created_at, expires_at
                     FROM messages
-                    WHERE recipient_id = $1 
+                    WHERE recipient_id = $1
                       AND expires_at > NOW()
                       AND (created_at, id) > ($2, $3)
                     ORDER BY created_at ASC, id ASC
@@ -71,7 +71,7 @@ impl MessageRepository {
                     r#"
                     SELECT id, sender_id, recipient_id, content, created_at, expires_at
                     FROM messages
-                    WHERE recipient_id = $1 
+                    WHERE recipient_id = $1
                       AND expires_at > NOW()
                     ORDER BY created_at ASC, id ASC
                     LIMIT $2
