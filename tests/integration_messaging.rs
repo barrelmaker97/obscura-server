@@ -103,7 +103,7 @@ async fn test_messaging_flow() {
 
                 // Send ACK
                 let ack = AckMessage { message_id: env.id.clone() };
-                let ack_frame = WebSocketFrame { request_id: 0, payload: Some(Payload::Ack(ack)) };
+                let ack_frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
                 let mut ack_buf = Vec::new();
                 ack_frame.encode(&mut ack_buf).unwrap();
 
@@ -296,7 +296,7 @@ async fn test_redelivery_on_reconnect() {
 
     // 7. Now ACK the message
     let ack = AckMessage { message_id: msg_id_again.clone() };
-    let ack_frame = WebSocketFrame { request_id: 0, payload: Some(Payload::Ack(ack)) };
+    let ack_frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
     let mut ack_buf = Vec::new();
     ack_frame.encode(&mut ack_buf).unwrap();
     ws_stream.send(Message::Binary(ack_buf.into())).await.expect("Failed to send ACK");

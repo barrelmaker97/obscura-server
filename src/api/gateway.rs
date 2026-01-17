@@ -213,7 +213,7 @@ async fn flush_messages(
                             content: outgoing.content,
                         };
 
-                        let frame = WebSocketFrame { request_id: 0, payload: Some(Payload::Envelope(envelope)) };
+                        let frame = WebSocketFrame { payload: Some(Payload::Envelope(envelope)) };
 
                         let mut buf = Vec::new();
                         if frame.encode(&mut buf).is_ok()

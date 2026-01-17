@@ -68,7 +68,6 @@ async fn test_ack_batching_behavior() {
     // 6. Send ACKs for all 3 messages
     for id in &message_ids {
         let ack_frame = WebSocketFrame {
-            request_id: 0,
             payload: Some(Payload::Ack(AckMessage { message_id: id.clone() })),
         };
         let mut buf = Vec::new();
@@ -111,7 +110,6 @@ async fn test_ack_batching_behavior() {
             let frame = WebSocketFrame::decode(bin.as_ref()).unwrap();
             if let Some(Payload::Envelope(env)) = frame.payload {
                 let ack_frame = WebSocketFrame {
-                    request_id: 0,
                     payload: Some(Payload::Ack(AckMessage { message_id: env.id })),
                 };
                 let mut buf = Vec::new();
