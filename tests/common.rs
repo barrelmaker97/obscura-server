@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use obscura_server::{
     api::app_router,
     config::Config,

@@ -1,4 +1,4 @@
-use obscura_server::proto::obscura::v1::{EncryptedMessage, WebSocketFrame};
+use obscura_server::proto::obscura::v1::EncryptedMessage;
 use prost::Message as ProstMessage;
 use uuid::Uuid;
 
