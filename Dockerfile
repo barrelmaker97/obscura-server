@@ -23,7 +23,7 @@ RUN touch src/main.rs
 RUN cargo build --release
 
 # Stage 2: Runtime
-FROM debian:13.2-slim
+FROM debian:13.3-slim
 WORKDIR /app
 
 # Install runtime dependencies
