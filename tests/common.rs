@@ -68,6 +68,8 @@ pub fn get_test_config() -> Config {
         server_port: 0, // 0 means let OS choose
         message_ttl_days: 30,
         max_inbox_size: 1000,
+        access_token_ttl_secs: 900,
+        refresh_token_ttl_days: 30,
         message_cleanup_interval_secs: 300,
         notification_gc_interval_secs: 60,
         notification_channel_capacity: 16,
@@ -143,7 +145,7 @@ impl TestApp {
 
         let resp = self
             .client
-            .post(format!("{}/v1/accounts", self.server_url))
+            .post(format!("{}/v1/users", self.server_url))
             .json(&payload)
             .send()
             .await

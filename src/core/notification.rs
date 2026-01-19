@@ -90,6 +90,8 @@ mod tests {
             server_port: 3000,
             message_ttl_days: 30,
             max_inbox_size: 1000,
+            access_token_ttl_secs: 900,
+            refresh_token_ttl_days: 30,
             message_cleanup_interval_secs: 300,
             notification_gc_interval_secs: gc_interval,
             notification_channel_capacity: capacity,

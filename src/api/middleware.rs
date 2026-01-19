@@ -38,8 +38,8 @@ impl FromRequestParts<AppState> for AuthUser {
     }
 }
 
-pub fn create_jwt(user_id: Uuid, secret: &str) -> Result<String, AppError> {
-    let expiration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as usize + 3600 * 24; // 24 hours
+pub fn create_jwt(user_id: Uuid, secret: &str, ttl_secs: u64) -> Result<String, AppError> {
+    let expiration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as usize + ttl_secs as usize;
 
     let claims = Claims { sub: user_id, exp: expiration };
 

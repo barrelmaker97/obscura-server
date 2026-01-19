@@ -32,7 +32,7 @@ async fn test_device_takeover_success() {
         ]
     });
 
-    let resp = app.client.post(format!("{}/v1/accounts", app.server_url)).json(&reg_payload).send().await.unwrap();
+    let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&reg_payload).send().await.unwrap();
     assert_eq!(resp.status(), 201);
     let token = resp.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
     
@@ -133,7 +133,7 @@ async fn test_refill_pre_keys_no_overwrite() {
         "oneTimePreKeys": []
     });
 
-    let resp = app.client.post(format!("{}/v1/accounts", app.server_url)).json(&reg_payload).send().await.unwrap();
+    let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&reg_payload).send().await.unwrap();
     assert_eq!(resp.status(), 201);
     let token = resp.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
 
@@ -174,7 +174,7 @@ async fn test_no_identity_key_rejects_websocket() {
     tx.commit().await.unwrap();
 
     // Generate a token for this user
-    let token = create_jwt(user.id, &app.config.jwt_secret).unwrap();
+    let token = create_jwt(user.id, &app.config.jwt_secret, 3600).unwrap();
 
     // Verify connection is rejected or closed immediately
     let res = connect_async(format!("{}?token={}", app.ws_url, token)).await;

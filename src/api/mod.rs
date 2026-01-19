@@ -58,8 +58,10 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>) -> 
 
     // Sensitive routes with strict limits
     let auth_routes = Router::new()
-        .route("/accounts", post(auth::register))
+        .route("/users", post(auth::register))
         .route("/sessions", post(auth::login))
+        .route("/sessions", axum::routing::delete(auth::logout))
+        .route("/sessions/refresh", post(auth::refresh))
         .layer(GovernorLayer::new(auth_conf));
 
     // Standard routes

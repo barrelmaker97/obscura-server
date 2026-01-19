@@ -17,6 +17,8 @@ const DEFAULT_WS_OUTBOUND_BUFFER_SIZE: usize = 32;
 const DEFAULT_WS_ACK_BUFFER_SIZE: usize = 100;
 const DEFAULT_WS_ACK_BATCH_SIZE: usize = 50;
 const DEFAULT_WS_ACK_FLUSH_INTERVAL_MS: u64 = 500;
+const DEFAULT_ACCESS_TOKEN_TTL_SECS: u64 = 900; // 15 minutes
+const DEFAULT_REFRESH_TOKEN_TTL_DAYS: i64 = 30; // 30 days
 
 #[derive(Clone, Debug, Parser)]
 #[command(version, about, long_about = None)]
@@ -26,6 +28,12 @@ pub struct Config {
 
     #[arg(long, env)]
     pub jwt_secret: String,
+
+    #[arg(long, env, default_value_t = DEFAULT_ACCESS_TOKEN_TTL_SECS)]
+    pub access_token_ttl_secs: u64,
+
+    #[arg(long, env, default_value_t = DEFAULT_REFRESH_TOKEN_TTL_DAYS)]
+    pub refresh_token_ttl_days: i64,
 
     #[arg(long, env, default_value_t = DEFAULT_RATE_LIMIT_PER_SECOND)]
     pub rate_limit_per_second: u32,

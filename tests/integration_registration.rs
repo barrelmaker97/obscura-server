@@ -26,13 +26,19 @@ async fn test_register_flow() {
     });
 
     let resp = app.client
-        .post(format!("{}/v1/accounts", app.server_url))
+        .post(format!("{}/v1/users", app.server_url))
         .json(&payload)
         .send()
         .await
         .unwrap();
     
     assert_eq!(resp.status(), StatusCode::CREATED);
+
+    // Verify response structure
+    let json: serde_json::Value = resp.json().await.unwrap();
+    assert!(json.get("token").is_some());
+    assert!(json.get("refreshToken").is_some(), "Registration response must include refreshToken");
+    assert!(json.get("expiresAt").is_some(), "Registration response must include expiresAt");
 
     // 2. Login
     let login_payload = json!({
