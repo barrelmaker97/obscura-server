@@ -5,3 +5,4 @@
 !src
 !migrations
 !proto
+!openapi.yaml
