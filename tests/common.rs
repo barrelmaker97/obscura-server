@@ -125,12 +125,8 @@ impl TestApp {
     }
 
     pub async fn register_user(&self, username: &str) -> (String, Uuid) {
-        // Use a default registration ID if not specified by the test logic (most don't care)
-        self.register_user_with_id(username, 123).await
-    }
-
-    pub async fn register_user_with_id(&self, username: &str, registration_id: u32) -> (String, Uuid) {
-        let (token, _, user_id) = self.register_user_full(username, registration_id).await;
+        // Use a default registration ID if not specified by the test logic
+        let (token, _, user_id) = self.register_user_full(username, 123).await;
         (token, user_id)
     }
 
