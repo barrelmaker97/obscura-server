@@ -68,6 +68,8 @@ pub fn get_test_config() -> Config {
         server_port: 0, // 0 means let OS choose
         message_ttl_days: 30,
         max_inbox_size: 1000,
+        access_token_ttl_secs: 900,
+        refresh_token_ttl_days: 30,
         message_cleanup_interval_secs: 300,
         notification_gc_interval_secs: 60,
         notification_channel_capacity: 16,
@@ -123,11 +125,12 @@ impl TestApp {
     }
 
     pub async fn register_user(&self, username: &str) -> (String, Uuid) {
-        // Use a default registration ID if not specified by the test logic (most don't care)
-        self.register_user_with_id(username, 123).await
+        // Use a default registration ID if not specified by the test logic
+        let (token, _, user_id) = self.register_user_full(username, 123).await;
+        (token, user_id)
     }
 
-    pub async fn register_user_with_id(&self, username: &str, registration_id: u32) -> (String, Uuid) {
+    pub async fn register_user_full(&self, username: &str, registration_id: u32) -> (String, String, Uuid) {
         let payload = json!({
             "username": username,
             "password": "password",
@@ -143,7 +146,7 @@ impl TestApp {
 
         let resp = self
             .client
-            .post(format!("{}/v1/accounts", self.server_url))
+            .post(format!("{}/v1/users", self.server_url))
             .json(&payload)
             .send()
             .await
@@ -153,6 +156,7 @@ impl TestApp {
         
         let json: serde_json::Value = resp.json().await.unwrap();
         let token = json["token"].as_str().unwrap().to_string();
+        let refresh_token = json["refreshToken"].as_str().unwrap_or_default().to_string();
         
         // Decode user_id from token
         let parts: Vec<&str> = token.split('.').collect();
@@ -160,7 +164,7 @@ impl TestApp {
         let claims: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
         let user_id = Uuid::parse_str(claims["sub"].as_str().unwrap()).unwrap();
 
-        (token, user_id)
+        (token, refresh_token, user_id)
     }
 
     pub async fn send_message(&self, token: &str, recipient_id: Uuid, content: &[u8]) {

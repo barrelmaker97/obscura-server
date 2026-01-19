@@ -188,7 +188,7 @@ async fn test_rate_limit_tiers() {
     });
 
     let resp1 = app.client
-        .post(format!("{}/v1/accounts", app.server_url))
+        .post(format!("{}/v1/users", app.server_url))
         .header("X-Forwarded-For", ip)
         .json(&reg_payload)
         .send()
@@ -198,7 +198,7 @@ async fn test_rate_limit_tiers() {
 
     // Second auth request immediately after should be blocked (Auth Burst = 1)
     let resp2 = app.client
-        .post(format!("{}/v1/accounts", app.server_url))
+        .post(format!("{}/v1/users", app.server_url))
         .header("X-Forwarded-For", ip)
         .json(&reg_payload)
         .send()

@@ -6,10 +6,10 @@ info:
     - **Control Plane (REST):** Registration, Key Management, Sending.
     - **Data Plane (WebSocket):** Real-time message delivery and acknowledgement.
     - **Protocol:** Protocol Buffers (application/x-protobuf) are used for message bodies to minimize metadata leakage and binary bloat.
-  version: 1.0.0
+  version: 1.1.0
 paths:
   # --- Account & Identity ---
-  /v1/accounts:
+  /v1/users:
     post:
       summary: Register a new user device.
       tags: [Account]
@@ -54,6 +54,50 @@ paths:
                 $ref: '#/components/schemas/AuthResponse'
         '401':
           description: Unauthorized (Invalid credentials).
+
+    delete:
+      summary: Logout (Revoke Refresh Token).
+      description: |
+        Revokes the provided Refresh Token, effectively logging the user out of that session.
+      tags: [Account]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: Session revoked.
+
+  /v1/sessions/refresh:
+    post:
+      summary: Refresh Access Token.
+      description: |
+        Exchanges a valid Refresh Token for a new pair (Access Token + Refresh Token).
+        Implements Rotation: The old Refresh Token is invalidated immediately.
+      tags: [Account]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: Tokens refreshed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Unauthorized (Invalid or expired refresh token).
 
   # --- Keys (X3DH) ---
   /v1/keys:
@@ -184,9 +228,21 @@ components:
   schemas:
     AuthResponse:
       type: object
+      required:
+        - token
+        - refreshToken
+        - expiresAt
       properties:
         token:
           type: string
+          description: Short-lived JWT Access Token.
+        refreshToken:
+          type: string
+          description: Long-lived opaque Refresh Token.
+        expiresAt:
+          type: integer
+          format: int64
+          description: UNIX timestamp of access token expiration.
 
     RegistrationRequest:
       type: object
