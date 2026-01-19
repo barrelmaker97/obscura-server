@@ -14,6 +14,7 @@ use std::sync::Arc;
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tracing::warn;
 
+pub mod attachments;
 pub mod auth;
 pub mod docs;
 pub mod gateway;
@@ -28,9 +29,10 @@ pub struct AppState {
     pub config: Config,
     pub notifier: Arc<dyn Notifier>,
     pub extractor: rate_limit::IpKeyExtractor,
+    pub s3_client: aws_sdk_s3::Client,
 }
 
-pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>) -> Router {
+pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_client: aws_sdk_s3::Client) -> Router {
     let extractor = rate_limit::IpKeyExtractor::new(&config.trusted_proxies);
 
     // Standard Tier: For general API usage
@@ -55,7 +57,7 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>) -> 
             .unwrap(),
     );
 
-    let state = AppState { pool, config, notifier, extractor };
+    let state = AppState { pool, config, notifier, extractor, s3_client };
 
     // Sensitive routes with strict limits
     let auth_routes = Router::new()
@@ -71,6 +73,8 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>) -> 
         .route("/keys/{userId}", get(keys::get_pre_key_bundle))
         .route("/messages/{recipientId}", post(messages::send_message))
         .route("/gateway", get(gateway::websocket_handler))
+        .route("/attachments", post(attachments::upload_attachment))
+        .route("/attachments/{id}", get(attachments::download_attachment))
         .layer(GovernorLayer::new(standard_conf));
 
     Router::new()

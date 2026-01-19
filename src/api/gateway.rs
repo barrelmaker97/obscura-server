@@ -12,17 +12,16 @@ use axum::{
     response::IntoResponse,
 };
 use futures::{SinkExt, StreamExt};
-use tokio::sync::mpsc;
 use prost::Message as ProstMessage;
 use serde::Deserialize;
-use tracing::{warn, error};
+use tokio::sync::mpsc;
+use tracing::{error, warn};
 use uuid::Uuid;
 
 #[derive(Deserialize)]
 pub struct WsParams {
     token: String,
 }
-
 
 pub async fn websocket_handler(
     ws: WebSocketUpgrade,
@@ -102,8 +101,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
             }
 
             if !batch.is_empty()
-                && let Err(e) = repo_ack.delete_batch(&batch).await {
-                    error!("Failed to process ACK batch: {}", e);
+                && let Err(e) = repo_ack.delete_batch(&batch).await
+            {
+                error!("Failed to process ACK batch: {}", e);
             }
         }
     });
@@ -206,12 +206,14 @@ async fn flush_messages(
 
                 // Update cursor for next iteration based on the last message
                 if let Some(last_msg) = messages.last()
-                    && let Some(ts) = last_msg.created_at {
-                        *cursor = Some((ts, last_msg.id));
+                    && let Some(ts) = last_msg.created_at
+                {
+                    *cursor = Some((ts, last_msg.id));
                 }
 
                 for msg in messages {
-                    let timestamp = msg.created_at
+                    let timestamp = msg
+                        .created_at
                         .map(|ts| (ts.unix_timestamp_nanos() / 1_000_000) as u64)
                         .unwrap_or_else(|| (time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000) as u64);
 
@@ -219,18 +221,14 @@ async fn flush_messages(
                         id: msg.id.to_string(),
                         source_user_id: msg.sender_id.to_string(),
                         timestamp,
-                        message: Some(EncryptedMessage {
-                            r#type: msg.message_type,
-                            content: msg.content,
-                        }),
+                        message: Some(EncryptedMessage { r#type: msg.message_type, content: msg.content }),
                     };
 
                     let frame = WebSocketFrame { payload: Some(Payload::Envelope(envelope)) };
 
                     let mut buf = Vec::new();
-                    if frame.encode(&mut buf).is_ok()
-                        && tx.send(WsMessage::Binary(buf.into())).await.is_err() {
-                            return false;
+                    if frame.encode(&mut buf).is_ok() && tx.send(WsMessage::Binary(buf.into())).await.is_err() {
+                        return false;
                     }
                 }
 

@@ -35,7 +35,7 @@ async fn test_device_takeover_success() {
     let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&reg_payload).send().await.unwrap();
     assert_eq!(resp.status(), 201);
     let token = resp.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
-    
+
     // Parse user_id from token manually since we didn't use helper
     let parts: Vec<&str> = token.split('.').collect();
     let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[1]).unwrap();
@@ -66,7 +66,8 @@ async fn test_device_takeover_success() {
         ]
     });
 
-    let takeover_resp = app.client
+    let takeover_resp = app
+        .client
         .post(format!("{}/v1/keys", app.server_url))
         .header("Authorization", format!("Bearer {}", token))
         .json(&takeover_payload)
@@ -152,7 +153,8 @@ async fn test_refill_pre_keys_no_overwrite() {
         ]
     });
 
-    let refill_resp = app.client
+    let refill_resp = app
+        .client
         .post(format!("{}/v1/keys", app.server_url))
         .header("Authorization", format!("Bearer {}", token))
         .json(&refill_payload)
@@ -184,7 +186,7 @@ async fn test_no_identity_key_rejects_websocket() {
             Some(Ok(Message::Close(_))) => {}
             None => {}         // Closed
             Some(Err(_)) => {} // Error/Closed
-            _ => {} 
+            _ => {}
         }
     }
 }

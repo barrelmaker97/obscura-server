@@ -29,8 +29,34 @@ async fn main() -> anyhow::Result<()> {
         message_service.run_cleanup_loop().await;
     });
 
+    // S3 Setup
+    let region_provider = aws_config::Region::new(config.s3_region.clone());
+    let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider);
+
+    if let Some(ref endpoint) = config.s3_endpoint {
+        config_loader = config_loader.endpoint_url(endpoint);
+    }
+
+    if let (Some(ak), Some(sk)) = (&config.s3_access_key, &config.s3_secret_key) {
+        let creds = aws_credential_types::Credentials::new(ak.clone(), sk.clone(), None, None, "static");
+        config_loader = config_loader.credentials_provider(creds);
+    }
+
+    let sdk_config = config_loader.load().await;
+    let s3_config_builder = aws_sdk_s3::config::Builder::from(&sdk_config).force_path_style(config.s3_force_path_style);
+    let s3_client = aws_sdk_s3::Client::from_conf(s3_config_builder.build());
+
+    let attachment_service = obscura_server::core::attachment_service::AttachmentCleanupService::new(
+        pool.clone(),
+        s3_client.clone(),
+        config.clone(),
+    );
+    tokio::spawn(async move {
+        attachment_service.run_cleanup_loop().await;
+    });
+
     let notifier = Arc::new(InMemoryNotifier::new(config.clone()));
-    let app = api::app_router(pool, config.clone(), notifier);
+    let app = api::app_router(pool, config.clone(), notifier, s3_client);
 
     let addr_str = format!("{}:{}", config.server_host, config.server_port);
     let addr: SocketAddr = addr_str.parse().expect("Invalid address format");

@@ -42,7 +42,8 @@ async fn test_send_message_recipient_not_found() {
     let mut buf = Vec::new();
     enc_msg.encode(&mut buf).unwrap();
 
-    let resp = app.client
+    let resp = app
+        .client
         .post(format!("{}/v1/messages/{}", app.server_url, bad_id))
         .header("Authorization", format!("Bearer {}", token_a))
         .header("Content-Type", "application/octet-stream")
@@ -53,7 +54,6 @@ async fn test_send_message_recipient_not_found() {
 
     assert_eq!(resp.status(), 404);
 }
-
 
 #[tokio::test]
 async fn test_websocket_auth_failure() {
@@ -72,14 +72,14 @@ async fn test_no_duplicate_delivery() {
 
     // Send Msg 1
     app.send_message(&token_a, user_b_id, b"Message 1").await;
-    
+
     // Connect & Receive Msg 1
     let mut ws = app.connect_ws(&token_b).await;
     let env1 = ws.receive_envelope().await.expect("Msg 1 missing");
-    
+
     // Send Msg 2
     app.send_message(&token_a, user_b_id, b"Message 2").await;
-    
+
     // Receive Msg 2
     let env2 = ws.receive_envelope().await.expect("Msg 2 missing");
     assert_ne!(env1.id, env2.id);
@@ -107,7 +107,7 @@ async fn test_redelivery_on_reconnect() {
     // Reconnect
     let mut ws = app.connect_ws(&token_b).await;
     let env = ws.receive_envelope().await.expect("Should receive msg again");
-    
+
     // ACK this time
     ws.send_ack(env.id).await;
 

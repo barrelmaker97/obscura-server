@@ -1,5 +1,5 @@
-use tokio_tungstenite::tungstenite::protocol::Message;
 use futures::{SinkExt, StreamExt};
+use tokio_tungstenite::tungstenite::protocol::Message;
 use uuid::Uuid;
 
 mod common;
@@ -45,19 +45,17 @@ async fn test_ping_pong_under_load() {
 
     while start.elapsed() < timeout {
         match tokio::time::timeout(tokio::time::Duration::from_millis(500), ws.stream.next()).await {
-            Ok(Some(Ok(msg))) => {
-                match msg {
-                    Message::Pong(payload) => {
-                        assert_eq!(payload, vec![1, 2, 3]);
-                        pong_received = true;
-                        break;
-                    }
-                    Message::Binary(_) => {
-                        binary_count += 1;
-                    }
-                    _ => {}
+            Ok(Some(Ok(msg))) => match msg {
+                Message::Pong(payload) => {
+                    assert_eq!(payload, vec![1, 2, 3]);
+                    pong_received = true;
+                    break;
                 }
-            }
+                Message::Binary(_) => {
+                    binary_count += 1;
+                }
+                _ => {}
+            },
             _ => break,
         }
     }

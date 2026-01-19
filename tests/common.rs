@@ -1,11 +1,11 @@
 #![allow(dead_code)]
+use base64::Engine;
+use futures::{SinkExt, StreamExt};
 use obscura_server::{
     api::app_router,
     config::Config,
     core::notification::InMemoryNotifier,
-    proto::obscura::v1::{
-        web_socket_frame::Payload, AckMessage, EncryptedMessage, Envelope, WebSocketFrame,
-    },
+    proto::obscura::v1::{AckMessage, EncryptedMessage, Envelope, WebSocketFrame, web_socket_frame::Payload},
     storage,
 };
 use prost::Message as ProstMessage;
@@ -14,10 +14,8 @@ use serde_json::json;
 use sqlx::PgPool;
 use std::sync::{Arc, Once};
 use tokio::net::TcpListener;
-use tokio_tungstenite::{connect_async, tungstenite::protocol::Message, WebSocketStream};
+use tokio_tungstenite::{WebSocketStream, connect_async, tungstenite::protocol::Message};
 use uuid::Uuid;
-use futures::{SinkExt, StreamExt};
-use base64::Engine;
 
 static INIT: Once = Once::new();
 
@@ -42,15 +40,10 @@ pub async fn get_test_pool() -> PgPool {
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://user:password@localhost/signal_server".to_string());
 
-    let pool = storage::init_pool(&database_url)
-        .await
-        .expect("Failed to connect to DB. Is Postgres running?");
+    let pool = storage::init_pool(&database_url).await.expect("Failed to connect to DB. Is Postgres running?");
 
     // Run migrations automatically
-    sqlx::migrate!()
-        .run(&pool)
-        .await
-        .expect("Failed to run migrations");
+    sqlx::migrate!().run(&pool).await.expect("Failed to run migrations");
 
     pool
 }
@@ -107,21 +100,10 @@ impl TestApp {
         let ws_url = format!("ws://{}/v1/gateway", addr);
 
         tokio::spawn(async move {
-            axum::serve(
-                listener,
-                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-            )
-            .await
-            .unwrap();
+            axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
         });
 
-        TestApp {
-            pool,
-            config,
-            server_url,
-            ws_url,
-            client: Client::new(),
-        }
+        TestApp { pool, config, server_url, ws_url, client: Client::new() }
     }
 
     pub async fn register_user(&self, username: &str) -> (String, Uuid) {
@@ -144,20 +126,14 @@ impl TestApp {
             "oneTimePreKeys": []
         });
 
-        let resp = self
-            .client
-            .post(format!("{}/v1/users", self.server_url))
-            .json(&payload)
-            .send()
-            .await
-            .unwrap();
+        let resp = self.client.post(format!("{}/v1/users", self.server_url)).json(&payload).send().await.unwrap();
 
         assert_eq!(resp.status(), 201, "User registration failed");
-        
+
         let json: serde_json::Value = resp.json().await.unwrap();
         let token = json["token"].as_str().unwrap().to_string();
         let refresh_token = json["refreshToken"].as_str().unwrap_or_default().to_string();
-        
+
         // Decode user_id from token
         let parts: Vec<&str> = token.split('.').collect();
         let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[1]).unwrap();
@@ -168,10 +144,7 @@ impl TestApp {
     }
 
     pub async fn send_message(&self, token: &str, recipient_id: Uuid, content: &[u8]) {
-        let enc_msg = EncryptedMessage {
-            r#type: 2,
-            content: content.to_vec(),
-        };
+        let enc_msg = EncryptedMessage { r#type: 2, content: content.to_vec() };
         let mut buf = Vec::new();
         enc_msg.encode(&mut buf).unwrap();
 
@@ -189,9 +162,8 @@ impl TestApp {
     }
 
     pub async fn connect_ws(&self, token: &str) -> TestWsClient {
-        let (ws_stream, _) = connect_async(format!("{}?token={}", self.ws_url, token))
-            .await
-            .expect("Failed to connect WS");
+        let (ws_stream, _) =
+            connect_async(format!("{}?token={}", self.ws_url, token)).await.expect("Failed to connect WS");
         TestWsClient { stream: ws_stream }
     }
 }
@@ -209,7 +181,7 @@ impl TestWsClient {
     pub async fn receive_envelope_timeout(&mut self, timeout: std::time::Duration) -> Option<Envelope> {
         let start = std::time::Instant::now();
         while start.elapsed() < timeout {
-             match tokio::time::timeout(std::time::Duration::from_millis(100), self.stream.next()).await {
+            match tokio::time::timeout(std::time::Duration::from_millis(100), self.stream.next()).await {
                 Ok(Some(Ok(Message::Binary(bin)))) => {
                     let frame = WebSocketFrame::decode(bin.as_ref()).unwrap();
                     if let Some(Payload::Envelope(env)) = frame.payload {
@@ -218,21 +190,19 @@ impl TestWsClient {
                 }
                 Ok(Some(Ok(Message::Close(_)))) => return None,
                 _ => continue,
-             }
+            }
         }
         None
     }
 
     pub async fn send_ack(&mut self, message_id: String) {
         let ack = AckMessage { message_id };
-        let frame = WebSocketFrame {
-            payload: Some(Payload::Ack(ack)),
-        };
+        let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
         let mut buf = Vec::new();
         frame.encode(&mut buf).unwrap();
         self.stream.send(Message::Binary(buf.into())).await.unwrap();
     }
-    
+
     pub async fn close(self) {
         // Drop closes it
     }

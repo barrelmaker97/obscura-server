@@ -23,8 +23,8 @@ pub async fn send_message(
     let service = MessageService::new(MessageRepository::new(state.pool), state.config.clone());
 
     // Decode the EncryptedMessage protobuf to get type and content
-    let msg = EncryptedMessage::decode(body)
-        .map_err(|_| AppError::BadRequest("Invalid EncryptedMessage protobuf".into()))?;
+    let msg =
+        EncryptedMessage::decode(body).map_err(|_| AppError::BadRequest("Invalid EncryptedMessage protobuf".into()))?;
 
     // Store raw body directly (blind relay)
     service.enqueue_message(auth_user.user_id, recipient_id, msg.r#type, msg.content).await?;

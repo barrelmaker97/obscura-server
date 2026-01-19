@@ -15,7 +15,13 @@ impl MessageService {
         Self { repo, config }
     }
 
-    pub async fn enqueue_message(&self, sender_id: Uuid, recipient_id: Uuid, message_type: i32, content: Vec<u8>) -> Result<()> {
+    pub async fn enqueue_message(
+        &self,
+        sender_id: Uuid,
+        recipient_id: Uuid,
+        message_type: i32,
+        content: Vec<u8>,
+    ) -> Result<()> {
         // Optimization: We no longer check limits synchronously.
         // The background cleanup loop handles overflow.
         self.repo.create(sender_id, recipient_id, message_type, content, self.config.message_ttl_days).await?;

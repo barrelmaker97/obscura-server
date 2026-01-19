@@ -88,6 +88,33 @@ pub struct Config {
 
     #[arg(long, env, default_value_t = DEFAULT_WS_ACK_FLUSH_INTERVAL_MS)]
     pub ws_ack_flush_interval_ms: u64,
+
+    // --- S3 / MinIO Configuration ---
+    #[arg(long, env)]
+    pub s3_bucket: String,
+
+    #[arg(long, env, default_value = "us-east-1")]
+    pub s3_region: String,
+
+    #[arg(long, env)]
+    pub s3_endpoint: Option<String>,
+
+    #[arg(long, env)]
+    pub s3_access_key: Option<String>,
+
+    #[arg(long, env)]
+    pub s3_secret_key: Option<String>,
+
+    /// Force path style (required for many MinIO setups: http://host/bucket/key)
+    #[arg(long, env, default_value_t = false)]
+    pub s3_force_path_style: bool,
+
+    #[arg(long, env, default_value_t = 30)]
+    pub attachment_ttl_days: i64,
+
+    /// Max attachment size in bytes (Default: 50MB)
+    #[arg(long, env, default_value_t = 52_428_800)]
+    pub attachment_max_size_bytes: usize,
 }
 
 impl Config {

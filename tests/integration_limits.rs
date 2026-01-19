@@ -7,8 +7,8 @@ mod common;
 #[tokio::test]
 async fn test_message_limit_fifo() {
     let app = common::TestApp::spawn().await;
-    
-    // Clear DB to ensure clean state (though new run_ids usually handle isolation, 
+
+    // Clear DB to ensure clean state (though new run_ids usually handle isolation,
     // but here we count exact messages for one user)
     sqlx::query("DELETE FROM messages").execute(&app.pool).await.unwrap();
 
@@ -38,33 +38,29 @@ async fn test_message_limit_fifo() {
     }
 }
 
-
 #[tokio::test]
 async fn test_rate_limiting() {
     // 1. Setup with strict limits (1 req/s)
     let mut config = common::get_test_config();
     config.rate_limit_per_second = 1;
     config.rate_limit_burst = 1;
-    
+
     let app = common::TestApp::spawn_with_config(config).await;
 
     // 2. First request (OK - or 401/404 but not 429)
-    // We use a random token to avoid auth processing cost affecting timing too much, 
+    // We use a random token to avoid auth processing cost affecting timing too much,
     // but rate limiting happens before auth in the middleware chain.
-    let resp1 = app.client
+    let resp1 = app
+        .client
         .get(format!("{}/v1/gateway?token=bad", app.server_url)) // HTTP request to upgrade endpoint
         .send()
         .await
         .unwrap();
-    
+
     assert_ne!(resp1.status(), StatusCode::TOO_MANY_REQUESTS);
 
     // 3. Second request immediately (Should be 429)
-    let resp2 = app.client
-        .get(format!("{}/v1/gateway?token=bad", app.server_url))
-        .send()
-        .await
-        .unwrap();
+    let resp2 = app.client.get(format!("{}/v1/gateway?token=bad", app.server_url)).send().await.unwrap();
 
     assert_eq!(resp2.status(), StatusCode::TOO_MANY_REQUESTS);
 }

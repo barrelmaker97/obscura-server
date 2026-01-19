@@ -1,9 +1,9 @@
-use obscura_server::proto::obscura::v1::{web_socket_frame::Payload, AckMessage, WebSocketFrame};
+use futures::SinkExt;
+use obscura_server::proto::obscura::v1::{AckMessage, WebSocketFrame, web_socket_frame::Payload};
 use prost::Message as ProstMessage;
+use sqlx::Row;
 use tokio_tungstenite::tungstenite::protocol::Message;
 use uuid::Uuid;
-use sqlx::Row;
-use futures::SinkExt;
 
 mod common;
 
@@ -13,7 +13,7 @@ async fn test_ack_batching_behavior() {
     let mut config = common::get_test_config();
     config.ws_ack_batch_size = 5;
     config.ws_ack_flush_interval_ms = 1000;
-    
+
     let app = common::TestApp::spawn_with_config(config).await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
 
@@ -70,9 +70,7 @@ async fn test_ack_batching_behavior() {
 
     for _ in 0..5 {
         if let Some(env) = ws.receive_envelope().await {
-            let ack_frame = WebSocketFrame {
-                payload: Some(Payload::Ack(AckMessage { message_id: env.id })),
-            };
+            let ack_frame = WebSocketFrame { payload: Some(Payload::Ack(AckMessage { message_id: env.id })) };
             let mut buf = Vec::new();
             ack_frame.encode(&mut buf).unwrap();
             ws.stream.send(Message::Binary(buf.into())).await.unwrap();
