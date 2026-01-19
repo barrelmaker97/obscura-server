@@ -72,6 +72,15 @@ pub fn get_test_config() -> Config {
         ws_ack_buffer_size: 100,
         ws_ack_batch_size: 50,
         ws_ack_flush_interval_ms: 500,
+        // S3 Defaults for tests
+        s3_bucket: "test-bucket".to_string(),
+        s3_region: "us-east-1".to_string(),
+        s3_endpoint: Some("http://localhost:9000".to_string()),
+        s3_access_key: Some("minioadmin".to_string()),
+        s3_secret_key: Some("minioadmin".to_string()),
+        s3_force_path_style: true,
+        attachment_ttl_days: 30,
+        attachment_max_size_bytes: 52_428_800,
     }
 }
 
@@ -92,7 +101,27 @@ impl TestApp {
     pub async fn spawn_with_config(config: Config) -> Self {
         let pool = get_test_pool().await;
         let notifier = Arc::new(InMemoryNotifier::new(config.clone()));
-        let app = app_router(pool.clone(), config.clone(), notifier);
+
+        // Create dummy S3 client
+        let region_provider = aws_config::Region::new(config.s3_region.clone());
+        let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider);
+
+        if let Some(ref endpoint) = config.s3_endpoint {
+            config_loader = config_loader.endpoint_url(endpoint);
+        }
+
+        // Use dummy credentials if provided, or default chain
+        if let (Some(ak), Some(sk)) = (&config.s3_access_key, &config.s3_secret_key) {
+            let creds = aws_credential_types::Credentials::new(ak.clone(), sk.clone(), None, None, "static");
+            config_loader = config_loader.credentials_provider(creds);
+        }
+
+        let sdk_config = config_loader.load().await;
+        let s3_config_builder =
+            aws_sdk_s3::config::Builder::from(&sdk_config).force_path_style(config.s3_force_path_style);
+        let s3_client = aws_sdk_s3::Client::from_conf(s3_config_builder.build());
+
+        let app = app_router(pool.clone(), config.clone(), notifier, s3_client);
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();

@@ -35,6 +35,14 @@ Command-line options take precedence over environment variables.
 | `--ws-ack-buffer-size` | WS ACK channel capacity | `WS_ACK_BUFFER_SIZE` | `100` | No |
 | `--ws-ack-batch-size` | WS ACK DB batch size | `WS_ACK_BATCH_SIZE` | `50` | No |
 | `--ws-ack-flush-interval-ms` | WS ACK DB flush interval | `WS_ACK_FLUSH_INTERVAL_MS` | `500` | No |
+| `--s3-bucket` | S3 Bucket Name | `S3_BUCKET` | - | **Yes** |
+| `--s3-region` | S3 Region | `S3_REGION` | `us-east-1` | No |
+| `--s3-endpoint` | Custom S3 Endpoint (e.g., for MinIO) | `S3_ENDPOINT` | - | No |
+| `--s3-access-key` | S3 Access Key ID | `S3_ACCESS_KEY` | - | No |
+| `--s3-secret-key` | S3 Secret Access Key | `S3_SECRET_KEY` | - | No |
+| `--s3-force-path-style` | Force Path Style (Required for MinIO) | `S3_FORCE_PATH_STYLE` | `false` | No |
+| `--attachment-ttl-days` | Days before attachments are auto-deleted | `ATTACHMENT_TTL_DAYS` | `30` | No |
+| `--attachment-max-size-bytes` | Max attachment size in bytes | `ATTACHMENT_MAX_SIZE_BYTES` | `52428800` | No |
 
 ### Example
 

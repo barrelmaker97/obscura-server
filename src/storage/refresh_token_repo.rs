@@ -31,7 +31,7 @@ impl RefreshTokenRepository {
             .bind(expires_at)
             .execute(&mut **tx)
             .await
-            .map_err(|e| AppError::Database(e))?;
+            .map_err(AppError::Database)?;
 
         Ok(())
     }

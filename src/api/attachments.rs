@@ -9,20 +9,23 @@ use axum::{
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
+use http_body_util::{BodyExt, LengthLimitError, Limited};
 use serde_json::json;
 use sqlx::Row;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use time::{Duration, OffsetDateTime};
-use tokio::sync::Mutex;
 use tokio::sync::mpsc;
 use tokio_util::io::ReaderStream;
 use uuid::Uuid;
 
+type AttachmentStreamReceiver =
+    mpsc::Receiver<std::result::Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>;
+
 // Wrapper to satisfy S3 SDK's Sync requirement for Body
 struct SyncBody {
-    rx: Arc<Mutex<mpsc::Receiver<std::result::Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>>>,
+    rx: Arc<Mutex<AttachmentStreamReceiver>>,
 }
 
 impl http_body::Body for SyncBody {
@@ -33,13 +36,10 @@ impl http_body::Body for SyncBody {
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<std::result::Result<http_body::Frame<Self::Data>, Self::Error>>> {
-        let mut rx = match self.rx.try_lock() {
-            Ok(guard) => guard,
-            Err(_) => {
-                cx.waker().wake_by_ref();
-                return Poll::Pending;
-            }
-        };
+        // Use std::sync::Mutex for synchronous locking in poll_frame.
+        // Since poll_frame gives us &mut Self, and we are the only ones polling,
+        // contention should not occur unless the SDK does something exotic.
+        let mut rx = self.rx.lock().unwrap();
 
         match rx.poll_recv(cx) {
             Poll::Ready(Some(Ok(bytes))) => Poll::Ready(Some(Ok(http_body::Frame::data(bytes)))),
@@ -56,7 +56,7 @@ pub async fn upload_attachment(
     headers: HeaderMap,
     body: Body,
 ) -> Result<impl IntoResponse> {
-    // 1. Check Content-Length
+    // 1. Check Content-Length (Early rejection)
     let content_len = headers
         .get(header::CONTENT_LENGTH)
         .and_then(|v| v.to_str().ok())
@@ -70,17 +70,36 @@ pub async fn upload_attachment(
     let id = Uuid::new_v4();
     let key = id.to_string();
 
-    // 2. Bridge Axum Body -> SyncBody
+    // 2. Bridge Axum Body -> SyncBody with Size Limit enforcement
+    let limit = state.config.attachment_max_size_bytes; // usize
+    let limited_body = Limited::new(body, limit);
+
     let (tx, rx) = mpsc::channel(2); // Small buffer
-    let mut data_stream = body.into_data_stream();
+    let mut data_stream = limited_body.into_data_stream();
 
     tokio::spawn(async move {
         use futures::StreamExt;
         while let Some(item) = data_stream.next().await {
-            // Convert axum::Error to Box<dyn Error...>
-            let item = item.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>);
-            if tx.send(item).await.is_err() {
-                break;
+            match item {
+                Ok(bytes) => {
+                    let frame_res = Ok(bytes);
+                    if tx.send(frame_res).await.is_err() {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    // e is Box<dyn Error + Send + Sync>
+                    let is_limit = e.downcast_ref::<LengthLimitError>().is_some();
+
+                    let err_to_send: Box<dyn std::error::Error + Send + Sync> = if is_limit {
+                        Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, "Body too large"))
+                    } else {
+                        e
+                    };
+
+                    let _ = tx.send(Err(err_to_send)).await;
+                    break;
+                }
             }
         }
     });
@@ -88,12 +107,19 @@ pub async fn upload_attachment(
     let sync_body = SyncBody { rx: Arc::new(Mutex::new(rx)) };
     let byte_stream = ByteStream::from_body_1_x(sync_body);
 
-    state.s3_client.put_object().bucket(&state.config.s3_bucket).key(&key).body(byte_stream).send().await.map_err(
-        |e| {
-            tracing::error!("S3 Upload failed: {:?}", e);
+    state
+        .s3_client
+        .put_object()
+        .bucket(&state.config.s3_bucket)
+        .key(&key)
+        .set_content_length(if content_len > 0 { Some(content_len as i64) } else { None })
+        .body(byte_stream)
+        .send()
+        .await
+        .map_err(|e| {
+            tracing::error!("S3 Upload failed for key {}: {:?}", key, e);
             AppError::Internal
-        },
-    )?;
+        })?;
 
     // 3. Record Metadata
     let expires_at = OffsetDateTime::now_utc() + Duration::days(state.config.attachment_ttl_days);

@@ -101,6 +101,14 @@ mod tests {
             ws_ack_buffer_size: 100,
             ws_ack_batch_size: 50,
             ws_ack_flush_interval_ms: 500,
+            s3_bucket: "".to_string(),
+            s3_region: "us-east-1".to_string(),
+            s3_endpoint: None,
+            s3_access_key: None,
+            s3_secret_key: None,
+            s3_force_path_style: false,
+            attachment_ttl_days: 30,
+            attachment_max_size_bytes: 52_428_800,
         }
     }
 

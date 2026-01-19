@@ -40,7 +40,7 @@ async fn test_notification_lag_recovery() {
     let timeout = std::time::Duration::from_secs(10);
 
     while received < message_count && start.elapsed() < timeout {
-        if let Some(_) = ws.receive_envelope_timeout(std::time::Duration::from_millis(100)).await {
+        if ws.receive_envelope_timeout(std::time::Duration::from_millis(100)).await.is_some() {
             received += 1;
         }
     }
