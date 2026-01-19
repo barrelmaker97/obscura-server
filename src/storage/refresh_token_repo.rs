@@ -98,14 +98,4 @@ impl RefreshTokenRepository {
             .map_err(AppError::Database)?;
         Ok(())
     }
-    
-    /// Revokes all tokens for a user (e.g., security breach).
-    pub async fn delete_all_for_user(&self, user_id: Uuid) -> Result<()> {
-         sqlx::query("DELETE FROM refresh_tokens WHERE user_id = $1")
-            .bind(user_id)
-            .execute(&self.pool)
-            .await
-            .map_err(AppError::Database)?;
-        Ok(())
-    }
 }
