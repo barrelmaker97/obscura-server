@@ -17,6 +17,7 @@ RUN cargo build --release
 # Copy in source and migrations
 COPY ./src src
 COPY ./migrations migrations
+COPY ./openapi.yaml .
 
 # Touch file to set modified time, then build
 RUN touch src/main.rs
