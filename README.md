@@ -107,6 +107,21 @@ docker compose up -d
 cargo test
 ```
 
+## Releasing
+
+Releases are managed via GitHub Actions.
+
+1. Go to the **Actions** tab in the GitHub repository.
+2. Select the **Bump Version & Tag** workflow on the left.
+3. Click **Run workflow**.
+4. Select the **Bump Type** from the dropdown (`patch`, `minor`, or `major`).
+5. Click **Run workflow**.
+
+The system will automatically:
+1. Bump the version in `Cargo.toml` based on your selection.
+2. Commit and Tag the release.
+3. Trigger the **Publish Release** workflow to build and publish artifacts to Crates.io and GHCR.
+
 ## API Documentation
 
 - **REST API**: Defined in `specs/001-signal-server/contracts/openapi.yaml`.
