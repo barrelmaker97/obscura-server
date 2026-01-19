@@ -11,31 +11,7 @@ async fn test_refresh_token_flow() {
     let username = format!("refresh_user_{}", run_id);
 
     // 1. Register and get initial tokens
-    let payload = json!({
-        "username": username,
-        "password": "password123",
-        "registrationId": 123,
-        "identityKey": "dGVzdF9pZGVudGl0eV9rZXk=",
-        "signedPreKey": {
-            "keyId": 1,
-            "publicKey": "dGVzdF9zaWduZWRfcHViX2tleQ==",
-            "signature": "dGVzdF9zaWduZWRfc2ln"
-        },
-        "oneTimePreKeys": []
-    });
-
-    let resp = app.client
-        .post(format!("{}/v1/users", app.server_url))
-        .json(&payload)
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), StatusCode::CREATED);
-    
-    let json: serde_json::Value = resp.json().await.unwrap();
-    let access_token_1 = json["token"].as_str().unwrap().to_string();
-    let refresh_token_1 = json["refreshToken"].as_str().expect("Missing refreshToken").to_string();
+    let (access_token_1, refresh_token_1, _) = app.register_user_full(&username, 123).await;
 
     // 2. Use Refresh Token to get new pair
     let refresh_payload = json!({
@@ -79,29 +55,7 @@ async fn test_logout_revokes_refresh_token() {
     let username = format!("logout_user_{}", run_id);
 
     // 1. Register
-    let payload = json!({
-        "username": username,
-        "password": "password123",
-        "registrationId": 123,
-        "identityKey": "dGVzdF9pZGVudGl0eV9rZXk=",
-        "signedPreKey": {
-            "keyId": 1,
-            "publicKey": "dGVzdF9zaWduZWRfcHViX2tleQ==",
-            "signature": "dGVzdF9zaWduZWRfc2ln"
-        },
-        "oneTimePreKeys": []
-    });
-
-    let resp = app.client
-        .post(format!("{}/v1/users", app.server_url))
-        .json(&payload)
-        .send()
-        .await
-        .unwrap();
-    
-    let json: serde_json::Value = resp.json().await.unwrap();
-    let token = json["token"].as_str().unwrap();
-    let refresh_token = json["refreshToken"].as_str().unwrap();
+    let (token, refresh_token, _) = app.register_user_full(&username, 123).await;
 
     // 2. Logout
     let resp_logout = app.client
@@ -136,28 +90,7 @@ async fn test_refresh_token_expiration() {
     let username = format!("expire_user_{}", run_id);
 
     // 2. Register
-    let payload = json!({
-        "username": username,
-        "password": "password123",
-        "registrationId": 123,
-        "identityKey": "dGVzdF9pZGVudGl0eV9rZXk=",
-        "signedPreKey": {
-            "keyId": 1,
-            "publicKey": "dGVzdF9zaWduZWRfcHViX2tleQ==",
-            "signature": "dGVzdF9zaWduZWRfc2ln"
-        },
-        "oneTimePreKeys": []
-    });
-
-    let resp = app.client
-        .post(format!("{}/v1/users", app.server_url))
-        .json(&payload)
-        .send()
-        .await
-        .unwrap();
-
-    let json: serde_json::Value = resp.json().await.unwrap();
-    let refresh_token = json["refreshToken"].as_str().expect("Missing refreshToken").to_string();
+    let (_, refresh_token, _) = app.register_user_full(&username, 123).await;
 
     // 3. Wait a moment to ensure clock ticks (1s)
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;

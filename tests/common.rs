@@ -130,6 +130,11 @@ impl TestApp {
     }
 
     pub async fn register_user_with_id(&self, username: &str, registration_id: u32) -> (String, Uuid) {
+        let (token, _, user_id) = self.register_user_full(username, registration_id).await;
+        (token, user_id)
+    }
+
+    pub async fn register_user_full(&self, username: &str, registration_id: u32) -> (String, String, Uuid) {
         let payload = json!({
             "username": username,
             "password": "password",
@@ -155,6 +160,7 @@ impl TestApp {
         
         let json: serde_json::Value = resp.json().await.unwrap();
         let token = json["token"].as_str().unwrap().to_string();
+        let refresh_token = json["refreshToken"].as_str().unwrap_or_default().to_string();
         
         // Decode user_id from token
         let parts: Vec<&str> = token.split('.').collect();
@@ -162,7 +168,7 @@ impl TestApp {
         let claims: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
         let user_id = Uuid::parse_str(claims["sub"].as_str().unwrap()).unwrap();
 
-        (token, user_id)
+        (token, refresh_token, user_id)
     }
 
     pub async fn send_message(&self, token: &str, recipient_id: Uuid, content: &[u8]) {
