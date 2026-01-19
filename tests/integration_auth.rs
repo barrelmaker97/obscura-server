@@ -57,6 +57,8 @@ async fn test_refresh_token_flow() {
 
     // Assert rotation occurred
     // Access tokens might be identical if generated in the same second (same exp claim), so we don't strictly assert inequality.
+    assert!(!access_token_1.is_empty());
+    assert!(!access_token_2.is_empty());
     assert_ne!(refresh_token_1, refresh_token_2, "Refresh token should rotate");
 
     // 3. Verify Old Refresh Token is Invalid (Rotation Check)
