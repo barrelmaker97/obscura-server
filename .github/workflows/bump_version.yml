@@ -1,0 +1,84 @@
+name: Bump Version & Tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: 'Bump Type'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        required: true
+        default: 'patch'
+
+jobs:
+  bump-and-tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required to push commits and tags
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          submodules: true
+
+      - name: Install Protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Set up Rust toolchain
+        run: rustup show
+
+      - name: Configure Git User
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Calculate and Update Version
+        id: version
+        run: |
+          BUMP_TYPE="${{ inputs.bump_type }}"
+          CURRENT_VER=$(grep "^version" Cargo.toml | head -n 1 | cut -d '"' -f 2)
+          echo "Current version: $CURRENT_VER"
+
+          # Parse semantic version (assumes X.Y.Z format)
+          IFS='.' read -r major minor patch <<< "$CURRENT_VER"
+
+          if [[ "$BUMP_TYPE" == "patch" ]]; then
+            NEW_VER="$major.$minor.$((patch + 1))"
+          elif [[ "$BUMP_TYPE" == "minor" ]]; then
+            NEW_VER="$major.$((minor + 1)).0"
+          elif [[ "$BUMP_TYPE" == "major" ]]; then
+            NEW_VER="$((major + 1)).0.0"
+          else
+            echo "::error::Invalid bump type: $BUMP_TYPE"
+            exit 1
+          fi
+
+          echo "Bumping to version: $NEW_VER"
+          echo "new_version=$NEW_VER" >> $GITHUB_OUTPUT
+
+          # Update Cargo.toml
+          perl -i -pe "s/^version = \"$CURRENT_VER\"/version = \"$NEW_VER\"/" Cargo.toml
+
+          # Update Cargo.lock
+          cargo check > /dev/null 2>&1
+
+      - name: Commit and Push Tag
+        run: |
+          NEW_VER=${{ steps.version.outputs.new_version }}
+          TAG_NAME="v$NEW_VER"
+
+          # Check if tag exists
+          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+             echo "::error::Tag $TAG_NAME already exists!"
+             exit 1
+          fi
+
+          git add Cargo.toml Cargo.lock
+          git commit -m "chore: release $TAG_NAME"
+          git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
+
+          # Push commit and tag
+          git push origin main --follow-tags
