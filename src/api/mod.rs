@@ -15,6 +15,7 @@ use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tracing::warn;
 
 pub mod auth;
+pub mod docs;
 pub mod gateway;
 pub mod keys;
 pub mod messages;
@@ -73,6 +74,7 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>) -> 
         .layer(GovernorLayer::new(standard_conf));
 
     Router::new()
+        .route("/openapi.yaml", get(docs::openapi_yaml))
         .nest("/v1", auth_routes.merge(api_routes))
         .layer(from_fn_with_state(state.clone(), log_rate_limit_events))
         .with_state(state)
