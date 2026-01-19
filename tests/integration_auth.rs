@@ -107,22 +107,11 @@ async fn test_logout_revokes_refresh_token() {
     let resp_logout = app.client
         .delete(format!("{}/v1/sessions", app.server_url))
         .header("Authorization", format!("Bearer {}", token)) // Pass access token to identify session
-        .json(&json!({ "refreshToken": refresh_token })) // Ideally logout invalids specific refresh token or all?
-                                                         // Design decision: simple logout usually just revokes the RT. 
-                                                         // If we require the RT in the body, it's explicit.
-                                                         // Let's assume for now we might need to send it, or just use auth header.
-                                                         // Following standard practice: DELETE /sessions usually invalidates the session associated with the caller.
-                                                         // But wait, JWTs are stateless. So we MUST provide the refresh token to delete it from DB.
+        .json(&json!({ "refreshToken": refresh_token }))
         .send()
         .await
         .unwrap();
 
-    // We will implement Logout to require the Refresh Token in the body to know WHICH one to delete, 
-    // OR we can delete ALL for the user if we just use the Bearer token.
-    // Use Case: "Log out of this device" vs "Log out of all devices".
-    // For "Log out of this device", we need the refresh token handle.
-    // Let's implement: DELETE /sessions with body { refreshToken: "..." }
-    
     assert_eq!(resp_logout.status(), StatusCode::OK);
 
     // 3. Try to Refresh after Logout
@@ -134,4 +123,56 @@ async fn test_logout_revokes_refresh_token() {
         .unwrap();
 
     assert_eq!(resp_fail.status(), StatusCode::UNAUTHORIZED, "Refresh token should be revoked after logout");
+}
+
+#[tokio::test]
+async fn test_refresh_token_expiration() {
+    // 1. Setup app with 0-day TTL (immediate expiration)
+    let mut config = common::get_test_config();
+    config.refresh_token_ttl_days = 0;
+    
+    let app = common::TestApp::spawn_with_config(config).await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let username = format!("expire_user_{}", run_id);
+
+    // 2. Register
+    let payload = json!({
+        "username": username,
+        "password": "password123",
+        "registrationId": 123,
+        "identityKey": "dGVzdF9pZGVudGl0eV9rZXk=",
+        "signedPreKey": {
+            "keyId": 1,
+            "publicKey": "dGVzdF9zaWduZWRfcHViX2tleQ==",
+            "signature": "dGVzdF9zaWduZWRfc2ln"
+        },
+        "oneTimePreKeys": []
+    });
+
+    let resp = app.client
+        .post(format!("{}/v1/users", app.server_url))
+        .json(&payload)
+        .send()
+        .await
+        .unwrap();
+
+    let json: serde_json::Value = resp.json().await.unwrap();
+    let refresh_token = json["refreshToken"].as_str().expect("Missing refreshToken").to_string();
+
+    // 3. Wait a moment to ensure clock ticks (1s)
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+    // 4. Try to Refresh (Should fail)
+    let refresh_payload = json!({
+        "refreshToken": refresh_token
+    });
+
+    let resp_refresh = app.client
+        .post(format!("{}/v1/sessions/refresh", app.server_url))
+        .json(&refresh_payload)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp_refresh.status(), StatusCode::UNAUTHORIZED, "Expired refresh token should be rejected");
 }

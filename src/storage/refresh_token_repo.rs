@@ -38,12 +38,15 @@ impl RefreshTokenRepository {
         Ok(())
     }
 
-    /// Atomically validates and rotates a refresh token.
-    /// If valid: Returns the user_id and DELETES the token (Single Usage).
+    /// Atomically validates and consumes a refresh token (Step 1 of Rotation).
+    /// If valid: Returns the user_id and DELETES the token from the DB.
     /// If invalid/expired: Returns None.
-    pub async fn verify_and_rotate(&self, token_hash: &str) -> Result<Option<Uuid>> {
-        let mut tx = self.pool.begin().await?;
-
+    /// The caller MUST commit the transaction.
+    pub async fn verify_and_consume(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        token_hash: &str,
+    ) -> Result<Option<Uuid>> {
         #[derive(sqlx::FromRow)]
         struct TokenRecord {
             user_id: Uuid,
@@ -60,7 +63,7 @@ impl RefreshTokenRepository {
             "#,
         )
         .bind(token_hash)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await
         .map_err(AppError::Database)?;
 
@@ -70,29 +73,28 @@ impl RefreshTokenRepository {
                 // Delete expired token to clean up
                 sqlx::query("DELETE FROM refresh_tokens WHERE token_hash = $1")
                     .bind(token_hash)
-                    .execute(&mut *tx)
+                    .execute(&mut **tx)
                     .await?;
-                tx.commit().await?;
                 return Ok(None);
             }
 
-            // 3. Delete (Rotate)
+            // 3. Delete (Consume)
             sqlx::query("DELETE FROM refresh_tokens WHERE token_hash = $1")
                 .bind(token_hash)
-                .execute(&mut *tx)
+                .execute(&mut **tx)
                 .await?;
 
-            tx.commit().await?;
             Ok(Some(record.user_id))
         } else {
             Ok(None)
         }
     }
 
-    /// Revokes a specific refresh token (Logout).
-    pub async fn delete(&self, token_hash: &str) -> Result<()> {
-        sqlx::query("DELETE FROM refresh_tokens WHERE token_hash = $1")
+    /// Revokes a specific refresh token owned by the user (Logout).
+    pub async fn delete_owned(&self, token_hash: &str, user_id: Uuid) -> Result<()> {
+        sqlx::query("DELETE FROM refresh_tokens WHERE token_hash = $1 AND user_id = $2")
             .bind(token_hash)
+            .bind(user_id)
             .execute(&self.pool)
             .await
             .map_err(AppError::Database)?;

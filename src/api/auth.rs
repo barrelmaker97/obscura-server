@@ -1,5 +1,5 @@
 use crate::api::AppState;
-use crate::api::middleware::create_jwt;
+use crate::api::middleware::{AuthUser, create_jwt};
 use crate::core::auth;
 use crate::error::{AppError, Result};
 use crate::storage::key_repo::KeyRepository;
@@ -161,8 +161,10 @@ pub async fn refresh(
     // 1. Hash the incoming token to look it up
     let hash = auth::hash_token(&payload.refresh_token);
 
-    // 2. Verify and Rotate (Atomic)
-    let user_id = refresh_repo.verify_and_rotate(&hash).await?.ok_or(AppError::AuthError)?;
+    // 2. Verify and Rotate (Atomic Transaction)
+    let mut tx = state.pool.begin().await?;
+
+    let user_id = refresh_repo.verify_and_consume(&mut tx, &hash).await?.ok_or(AppError::AuthError)?;
 
     // 3. Generate New Pair
     let new_access_token = create_jwt(user_id, &state.config.jwt_secret, state.config.access_token_ttl_secs)?;
@@ -170,8 +172,8 @@ pub async fn refresh(
     let new_refresh_hash = auth::hash_token(&new_refresh_token);
 
     // 4. Store New Refresh Token
-    let mut tx = state.pool.begin().await?;
     refresh_repo.create(&mut tx, user_id, &new_refresh_hash, state.config.refresh_token_ttl_days).await?;
+    
     tx.commit().await?;
 
     let expires_at = (time::OffsetDateTime::now_utc() + time::Duration::seconds(state.config.access_token_ttl_secs as i64)).unix_timestamp();
@@ -184,13 +186,14 @@ pub async fn refresh(
 }
 
 pub async fn logout(
+    auth_user: AuthUser,
     State(state): State<AppState>,
     Json(payload): Json<LogoutRequest>,
 ) -> Result<impl IntoResponse> {
     let refresh_repo = RefreshTokenRepository::new(state.pool.clone());
     let hash = auth::hash_token(&payload.refresh_token);
     
-    refresh_repo.delete(&hash).await?;
+    refresh_repo.delete_owned(&hash, auth_user.user_id).await?;
     
     Ok(StatusCode::OK)
 }
