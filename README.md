@@ -21,6 +21,8 @@ Command-line options take precedence over environment variables.
 | `--jwt-secret` | Secret key for signing JWTs | `JWT_SECRET` | - | **Yes** |
 | `--server-host` | Interface to bind the server to | `SERVER_HOST` | `0.0.0.0` | No |
 | `--port` | Port to bind the server to | `PORT` | `3000` | No |
+| `--access-token-ttl-secs` | Access Token lifetime in seconds | `ACCESS_TOKEN_TTL_SECS` | `900` | No |
+| `--refresh-token-ttl-days` | Refresh Token lifetime in days | `REFRESH_TOKEN_TTL_DAYS` | `30` | No |
 | `--message-ttl-days` | Days before a message is auto-deleted | `MESSAGE_TTL_DAYS` | `30` | No |
 | `--max-inbox-size` | Max pending messages per user | `MAX_INBOX_SIZE` | `1000` | No |
 | `--message-batch-limit` | Max messages sent per DB fetch loop | `MESSAGE_BATCH_LIMIT` | `50` | No |
