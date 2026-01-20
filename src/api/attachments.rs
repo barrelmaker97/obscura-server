@@ -122,7 +122,7 @@ pub async fn upload_attachment(
         })?;
 
     // 3. Record Metadata
-    let expires_at = OffsetDateTime::now_utc() + Duration::days(state.config.s3.attachment_ttl_days);
+    let expires_at = OffsetDateTime::now_utc() + Duration::days(state.config.ttl_days);
 
     sqlx::query("INSERT INTO attachments (id, expires_at) VALUES ($1, $2)")
         .bind(id)

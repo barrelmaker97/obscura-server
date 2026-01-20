@@ -24,7 +24,7 @@ impl MessageService {
     ) -> Result<()> {
         // Optimization: We no longer check limits synchronously.
         // The background cleanup loop handles overflow.
-        self.repo.create(sender_id, recipient_id, message_type, content, self.config.messaging.ttl_days).await?;
+        self.repo.create(sender_id, recipient_id, message_type, content, self.config.ttl_days).await?;
         Ok(())
     }
 

@@ -52,6 +52,7 @@ pub async fn get_test_pool() -> PgPool {
 pub fn get_test_config() -> Config {
     Config {
         database_url: "postgres://user:password@localhost/signal_server".to_string(),
+        ttl_days: 30,
         server: obscura_server::config::ServerConfig {
             host: "127.0.0.1".to_string(),
             port: 0,
@@ -72,7 +73,6 @@ pub fn get_test_config() -> Config {
             auth_burst: 10000,
         },
         messaging: obscura_server::config::MessagingConfig {
-            ttl_days: 30,
             max_inbox_size: 1000,
             cleanup_interval_secs: 300,
             batch_limit: 50,
@@ -94,7 +94,6 @@ pub fn get_test_config() -> Config {
             access_key: Some("minioadmin".to_string()),
             secret_key: Some("minioadmin".to_string()),
             force_path_style: true,
-            attachment_ttl_days: 30,
             attachment_max_size_bytes: 52_428_800,
         },
     }

@@ -81,6 +81,7 @@ mod tests {
     fn test_config(gc_interval: u64, capacity: usize) -> Config {
         Config {
             database_url: "".to_string(),
+            ttl_days: 30,
             server: crate::config::ServerConfig {
                 host: "0.0.0.0".to_string(),
                 port: 3000,
@@ -98,7 +99,6 @@ mod tests {
                 auth_burst: 3,
             },
             messaging: crate::config::MessagingConfig {
-                ttl_days: 30,
                 max_inbox_size: 1000,
                 cleanup_interval_secs: 300,
                 batch_limit: 50,
@@ -120,7 +120,6 @@ mod tests {
                 access_key: None,
                 secret_key: None,
                 force_path_style: false,
-                attachment_ttl_days: 30,
                 attachment_max_size_bytes: 52_428_800,
             },
         }

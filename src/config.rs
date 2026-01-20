@@ -8,6 +8,10 @@ pub struct Config {
     #[arg(long, env)]
     pub database_url: String,
 
+    /// Global time-to-live for messages and attachments in days
+    #[arg(long, env, default_value_t = 30)]
+    pub ttl_days: i64,
+
     #[command(flatten)]
     pub server: ServerConfig,
 
@@ -86,10 +90,6 @@ pub struct RateLimitConfig {
 
 #[derive(Clone, Debug, Args)]
 pub struct MessagingConfig {
-    /// How long to keep messages before deletion
-    #[arg(long, env, default_value_t = 30)]
-    pub ttl_days: i64,
-
     /// Maximum number of messages in a user's inbox
     #[arg(long, env, default_value_t = 1000)]
     pub max_inbox_size: i64,
@@ -151,17 +151,13 @@ pub struct S3Config {
     #[arg(long, env)]
     pub access_key: Option<String>,
 
-    /// S3 secret key
+    /// S3 secret_key
     #[arg(long, env)]
     pub secret_key: Option<String>,
 
     /// Force path style (required for many MinIO setups: http://host/bucket/key)
     #[arg(long, env, default_value_t = false)]
     pub force_path_style: bool,
-
-    /// How long to keep attachments before deletion
-    #[arg(long, env, default_value_t = 30)]
-    pub attachment_ttl_days: i64,
 
     /// Max attachment size in bytes (Default: 50MB)
     #[arg(long, env, default_value_t = 52_428_800)]
