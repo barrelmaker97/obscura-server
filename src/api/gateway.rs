@@ -1,7 +1,9 @@
 use crate::api::AppState;
 use crate::api::middleware::verify_jwt;
 use crate::core::notification::UserEvent;
-use crate::proto::obscura::v1::{EncryptedMessage, Envelope, WebSocketFrame, web_socket_frame::Payload};
+use crate::proto::obscura::v1::{
+    EncryptedMessage, Envelope, PreKeyStatus, WebSocketFrame, web_socket_frame::Payload,
+};
 use crate::storage::key_repo::KeyRepository;
 use crate::storage::message_repo::MessageRepository;
 use axum::{
@@ -35,6 +37,9 @@ pub async fn websocket_handler(
 }
 
 async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
+    // Subscribe immediately to avoid missing events (e.g. Disconnect from Takeover)
+    let mut rx = state.notifier.subscribe(user_id);
+
     let key_repo = KeyRepository::new(state.pool.clone());
 
     // Check for Identity Key
@@ -45,6 +50,24 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
     }
 
     let (mut ws_sink, mut ws_stream) = socket.split();
+
+    // Check pre-key status and notify if low
+    if let Ok(count) = key_repo.count_one_time_pre_keys(user_id).await {
+        if count < state.config.messaging.pre_key_refill_threshold as i64 {
+            let status = PreKeyStatus {
+                one_time_pre_key_count: count as i32,
+                min_threshold: state.config.messaging.pre_key_refill_threshold,
+            };
+            let frame = WebSocketFrame { payload: Some(Payload::PreKeyStatus(status)) };
+            let mut buf = Vec::new();
+            if frame.encode(&mut buf).is_ok() {
+                if let Err(e) = ws_sink.send(WsMessage::Binary(buf.into())).await {
+                    error!("Failed to send PreKeyStatus: {}", e);
+                }
+            }
+        }
+    }
+
     let (outbound_tx, mut outbound_rx) = mpsc::channel::<WsMessage>(state.config.websocket.outbound_buffer_size);
     let (fetch_trigger, mut fetch_signal) = mpsc::channel::<()>(1);
     // Bounded channel for ACKs (DoS protection)
@@ -107,8 +130,6 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
             }
         }
     });
-
-    let mut rx = state.notifier.subscribe(user_id);
 
     loop {
         tokio::select! {

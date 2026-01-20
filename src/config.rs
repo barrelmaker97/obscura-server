@@ -101,6 +101,10 @@ pub struct MessagingConfig {
     /// Maximum number of messages to process in a single batch
     #[arg(long, env = "OBSCURA_BATCH_LIMIT", default_value_t = 50)]
     pub batch_limit: i64,
+
+    /// Threshold of one-time prekeys to trigger a refill notification
+    #[arg(long, env = "OBSCURA_PRE_KEY_REFILL_THRESHOLD", default_value_t = 20)]
+    pub pre_key_refill_threshold: i32,
 }
 
 #[derive(Clone, Debug, Args)]

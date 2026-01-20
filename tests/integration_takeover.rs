@@ -78,20 +78,25 @@ async fn test_device_takeover_success() {
 
     // 6. Verify Disconnect (Device A)
     // We expect the WS stream to close.
-    match ws.stream.next().await {
-        Some(Ok(Message::Close(_))) => {} // Clean close
-        Some(Ok(Message::Binary(_))) => {
-            // If we get binary (pending msg), wait for next which should be close or None
-            match ws.stream.next().await {
-                Some(Ok(Message::Close(_))) => {}
-                None => {}         // Closed stream
-                Some(Err(_)) => {} // Error is fine
-                _ => panic!("Expected disconnect after binary"),
-            }
+    let timeout = std::time::Duration::from_secs(5);
+    let start = std::time::Instant::now();
+    
+    loop {
+        if start.elapsed() > timeout {
+            panic!("Timed out waiting for disconnect");
         }
-        Some(Err(_)) => {} // Dirty close/error
-        None => {}         // Stream ended
-        _ => panic!("Unexpected message"),
+        
+        match tokio::time::timeout(std::time::Duration::from_millis(500), ws.stream.next()).await {
+            Ok(Some(Ok(Message::Close(_)))) => break, // Clean close
+            Ok(None) => break,         // Stream ended
+            Ok(Some(Ok(Message::Binary(_)))) => {
+                // Ignore binary messages (prekey status, pending messages)
+                continue;
+            }
+            Ok(Some(Err(_))) => break, // Dirty close/error
+            Ok(Some(Ok(_))) => panic!("Unexpected message type"),
+            Err(_) => continue, // Timeout on individual read, keep looping until total timeout
+        }
     }
 
     // 7. Verify Cleanup
