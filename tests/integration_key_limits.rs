@@ -1,3 +1,4 @@
+use base64::Engine;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -12,6 +13,10 @@ async fn test_key_limit_enforced() {
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
     let username = format!("limit_user_{}", run_id);
 
+    let identity_key = common::generate_signing_key();
+    let ik_pub = identity_key.verifying_key().to_bytes();
+    let (spk_pub, spk_sig) = common::generate_signed_pre_key(&identity_key);
+
     // 1. Register with 40 keys (Under limit)
     let mut keys = Vec::new();
     for i in 0..40 {
@@ -25,11 +30,11 @@ async fn test_key_limit_enforced() {
         "username": username,
         "password": "password",
         "registrationId": 123,
-        "identityKey": "dGVzdF9pZGVudGl0eV9rZXk=",
+        "identityKey": base64::engine::general_purpose::STANDARD.encode(&ik_pub),
         "signedPreKey": {
             "keyId": 1,
-            "publicKey": "dGVzdF9zaWduZWRfcHViX2tleQ==",
-            "signature": "dGVzdF9zaWduZWRfc2ln"
+            "publicKey": base64::engine::general_purpose::STANDARD.encode(&spk_pub),
+            "signature": base64::engine::general_purpose::STANDARD.encode(&spk_sig)
         },
         "oneTimePreKeys": keys
     });
@@ -47,14 +52,16 @@ async fn test_key_limit_enforced() {
         }));
     }
 
+    let (new_spk_pub, new_spk_sig) = common::generate_signed_pre_key(&identity_key);
+
     let refill_payload = json!({
         // Same Identity Key = Refill
-        "identityKey": "dGVzdF9pZGVudGl0eV9rZXk=", 
+        "identityKey": base64::engine::general_purpose::STANDARD.encode(&ik_pub), 
         "registrationId": 123,
         "signedPreKey": {
-            "keyId": 1,
-            "publicKey": "dGVzdF9zaWduZWRfcHViX2tleQ==",
-            "signature": "dGVzdF9zaWduZWRfc2ln"
+            "keyId": 2,
+            "publicKey": base64::engine::general_purpose::STANDARD.encode(&new_spk_pub),
+            "signature": base64::engine::general_purpose::STANDARD.encode(&new_spk_sig)
         },
         "oneTimePreKeys": refill_keys
     });
@@ -82,7 +89,8 @@ async fn test_key_limit_enforced_on_takeover() {
     let (token, _) = app.register_user(&username).await;
 
     // 2. Takeover with 20 keys (More than limit of 10)
-    // Even in takeover, the new set of keys should not exceed the limit.
+    let new_identity_key = common::generate_signing_key();
+    let (spk_pub, spk_sig) = common::generate_signed_pre_key(&new_identity_key);
     
     let mut keys = Vec::new();
     for i in 0..20 {
@@ -93,12 +101,12 @@ async fn test_key_limit_enforced_on_takeover() {
     }
 
     let takeover_payload = json!({
-        "identityKey": "bmV3X2lkZW50aXR5X2tleQ==", // Changed ID Key
-        "registration_id": 456,
+        "identityKey": base64::engine::general_purpose::STANDARD.encode(new_identity_key.verifying_key().to_bytes()),
+        "registrationId": 456,
         "signedPreKey": {
             "keyId": 2,
-            "publicKey": "dGVzdF9zaWduZWRfcHViX2tleQ==",
-            "signature": "dGVzdF9zaWduZWRfc2ln"
+            "publicKey": base64::engine::general_purpose::STANDARD.encode(&spk_pub),
+            "signature": base64::engine::general_purpose::STANDARD.encode(&spk_sig)
         },
         "oneTimePreKeys": keys
     });

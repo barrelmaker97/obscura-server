@@ -16,16 +16,20 @@ async fn test_device_takeover_success() {
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
     let username = format!("takeover_user_{}", run_id);
 
-    // 2. Register User (Device A) - using custom payload to control keys explicitly
+    let identity_key = common::generate_signing_key();
+    let ik_pub = identity_key.verifying_key().to_bytes();
+    let (spk_pub, spk_sig) = common::generate_signed_pre_key(&identity_key);
+
+    // 2. Register User (Device A)
     let reg_payload = json!({
         "username": username,
         "password": "password",
         "registrationId": 111,
-        "identityKey": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=", // AAAAA...
+        "identityKey": base64::engine::general_purpose::STANDARD.encode(&ik_pub),
         "signedPreKey": {
             "keyId": 1,
-            "publicKey": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=",
-            "signature": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
+            "publicKey": base64::engine::general_purpose::STANDARD.encode(&spk_pub),
+            "signature": base64::engine::general_purpose::STANDARD.encode(&spk_sig)
         },
         "oneTimePreKeys": [
             { "keyId": 1, "publicKey": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=" }
@@ -52,14 +56,17 @@ async fn test_device_takeover_success() {
     let mut ws = app.connect_ws(&token).await;
 
     // 5. Perform Takeover (Device B)
-    // New Identity Key: BBBBB...
+    let new_identity_key = common::generate_signing_key();
+    let new_ik_pub = new_identity_key.verifying_key().to_bytes();
+    let (new_spk_pub, new_spk_sig) = common::generate_signed_pre_key(&new_identity_key);
+
     let takeover_payload = json!({
-        "identityKey": "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=",
+        "identityKey": base64::engine::general_purpose::STANDARD.encode(&new_ik_pub),
         "registrationId": 222,
         "signedPreKey": {
             "keyId": 2,
-            "publicKey": "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=",
-            "signature": "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI="
+            "publicKey": base64::engine::general_purpose::STANDARD.encode(&new_spk_pub),
+            "signature": base64::engine::general_purpose::STANDARD.encode(&new_spk_sig)
         },
         "oneTimePreKeys": [
             { "keyId": 10, "publicKey": "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=" }
@@ -77,7 +84,6 @@ async fn test_device_takeover_success() {
     assert_eq!(takeover_resp.status(), 200);
 
     // 6. Verify Disconnect (Device A)
-    // We expect the WS stream to close.
     let timeout = std::time::Duration::from_secs(5);
     let start = std::time::Instant::now();
     
@@ -90,29 +96,24 @@ async fn test_device_takeover_success() {
             Ok(Some(Ok(Message::Close(_)))) => break, // Clean close
             Ok(None) => break,         // Stream ended
             Ok(Some(Ok(Message::Binary(_)))) => {
-                // Ignore binary messages (prekey status, pending messages)
+                // Ignore binary messages
                 continue;
             }
             Ok(Some(Err(_))) => break, // Dirty close/error
             Ok(Some(Ok(_))) => panic!("Unexpected message type"),
-            Err(_) => continue, // Timeout on individual read, keep looping until total timeout
+            Err(_) => continue, // Timeout on individual read
         }
     }
 
     // 7. Verify Cleanup
-    // Pending messages should be gone
     let pending_after = msg_repo.fetch_pending_batch(user_id, None, 100).await.unwrap();
     assert_eq!(pending_after.len(), 0);
 
-    // Old PreKeys should be gone (Key ID 1 was uploaded initially, Key ID 2 is new)
     let key_repo = KeyRepository::new(app.pool.clone());
     let bundle = key_repo.fetch_pre_key_bundle(user_id).await.unwrap().unwrap();
 
     // Check Identity Key
-    assert_eq!(
-        bundle.identity_key,
-        base64::engine::general_purpose::STANDARD.decode("QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=").unwrap()
-    );
+    assert_eq!(bundle.identity_key, new_ik_pub);
     // Check Signed Pre Key ID
     assert_eq!(bundle.signed_pre_key.key_id, 2);
     // Check One Time Pre Key ID (should be 10)
@@ -125,16 +126,20 @@ async fn test_refill_pre_keys_no_overwrite() {
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
     let username = format!("refill_user_{}", run_id);
 
+    let identity_key = common::generate_signing_key();
+    let ik_pub = identity_key.verifying_key().to_bytes();
+    let (spk_pub, spk_sig) = common::generate_signed_pre_key(&identity_key);
+
     // 1. Register with custom keys
     let reg_payload = json!({
         "username": username,
         "password": "password",
         "registrationId": 111,
-        "identityKey": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=",
+        "identityKey": base64::engine::general_purpose::STANDARD.encode(&ik_pub),
         "signedPreKey": {
             "keyId": 1,
-            "publicKey": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=",
-            "signature": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
+            "publicKey": base64::engine::general_purpose::STANDARD.encode(&spk_pub),
+            "signature": base64::engine::general_purpose::STANDARD.encode(&spk_sig)
         },
         "oneTimePreKeys": []
     });
@@ -144,14 +149,15 @@ async fn test_refill_pre_keys_no_overwrite() {
     let token = resp.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
 
     // 2. Refill (Same Identity Key)
-    // We explicitly provide the SAME identity key.
+    let (new_spk_pub, new_spk_sig) = common::generate_signed_pre_key(&identity_key);
+
     let refill_payload = json!({
-        "identityKey": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=", // Same
+        "identityKey": base64::engine::general_purpose::STANDARD.encode(&ik_pub), // Same
         "registrationId": 111,
         "signedPreKey": {
             "keyId": 2, // New SPK
-            "publicKey": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=",
-            "signature": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
+            "publicKey": base64::engine::general_purpose::STANDARD.encode(&new_spk_pub),
+            "signature": base64::engine::general_purpose::STANDARD.encode(&new_spk_sig)
         },
         "oneTimePreKeys": [
             { "keyId": 10, "publicKey": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=" }

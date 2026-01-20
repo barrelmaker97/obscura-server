@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::core::auth::verify_signature;
 use crate::core::notification::{Notifier, UserEvent};
 use crate::core::user::{OneTimePreKey, PreKeyBundle, SignedPreKey};
 use crate::error::{AppError, Result};
@@ -81,8 +82,8 @@ impl KeyService {
     ) -> Result<bool> {
         let mut is_takeover = false;
 
-        // 1. Check Identity Key if provided
-        if let Some(new_ik_bytes) = &params.identity_key {
+        // 1. Identify/Verify Identity Key
+        let ik_bytes = if let Some(new_ik_bytes) = &params.identity_key {
             // Fetch existing identity key with LOCK
             let existing_ik_opt = self.key_repo.fetch_identity_key_for_update(&mut *conn, params.user_id).await?;
 
@@ -94,9 +95,20 @@ impl KeyService {
                 // No existing key? Treat as takeover to ensure clean slate.
                 is_takeover = true;
             }
-        }
+            new_ik_bytes.clone()
+        } else {
+            self.key_repo
+                .fetch_identity_key_for_update(&mut *conn, params.user_id)
+                .await?
+                .ok_or_else(|| AppError::BadRequest("Identity key missing".into()))?
+        };
 
-        // 2. Limit Check (Atomic within transaction)
+        // 2. Verify Cryptographic Signature
+        // The signature is expected to be an Ed25519 signature of the Signed Prekey's Public Key,
+        // signed by the user's Identity Key.
+        verify_signature(&ik_bytes, &params.signed_pre_key.public_key, &params.signed_pre_key.signature)?;
+
+        // 3. Limit Check (Atomic within transaction)
         let current_count = if is_takeover {
             0
         } else {
@@ -112,7 +124,7 @@ impl KeyService {
             )));
         }
 
-        // 3. Handle Takeover Cleanup
+        // 4. Handle Takeover Cleanup
         if is_takeover {
             let reg_id = params
                 .registration_id
@@ -122,12 +134,13 @@ impl KeyService {
             self.key_repo.delete_all_one_time_pre_keys(&mut *conn, params.user_id).await?;
             self.message_repo.delete_all_for_user(&mut *conn, params.user_id).await?;
 
+            // identity_key is Some if is_takeover is true (from logic in step 1)
             if let Some(ik) = &params.identity_key {
                 self.key_repo.upsert_identity_key(&mut *conn, params.user_id, ik, reg_id).await?;
             }
         }
 
-        // 4. Common flow: Upsert Keys
+        // 5. Common flow: Upsert Keys
         self.key_repo
             .upsert_signed_pre_key(
                 &mut *conn,

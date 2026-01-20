@@ -71,9 +71,10 @@ pub async fn login(State(state): State<AppState>, Json(payload): Json<LoginReque
     let password = payload.password.clone();
     let password_hash = user.password_hash.clone();
 
-    let is_valid = tokio::task::spawn_blocking(move || auth::verify_password(&password, &password_hash))
+    let is_valid: Result<bool> = tokio::task::spawn_blocking(move || auth::verify_password(&password, &password_hash))
         .await
-        .map_err(|_| AppError::Internal)??;
+        .map_err(|_| AppError::Internal)?;
+    let is_valid = is_valid?;
 
     if !is_valid {
         return Err(AppError::AuthError);
@@ -103,8 +104,11 @@ pub async fn register(
     let refresh_repo = RefreshTokenRepository::new(state.pool.clone());
 
     let password = payload.password.clone();
-    let password_hash =
-        tokio::task::spawn_blocking(move || auth::hash_password(&password)).await.map_err(|_| AppError::Internal)??;
+    let password_hash: Result<String> =
+        tokio::task::spawn_blocking(move || auth::hash_password(&password))
+            .await
+            .map_err(|_| AppError::Internal)?;
+    let password_hash = password_hash?;
 
     let mut tx = state.pool.begin().await?;
 

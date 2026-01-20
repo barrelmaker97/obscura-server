@@ -1,5 +1,6 @@
 #![allow(dead_code)]
-use base64::Engine;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use ed25519_dalek::{Signer, SigningKey};
 use futures::{SinkExt, StreamExt};
 use obscura_server::{
     api::app_router,
@@ -12,6 +13,8 @@ use obscura_server::{
     storage,
 };
 use prost::Message as ProstMessage;
+use rand::rngs::OsRng;
+use rand::RngCore;
 use reqwest::Client;
 use serde_json::json;
 use sqlx::PgPool;
@@ -104,6 +107,19 @@ pub fn get_test_config() -> Config {
     }
 }
 
+pub fn generate_signing_key() -> SigningKey {
+    let mut bytes = [0u8; 32];
+    OsRng.fill_bytes(&mut bytes);
+    SigningKey::from_bytes(&bytes)
+}
+
+pub fn generate_signed_pre_key(identity_key: &SigningKey) -> (Vec<u8>, Vec<u8>) {
+    let spk_key = generate_signing_key();
+    let spk_pub = spk_key.verifying_key().to_bytes().to_vec();
+    let signature = identity_key.sign(&spk_pub).to_bytes().to_vec();
+    (spk_pub, signature)
+}
+
 #[allow(dead_code)]
 pub struct TestApp {
     pub pool: PgPool,
@@ -156,21 +172,63 @@ impl TestApp {
     }
 
     pub async fn register_user(&self, username: &str) -> (String, Uuid) {
-        // Use a default registration ID if not specified by the test logic
-        let (token, _, user_id) = self.register_user_full(username, 123).await;
+        let identity_key = generate_signing_key();
+        let ik_pub = identity_key.verifying_key().to_bytes().to_vec();
+        let (spk_pub, spk_sig) = generate_signed_pre_key(&identity_key);
+
+        let reg_payload = json!({
+            "username": username,
+            "password": "password",
+            "registrationId": 123,
+            "identityKey": STANDARD.encode(&ik_pub),
+            "signedPreKey": {
+                "keyId": 1,
+                "publicKey": STANDARD.encode(&spk_pub),
+                "signature": STANDARD.encode(&spk_sig)
+            },
+            "oneTimePreKeys": [
+                {
+                    "keyId": 1,
+                    "publicKey": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
+                }
+            ]
+        });
+
+        let resp = self
+            .client
+            .post(format!("{}/v1/users", self.server_url))
+            .json(&reg_payload)
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), 201, "User registration failed");
+        let body = resp.json::<serde_json::Value>().await.unwrap();
+        let token = body["token"].as_str().unwrap().to_string();
+
+        // Extract user_id from token
+        let parts: Vec<&str> = token.split('.').collect();
+        let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[1]).unwrap();
+        let claims: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
+        let user_id = Uuid::parse_str(claims["sub"].as_str().unwrap()).unwrap();
+
         (token, user_id)
     }
 
     pub async fn register_user_full(&self, username: &str, registration_id: u32) -> (String, String, Uuid) {
+        let identity_key = generate_signing_key();
+        let ik_pub = identity_key.verifying_key().to_bytes().to_vec();
+        let (spk_pub, spk_sig) = generate_signed_pre_key(&identity_key);
+
         let payload = json!({
             "username": username,
             "password": "password",
             "registrationId": registration_id,
-            "identityKey": "dGVzdF9pZGVudGl0eV9rZXk=",
+            "identityKey": STANDARD.encode(&ik_pub),
             "signedPreKey": {
                 "keyId": 1,
-                "publicKey": "dGVzdF9zaWduZWRfcHViX2tleQ==",
-                "signature": "dGVzdF9zaWduZWRfc2ln"
+                "publicKey": STANDARD.encode(&spk_pub),
+                "signature": STANDARD.encode(&spk_sig)
             },
             "oneTimePreKeys": []
         });
