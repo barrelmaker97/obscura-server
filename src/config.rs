@@ -105,6 +105,10 @@ pub struct MessagingConfig {
     /// Threshold of one-time prekeys to trigger a refill notification
     #[arg(long, env = "OBSCURA_PRE_KEY_REFILL_THRESHOLD", default_value_t = 20)]
     pub pre_key_refill_threshold: i32,
+
+    /// Maximum number of one-time prekeys allowed per user
+    #[arg(long, env = "OBSCURA_MAX_PRE_KEYS", default_value_t = 100)]
+    pub max_pre_keys: i64,
 }
 
 #[derive(Clone, Debug, Args)]

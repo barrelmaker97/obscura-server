@@ -80,6 +80,7 @@ pub fn get_test_config() -> Config {
             cleanup_interval_secs: 300,
             batch_limit: 50,
             pre_key_refill_threshold: 20,
+            max_pre_keys: 100,
         },
         notifications: obscura_server::config::NotificationConfig {
             gc_interval_secs: 60,

@@ -70,6 +70,18 @@ pub async fn upload_keys(
         }
     }
 
+    if !is_takeover {
+        let current_count = key_repo.count_one_time_pre_keys(auth_user.user_id).await?;
+        let new_keys_count = payload.one_time_pre_keys.len() as i64;
+
+        if current_count + new_keys_count > state.config.messaging.max_pre_keys {
+            return Err(AppError::BadRequest(format!(
+                "Too many pre-keys. Limit is {}",
+                state.config.messaging.max_pre_keys
+            )));
+        }
+    }
+
     if is_takeover {
         let reg_id =
             payload.registration_id.ok_or(AppError::BadRequest("registrationId required for takeover".into()))?;
