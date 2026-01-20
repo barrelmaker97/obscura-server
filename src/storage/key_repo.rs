@@ -182,4 +182,12 @@ impl KeyRepository {
         sqlx::query("DELETE FROM one_time_pre_keys WHERE user_id = $1").bind(user_id).execute(executor).await?;
         Ok(())
     }
+
+    pub async fn count_one_time_pre_keys(&self, user_id: Uuid) -> Result<i64> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM one_time_pre_keys WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(count)
+    }
 }
