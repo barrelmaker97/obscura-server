@@ -13,34 +13,6 @@ jobs:
   test:
     name: Test & Check
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:18-alpine
-        env:
-          POSTGRES_USER: user
-          POSTGRES_PASSWORD: password
-          POSTGRES_DB: signal_server
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-      minio:
-        image: bitnami/minio:2025.7.23-debian-12-r3
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-          MINIO_DEFAULT_BUCKETS: test-bucket
-        ports:
-          - 9000:9000
-        options: >-
-          --health-cmd "curl -f http://localhost:9000/minio/health/live"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - uses: actions/checkout@v6
@@ -49,6 +21,34 @@ jobs:
 
       - name: Install Protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Start Services
+        run: docker compose up -d
+
+      - name: Wait for Database
+        run: |
+          for i in {1..10}; do
+            if docker compose exec db pg_isready -U user -d signal_server; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+
+      - name: Wait for MinIO
+        run: |
+          for i in {1..10}; do
+            if curl -f http://localhost:9000/minio/health/live; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+
+      - name: Create Test Bucket
+        run: |
+          docker compose exec -e AWS_ACCESS_KEY_ID=minioadmin -e AWS_SECRET_ACCESS_KEY=minioadmin minio \
+            sh -c "mkdir -p /data/test-bucket"
 
       - name: Set up Rust toolchain
         run: rustup show
