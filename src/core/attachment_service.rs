@@ -48,7 +48,7 @@ impl AttachmentCleanupService {
 
                 // 1. Delete from S3
                 // We consider 'NotFound' or success as success. Network errors trigger retry next time.
-                let res = self.s3_client.delete_object().bucket(&self.config.s3_bucket).key(&key).send().await;
+                let res = self.s3_client.delete_object().bucket(&self.config.s3.bucket).key(&key).send().await;
 
                 match res {
                     Ok(_) => {}

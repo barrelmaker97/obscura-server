@@ -176,7 +176,7 @@ async fn test_no_identity_key_rejects_websocket() {
     tx.commit().await.unwrap();
 
     // Generate a token for this user
-    let token = create_jwt(user.id, &app.config.jwt_secret, 3600).unwrap();
+    let token = create_jwt(user.id, &app.config.auth.jwt_secret, 3600).unwrap();
 
     // Verify connection is rejected or closed immediately
     let res = connect_async(format!("{}?token={}", app.ws_url, token)).await;

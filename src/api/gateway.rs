@@ -28,7 +28,7 @@ pub async fn websocket_handler(
     Query(params): Query<WsParams>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    match verify_jwt(&params.token, &state.config.jwt_secret) {
+    match verify_jwt(&params.token, &state.config.auth.jwt_secret) {
         Ok(claims) => ws.on_upgrade(move |socket| handle_socket(socket, state, claims.sub)),
         Err(_) => axum::http::StatusCode::UNAUTHORIZED.into_response(),
     }
@@ -45,14 +45,14 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
     }
 
     let (mut ws_sink, mut ws_stream) = socket.split();
-    let (outbound_tx, mut outbound_rx) = mpsc::channel::<WsMessage>(state.config.ws_outbound_buffer_size);
+    let (outbound_tx, mut outbound_rx) = mpsc::channel::<WsMessage>(state.config.websocket.outbound_buffer_size);
     let (fetch_trigger, mut fetch_signal) = mpsc::channel::<()>(1);
     // Bounded channel for ACKs (DoS protection)
-    let (ack_tx, mut ack_rx) = mpsc::channel::<Uuid>(state.config.ws_ack_buffer_size);
+    let (ack_tx, mut ack_rx) = mpsc::channel::<Uuid>(state.config.websocket.ack_buffer_size);
 
     // Fetcher Task: Trigger -> DB -> Message Channel
     let pool = state.pool.clone();
-    let batch_limit = state.config.message_batch_limit;
+    let batch_limit = state.config.messaging.batch_limit;
     let mut db_poller_task = tokio::spawn(async move {
         let repo = MessageRepository::new(pool);
         let mut cursor: Option<(time::OffsetDateTime, Uuid)> = None;
@@ -71,8 +71,8 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
 
     // ACK Processor Task: Buffer -> DB Batch Delete
     let repo_ack = MessageRepository::new(state.pool.clone());
-    let ack_batch_size = state.config.ws_ack_batch_size;
-    let ack_flush_interval_ms = state.config.ws_ack_flush_interval_ms;
+    let ack_batch_size = state.config.websocket.ack_batch_size;
+    let ack_flush_interval_ms = state.config.websocket.ack_flush_interval_ms;
 
     let mut ack_processor_task = tokio::spawn(async move {
         loop {

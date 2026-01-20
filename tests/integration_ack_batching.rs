@@ -11,8 +11,8 @@ mod common;
 async fn test_ack_batching_behavior() {
     // 1. Setup with custom config
     let mut config = common::get_test_config();
-    config.ws_ack_batch_size = 5;
-    config.ws_ack_flush_interval_ms = 1000;
+    config.websocket.ack_batch_size = 5;
+    config.websocket.ack_flush_interval_ms = 1000;
 
     let app = common::TestApp::spawn_with_config(config).await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();

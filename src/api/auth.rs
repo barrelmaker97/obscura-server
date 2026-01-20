@@ -79,16 +79,16 @@ pub async fn login(State(state): State<AppState>, Json(payload): Json<LoginReque
     }
 
     // Generate Tokens
-    let token = create_jwt(user.id, &state.config.jwt_secret, state.config.access_token_ttl_secs)?;
+    let token = create_jwt(user.id, &state.config.auth.jwt_secret, state.config.auth.access_token_ttl_secs)?;
     let refresh_token = auth::generate_opaque_token();
     let refresh_hash = auth::hash_token(&refresh_token);
 
     let mut tx = state.pool.begin().await?;
-    refresh_repo.create(&mut tx, user.id, &refresh_hash, state.config.refresh_token_ttl_days).await?;
+    refresh_repo.create(&mut tx, user.id, &refresh_hash, state.config.auth.refresh_token_ttl_days).await?;
     tx.commit().await?;
 
     let expires_at = (time::OffsetDateTime::now_utc()
-        + time::Duration::seconds(state.config.access_token_ttl_secs as i64))
+        + time::Duration::seconds(state.config.auth.access_token_ttl_secs as i64))
     .unix_timestamp();
 
     Ok(Json(AuthResponse { token, refresh_token, expires_at }))
@@ -140,16 +140,16 @@ pub async fn register(
     key_repo.insert_one_time_pre_keys(&mut tx, user.id, &otpk_vec).await?;
 
     // Generate Tokens
-    let token = create_jwt(user.id, &state.config.jwt_secret, state.config.access_token_ttl_secs)?;
+    let token = create_jwt(user.id, &state.config.auth.jwt_secret, state.config.auth.access_token_ttl_secs)?;
     let refresh_token = auth::generate_opaque_token();
     let refresh_hash = auth::hash_token(&refresh_token);
 
-    refresh_repo.create(&mut tx, user.id, &refresh_hash, state.config.refresh_token_ttl_days).await?;
+    refresh_repo.create(&mut tx, user.id, &refresh_hash, state.config.auth.refresh_token_ttl_days).await?;
 
     tx.commit().await?;
 
     let expires_at = (time::OffsetDateTime::now_utc()
-        + time::Duration::seconds(state.config.access_token_ttl_secs as i64))
+        + time::Duration::seconds(state.config.auth.access_token_ttl_secs as i64))
     .unix_timestamp();
 
     Ok((StatusCode::CREATED, Json(AuthResponse { token, refresh_token, expires_at })))
@@ -167,17 +167,17 @@ pub async fn refresh(State(state): State<AppState>, Json(payload): Json<RefreshR
     let user_id = refresh_repo.verify_and_consume(&mut tx, &hash).await?.ok_or(AppError::AuthError)?;
 
     // 3. Generate New Pair
-    let new_access_token = create_jwt(user_id, &state.config.jwt_secret, state.config.access_token_ttl_secs)?;
+    let new_access_token = create_jwt(user_id, &state.config.auth.jwt_secret, state.config.auth.access_token_ttl_secs)?;
     let new_refresh_token = auth::generate_opaque_token();
     let new_refresh_hash = auth::hash_token(&new_refresh_token);
 
     // 4. Store New Refresh Token
-    refresh_repo.create(&mut tx, user_id, &new_refresh_hash, state.config.refresh_token_ttl_days).await?;
+    refresh_repo.create(&mut tx, user_id, &new_refresh_hash, state.config.auth.refresh_token_ttl_days).await?;
 
     tx.commit().await?;
 
     let expires_at = (time::OffsetDateTime::now_utc()
-        + time::Duration::seconds(state.config.access_token_ttl_secs as i64))
+        + time::Duration::seconds(state.config.auth.access_token_ttl_secs as i64))
     .unix_timestamp();
 
     Ok(Json(AuthResponse { token: new_access_token, refresh_token: new_refresh_token, expires_at }))

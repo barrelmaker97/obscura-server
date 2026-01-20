@@ -7,7 +7,7 @@ mod common;
 async fn test_notification_lag_recovery() {
     // 1. Setup with small buffer
     let mut config = common::get_test_config();
-    config.ws_outbound_buffer_size = 10;
+    config.websocket.outbound_buffer_size = 10;
 
     let app = common::TestApp::spawn_with_config(config).await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();

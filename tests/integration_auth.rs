@@ -82,7 +82,7 @@ async fn test_logout_revokes_refresh_token() {
 async fn test_refresh_token_expiration() {
     // 1. Setup app with 0-day TTL (immediate expiration)
     let mut config = common::get_test_config();
-    config.refresh_token_ttl_days = 0;
+    config.auth.refresh_token_ttl_days = 0;
 
     let app = common::TestApp::spawn_with_config(config).await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();

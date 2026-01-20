@@ -14,23 +14,23 @@ async fn ensure_bucket(s3_client: &aws_sdk_s3::Client, bucket: &str) {
 #[tokio::test]
 async fn test_attachment_lifecycle() {
     let mut config = common::get_test_config();
-    config.s3_endpoint = Some("http://localhost:9000".to_string());
-    config.s3_bucket = format!("test-bucket-{}", &Uuid::new_v4().to_string()[..8]);
-    config.s3_force_path_style = true;
-    config.attachment_max_size_bytes = 100; // Small but enough for "hello"
+    config.s3.endpoint = Some("http://localhost:9000".to_string());
+    config.s3.bucket = format!("test-bucket-{}", &Uuid::new_v4().to_string()[..8]);
+    config.s3.force_path_style = true;
+    config.s3.attachment_max_size_bytes = 100; // Small but enough for "hello"
 
     // Init S3 Client
-    let region_provider = aws_config::Region::new(config.s3_region.clone());
+    let region_provider = aws_config::Region::new(config.s3.region.clone());
     let config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest())
         .region(region_provider)
-        .endpoint_url(config.s3_endpoint.as_ref().unwrap())
+        .endpoint_url(config.s3.endpoint.as_ref().unwrap())
         .credentials_provider(aws_credential_types::Credentials::new("minioadmin", "minioadmin", None, None, "static"));
 
     let sdk_config = config_loader.load().await;
     let s3_config_builder = aws_sdk_s3::config::Builder::from(&sdk_config).force_path_style(true);
     let s3_client = aws_sdk_s3::Client::from_conf(s3_config_builder.build());
 
-    ensure_bucket(&s3_client, &config.s3_bucket).await;
+    ensure_bucket(&s3_client, &config.s3.bucket).await;
 
     // Init App
     let pool = common::get_test_pool().await;

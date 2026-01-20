@@ -63,7 +63,7 @@ pub async fn upload_attachment(
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(0);
 
-    if content_len > state.config.attachment_max_size_bytes {
+    if content_len > state.config.s3.attachment_max_size_bytes {
         return Err(AppError::BadRequest("Attachment too large".into()));
     }
 
@@ -71,7 +71,7 @@ pub async fn upload_attachment(
     let key = id.to_string();
 
     // 2. Bridge Axum Body -> SyncBody with Size Limit enforcement
-    let limit = state.config.attachment_max_size_bytes; // usize
+    let limit = state.config.s3.attachment_max_size_bytes; // usize
     let limited_body = Limited::new(body, limit);
 
     let (tx, rx) = mpsc::channel(2); // Small buffer
@@ -110,7 +110,7 @@ pub async fn upload_attachment(
     state
         .s3_client
         .put_object()
-        .bucket(&state.config.s3_bucket)
+        .bucket(&state.config.s3.bucket)
         .key(&key)
         .set_content_length(if content_len > 0 { Some(content_len as i64) } else { None })
         .body(byte_stream)
@@ -122,7 +122,7 @@ pub async fn upload_attachment(
         })?;
 
     // 3. Record Metadata
-    let expires_at = OffsetDateTime::now_utc() + Duration::days(state.config.attachment_ttl_days);
+    let expires_at = OffsetDateTime::now_utc() + Duration::days(state.config.s3.attachment_ttl_days);
 
     sqlx::query("INSERT INTO attachments (id, expires_at) VALUES ($1, $2)")
         .bind(id)
@@ -154,7 +154,7 @@ pub async fn download_attachment(
 
     // 2. Stream from S3
     let key = id.to_string();
-    let output = state.s3_client.get_object().bucket(&state.config.s3_bucket).key(&key).send().await.map_err(|e| {
+    let output = state.s3_client.get_object().bucket(&state.config.s3.bucket).key(&key).send().await.map_err(|e| {
         tracing::error!("S3 Download failed for {}: {:?}", key, e);
         AppError::NotFound
     })?;

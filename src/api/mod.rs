@@ -33,25 +33,25 @@ pub struct AppState {
 }
 
 pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_client: aws_sdk_s3::Client) -> Router {
-    let extractor = rate_limit::IpKeyExtractor::new(&config.trusted_proxies);
+    let extractor = rate_limit::IpKeyExtractor::new(config.server.trusted_proxies.clone());
 
     // Standard Tier: For general API usage
-    let std_interval_ns = 1_000_000_000 / config.rate_limit_per_second.max(1);
+    let std_interval_ns = 1_000_000_000 / config.rate_limit.per_second.max(1);
     let standard_conf = Arc::new(
         GovernorConfigBuilder::default()
             .per_nanosecond(std_interval_ns as u64)
-            .burst_size(config.rate_limit_burst)
+            .burst_size(config.rate_limit.burst)
             .key_extractor(extractor.clone())
             .finish()
             .unwrap(),
     );
 
     // Auth Tier: Stricter limits for expensive/sensitive registration & login
-    let auth_interval_ns = 1_000_000_000 / config.auth_rate_limit_per_second.max(1);
+    let auth_interval_ns = 1_000_000_000 / config.rate_limit.auth_per_second.max(1);
     let auth_conf = Arc::new(
         GovernorConfigBuilder::default()
             .per_nanosecond(auth_interval_ns as u64)
-            .burst_size(config.auth_rate_limit_burst)
+            .burst_size(config.rate_limit.auth_burst)
             .key_extractor(extractor.clone())
             .finish()
             .unwrap(),

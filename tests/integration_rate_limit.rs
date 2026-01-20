@@ -7,8 +7,8 @@ mod common;
 #[tokio::test]
 async fn test_rate_limit_isolation() {
     let mut config = common::get_test_config();
-    config.rate_limit_per_second = 1;
-    config.rate_limit_burst = 2;
+    config.rate_limit.per_second = 1;1;
+    config.rate_limit.burst = 2;
     let app = common::TestApp::spawn_with_config(config).await;
 
     let user_a = "1.1.1.1";
@@ -49,8 +49,8 @@ async fn test_rate_limit_isolation() {
 #[tokio::test]
 async fn test_rate_limit_proxy_chain() {
     let mut config = common::get_test_config();
-    config.rate_limit_per_second = 1;
-    config.rate_limit_burst = 2;
+    config.rate_limit.per_second = 1;1;
+    config.rate_limit.burst = 2;
     let app = common::TestApp::spawn_with_config(config).await;
 
     let chain = "9.9.9.9, 1.1.1.1, 2.2.2.2";
@@ -82,8 +82,8 @@ async fn test_rate_limit_proxy_chain() {
 #[tokio::test]
 async fn test_rate_limit_concurrency() {
     let mut config = common::get_test_config();
-    config.rate_limit_per_second = 1;
-    config.rate_limit_burst = 2;
+    config.rate_limit.per_second = 1;1;
+    config.rate_limit.burst = 2;
     let app = common::TestApp::spawn_with_config(config).await;
 
     println!("Firing 20 concurrent requests from unique IPs...");
@@ -112,8 +112,8 @@ async fn test_rate_limit_concurrency() {
 #[tokio::test]
 async fn test_rate_limit_fallback_to_peer_ip() {
     let mut config = common::get_test_config();
-    config.rate_limit_per_second = 1;
-    config.rate_limit_burst = 2;
+    config.rate_limit.per_second = 1;1;
+    config.rate_limit.burst = 2;
     let app = common::TestApp::spawn_with_config(config).await;
 
     println!("Testing fallback to peer IP when header is missing...");
@@ -129,8 +129,8 @@ async fn test_rate_limit_fallback_to_peer_ip() {
 async fn test_rate_limit_spoofing_protection() {
     let mut config = common::get_test_config();
     // Only 127.0.0.1 is trusted by default in get_test_config()
-    config.rate_limit_per_second = 1;
-    config.rate_limit_burst = 1;
+    config.rate_limit.per_second = 1;1;
+    config.rate_limit.burst = 1;
     let app = common::TestApp::spawn_with_config(config).await;
 
     let spoofed_ip = "1.2.3.4";
@@ -176,10 +176,10 @@ async fn test_rate_limit_spoofing_protection() {
 #[tokio::test]
 async fn test_rate_limit_tiers() {
     let mut config = common::get_test_config();
-    config.rate_limit_per_second = 10;
-    config.rate_limit_burst = 10;
-    config.auth_rate_limit_per_second = 1;
-    config.auth_rate_limit_burst = 1;
+    config.rate_limit.per_second = 10;
+    config.rate_limit.burst = 10;
+    config.rate_limit.auth_per_second = 1;
+    config.rate_limit.auth_burst = 1;
     let app = common::TestApp::spawn_with_config(config).await;
 
     let ip = "1.2.3.4";
@@ -237,8 +237,8 @@ async fn test_rate_limit_tiers() {
 #[tokio::test]
 async fn test_rate_limit_recovery() {
     let mut config = common::get_test_config();
-    config.rate_limit_per_second = 1;
-    config.rate_limit_burst = 1;
+    config.rate_limit.per_second = 1;1;
+    config.rate_limit.burst = 1;
     let app = common::TestApp::spawn_with_config(config).await;
 
     let ip = "5.5.5.5";
@@ -277,8 +277,8 @@ async fn test_rate_limit_recovery() {
 #[tokio::test]
 async fn test_rate_limit_retry_after_header() {
     let mut config = common::get_test_config();
-    config.rate_limit_per_second = 1;
-    config.rate_limit_burst = 1;
+    config.rate_limit.per_second = 1;1;
+    config.rate_limit.burst = 1;
     let app = common::TestApp::spawn_with_config(config).await;
 
     let ip = "7.7.7.7";

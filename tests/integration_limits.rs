@@ -42,8 +42,8 @@ async fn test_message_limit_fifo() {
 async fn test_rate_limiting() {
     // 1. Setup with strict limits (1 req/s)
     let mut config = common::get_test_config();
-    config.rate_limit_per_second = 1;
-    config.rate_limit_burst = 1;
+    config.rate_limit.per_second = 1;
+    config.rate_limit.burst = 1;
 
     let app = common::TestApp::spawn_with_config(config).await;
 
