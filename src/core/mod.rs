@@ -1,3 +1,4 @@
+pub mod attachment_service;
 pub mod auth;
 pub mod message;
 pub mod message_service;

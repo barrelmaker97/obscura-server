@@ -11,9 +11,7 @@ pub struct IpKeyExtractor {
 }
 
 impl IpKeyExtractor {
-    pub fn new(trusted_proxies_str: &str) -> Self {
-        let trusted_proxies =
-            trusted_proxies_str.split(',').filter_map(|s| s.trim().parse::<IpNetwork>().ok()).collect();
+    pub fn new(trusted_proxies: Vec<IpNetwork>) -> Self {
         Self { trusted_proxies }
     }
 

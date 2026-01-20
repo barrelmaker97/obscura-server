@@ -1,93 +1,167 @@
-use clap::Parser;
-
-const DEFAULT_RATE_LIMIT_PER_SECOND: u32 = 10;
-const DEFAULT_RATE_LIMIT_BURST: u32 = 20;
-const DEFAULT_AUTH_RATE_LIMIT_PER_SECOND: u32 = 1;
-const DEFAULT_AUTH_RATE_LIMIT_BURST: u32 = 3;
-const DEFAULT_SERVER_HOST: &str = "0.0.0.0";
-const DEFAULT_SERVER_PORT: u16 = 3000;
-const DEFAULT_MESSAGE_TTL_DAYS: i64 = 30;
-const DEFAULT_MAX_INBOX_SIZE: i64 = 1000;
-const DEFAULT_MESSAGE_CLEANUP_INTERVAL_SECS: u64 = 300;
-const DEFAULT_NOTIFICATION_GC_INTERVAL_SECS: u64 = 60;
-const DEFAULT_NOTIFICATION_CHANNEL_CAPACITY: usize = 16;
-const DEFAULT_MESSAGE_BATCH_LIMIT: i64 = 50;
-const DEFAULT_TRUSTED_PROXIES: &str = "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32";
-const DEFAULT_WS_OUTBOUND_BUFFER_SIZE: usize = 32;
-const DEFAULT_WS_ACK_BUFFER_SIZE: usize = 100;
-const DEFAULT_WS_ACK_BATCH_SIZE: usize = 50;
-const DEFAULT_WS_ACK_FLUSH_INTERVAL_MS: u64 = 500;
-const DEFAULT_ACCESS_TOKEN_TTL_SECS: u64 = 900; // 15 minutes
-const DEFAULT_REFRESH_TOKEN_TTL_DAYS: i64 = 30; // 30 days
+use clap::{Args, Parser};
+use ipnetwork::IpNetwork;
 
 #[derive(Clone, Debug, Parser)]
 #[command(version, about, long_about = None)]
 pub struct Config {
-    #[arg(long, env)]
+    /// Database connection URL
+    #[arg(long, env = "OBSCURA_DATABASE_URL")]
     pub database_url: String,
 
-    #[arg(long, env)]
-    pub jwt_secret: String,
+    /// Global time-to-live for messages and attachments in days
+    #[arg(long, env = "OBSCURA_TTL_DAYS", default_value_t = 30)]
+    pub ttl_days: i64,
 
-    #[arg(long, env, default_value_t = DEFAULT_ACCESS_TOKEN_TTL_SECS)]
-    pub access_token_ttl_secs: u64,
+    #[command(flatten)]
+    pub server: ServerConfig,
 
-    #[arg(long, env, default_value_t = DEFAULT_REFRESH_TOKEN_TTL_DAYS)]
-    pub refresh_token_ttl_days: i64,
+    #[command(flatten)]
+    pub auth: AuthConfig,
 
-    #[arg(long, env, default_value_t = DEFAULT_RATE_LIMIT_PER_SECOND)]
-    pub rate_limit_per_second: u32,
+    #[command(flatten)]
+    pub rate_limit: RateLimitConfig,
 
-    #[arg(long, env, default_value_t = DEFAULT_RATE_LIMIT_BURST)]
-    pub rate_limit_burst: u32,
+    #[command(flatten)]
+    pub messaging: MessagingConfig,
 
-    /// Stricter rate limit for expensive auth-related endpoints (register/login)
-    #[arg(long, env, default_value_t = DEFAULT_AUTH_RATE_LIMIT_PER_SECOND)]
-    pub auth_rate_limit_per_second: u32,
+    #[command(flatten)]
+    pub notifications: NotificationConfig,
 
-    /// Burst allowance for expensive auth-related endpoints
-    #[arg(long, env, default_value_t = DEFAULT_AUTH_RATE_LIMIT_BURST)]
-    pub auth_rate_limit_burst: u32,
+    #[command(flatten)]
+    pub websocket: WsConfig,
 
-    #[arg(long, env, default_value = DEFAULT_SERVER_HOST)]
-    pub server_host: String,
+    #[command(flatten)]
+    pub s3: S3Config,
+}
 
-    #[arg(long, env = "PORT", default_value_t = DEFAULT_SERVER_PORT)]
-    pub server_port: u16,
+#[derive(Clone, Debug, Args)]
+pub struct ServerConfig {
+    /// Host to listen on
+    #[arg(long, env = "OBSCURA_HOST", default_value = "0.0.0.0")]
+    pub host: String,
 
-    #[arg(long, env, default_value_t = DEFAULT_MESSAGE_TTL_DAYS)]
-    pub message_ttl_days: i64,
-
-    #[arg(long, env, default_value_t = DEFAULT_MAX_INBOX_SIZE)]
-    pub max_inbox_size: i64,
-
-    #[arg(long, env, default_value_t = DEFAULT_MESSAGE_CLEANUP_INTERVAL_SECS)]
-    pub message_cleanup_interval_secs: u64,
-
-    #[arg(long, env, default_value_t = DEFAULT_NOTIFICATION_GC_INTERVAL_SECS)]
-    pub notification_gc_interval_secs: u64,
-
-    #[arg(long, env, default_value_t = DEFAULT_NOTIFICATION_CHANNEL_CAPACITY)]
-    pub notification_channel_capacity: usize,
-
-    #[arg(long, env, default_value_t = DEFAULT_MESSAGE_BATCH_LIMIT)]
-    pub message_batch_limit: i64,
+    /// Port to listen on
+    #[arg(long, env = "OBSCURA_PORT", default_value_t = 3000)]
+    pub port: u16,
 
     /// Comma-separated list of CIDRs to trust for X-Forwarded-For IP extraction
-    #[arg(long, env, default_value = DEFAULT_TRUSTED_PROXIES)]
-    pub trusted_proxies: String,
+    #[arg(
+        long,
+        env = "OBSCURA_TRUSTED_PROXIES",
+        default_value = "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32",
+        value_delimiter = ','
+    )]
+    pub trusted_proxies: Vec<IpNetwork>,
+}
 
-    #[arg(long, env, default_value_t = DEFAULT_WS_OUTBOUND_BUFFER_SIZE)]
-    pub ws_outbound_buffer_size: usize,
+#[derive(Clone, Debug, Args)]
+pub struct AuthConfig {
+    /// Secret key for JWT signing
+    #[arg(long, env = "OBSCURA_JWT_SECRET")]
+    pub jwt_secret: String,
 
-    #[arg(long, env, default_value_t = DEFAULT_WS_ACK_BUFFER_SIZE)]
-    pub ws_ack_buffer_size: usize,
+    /// Access token time-to-live in seconds
+    #[arg(long, env = "OBSCURA_ACCESS_TOKEN_TTL_SECS", default_value_t = 900)]
+    pub access_token_ttl_secs: u64,
 
-    #[arg(long, env, default_value_t = DEFAULT_WS_ACK_BATCH_SIZE)]
-    pub ws_ack_batch_size: usize,
+    /// Refresh token time-to-live in days
+    #[arg(long, env = "OBSCURA_REFRESH_TOKEN_TTL_DAYS", default_value_t = 30)]
+    pub refresh_token_ttl_days: i64,
+}
 
-    #[arg(long, env, default_value_t = DEFAULT_WS_ACK_FLUSH_INTERVAL_MS)]
-    pub ws_ack_flush_interval_ms: u64,
+#[derive(Clone, Debug, Args)]
+pub struct RateLimitConfig {
+    /// Requests per second allowed for standard endpoints
+    #[arg(long, env = "OBSCURA_RATE_LIMIT_PER_SECOND", default_value_t = 10)]
+    pub per_second: u32,
+
+    /// Burst allowance for standard endpoints
+    #[arg(long, env = "OBSCURA_RATE_LIMIT_BURST", default_value_t = 20)]
+    pub burst: u32,
+
+    /// Stricter rate limit for expensive auth-related endpoints (register/login)
+    #[arg(long, env = "OBSCURA_AUTH_RATE_LIMIT_PER_SECOND", default_value_t = 1)]
+    pub auth_per_second: u32,
+
+    /// Burst allowance for expensive auth-related endpoints
+    #[arg(long, env = "OBSCURA_AUTH_RATE_LIMIT_BURST", default_value_t = 3)]
+    pub auth_burst: u32,
+}
+
+#[derive(Clone, Debug, Args)]
+pub struct MessagingConfig {
+    /// Maximum number of messages in a user's inbox
+    #[arg(long, env = "OBSCURA_MAX_INBOX_SIZE", default_value_t = 1000)]
+    pub max_inbox_size: i64,
+
+    /// How often to run the message cleanup task
+    #[arg(long, env = "OBSCURA_CLEANUP_INTERVAL_SECS", default_value_t = 300)]
+    pub cleanup_interval_secs: u64,
+
+    /// Maximum number of messages to process in a single batch
+    #[arg(long, env = "OBSCURA_BATCH_LIMIT", default_value_t = 50)]
+    pub batch_limit: i64,
+}
+
+#[derive(Clone, Debug, Args)]
+pub struct NotificationConfig {
+    /// How often to run the notification garbage collection
+    #[arg(long, env = "OBSCURA_GC_INTERVAL_SECS", default_value_t = 60)]
+    pub gc_interval_secs: u64,
+
+    /// Capacity of the notification channel
+    #[arg(long, env = "OBSCURA_CHANNEL_CAPACITY", default_value_t = 16)]
+    pub channel_capacity: usize,
+}
+
+#[derive(Clone, Debug, Args)]
+pub struct WsConfig {
+    /// Size of the outbound message buffer
+    #[arg(long, env = "OBSCURA_WS_OUTBOUND_BUFFER_SIZE", default_value_t = 32)]
+    pub outbound_buffer_size: usize,
+
+    /// Size of the acknowledgment buffer
+    #[arg(long, env = "OBSCURA_WS_ACK_BUFFER_SIZE", default_value_t = 100)]
+    pub ack_buffer_size: usize,
+
+    /// Number of acknowledgments to batch before flushing
+    #[arg(long, env = "OBSCURA_WS_ACK_BATCH_SIZE", default_value_t = 50)]
+    pub ack_batch_size: usize,
+
+    /// How often to flush pending acknowledgments
+    #[arg(long, env = "OBSCURA_WS_ACK_FLUSH_INTERVAL_MS", default_value_t = 500)]
+    pub ack_flush_interval_ms: u64,
+}
+
+#[derive(Clone, Debug, Args)]
+pub struct S3Config {
+    /// S3 bucket name
+    #[arg(long, env = "OBSCURA_S3_BUCKET")]
+    pub bucket: String,
+
+    /// S3 region
+    #[arg(long, env = "OBSCURA_S3_REGION", default_value = "us-east-1")]
+    pub region: String,
+
+    /// Custom S3 endpoint (useful for MinIO)
+    #[arg(long, env = "OBSCURA_S3_ENDPOINT")]
+    pub endpoint: Option<String>,
+
+    /// S3 access key
+    #[arg(long, env = "OBSCURA_S3_ACCESS_KEY")]
+    pub access_key: Option<String>,
+
+    /// S3 secret key
+    #[arg(long, env = "OBSCURA_S3_SECRET_KEY")]
+    pub secret_key: Option<String>,
+
+    /// Force path style (required for many MinIO setups: http://host/bucket/key)
+    #[arg(long, env = "OBSCURA_S3_FORCE_PATH_STYLE", default_value_t = false)]
+    pub force_path_style: bool,
+
+    /// Max attachment size in bytes (Default: 50MB)
+    #[arg(long, env = "OBSCURA_S3_MAX_SIZE_BYTES", default_value_t = 52_428_800)]
+    pub attachment_max_size_bytes: usize,
 }
 
 impl Config {

@@ -32,7 +32,7 @@ impl FromRequestParts<AppState> for AuthUser {
 
         let token = &auth_str[7..];
 
-        let claims = verify_jwt(token, &state.config.jwt_secret)?;
+        let claims = verify_jwt(token, &state.config.auth.jwt_secret)?;
 
         Ok(AuthUser { user_id: claims.sub })
     }

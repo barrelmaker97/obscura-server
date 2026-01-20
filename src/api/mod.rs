@@ -14,6 +14,7 @@ use std::sync::Arc;
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tracing::warn;
 
+pub mod attachments;
 pub mod auth;
 pub mod docs;
 pub mod gateway;
@@ -28,34 +29,35 @@ pub struct AppState {
     pub config: Config,
     pub notifier: Arc<dyn Notifier>,
     pub extractor: rate_limit::IpKeyExtractor,
+    pub s3_client: aws_sdk_s3::Client,
 }
 
-pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>) -> Router {
-    let extractor = rate_limit::IpKeyExtractor::new(&config.trusted_proxies);
+pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_client: aws_sdk_s3::Client) -> Router {
+    let extractor = rate_limit::IpKeyExtractor::new(config.server.trusted_proxies.clone());
 
     // Standard Tier: For general API usage
-    let std_interval_ns = 1_000_000_000 / config.rate_limit_per_second.max(1);
+    let std_interval_ns = 1_000_000_000 / config.rate_limit.per_second.max(1);
     let standard_conf = Arc::new(
         GovernorConfigBuilder::default()
             .per_nanosecond(std_interval_ns as u64)
-            .burst_size(config.rate_limit_burst)
+            .burst_size(config.rate_limit.burst)
             .key_extractor(extractor.clone())
             .finish()
             .unwrap(),
     );
 
     // Auth Tier: Stricter limits for expensive/sensitive registration & login
-    let auth_interval_ns = 1_000_000_000 / config.auth_rate_limit_per_second.max(1);
+    let auth_interval_ns = 1_000_000_000 / config.rate_limit.auth_per_second.max(1);
     let auth_conf = Arc::new(
         GovernorConfigBuilder::default()
             .per_nanosecond(auth_interval_ns as u64)
-            .burst_size(config.auth_rate_limit_burst)
+            .burst_size(config.rate_limit.auth_burst)
             .key_extractor(extractor.clone())
             .finish()
             .unwrap(),
     );
 
-    let state = AppState { pool, config, notifier, extractor };
+    let state = AppState { pool, config, notifier, extractor, s3_client };
 
     // Sensitive routes with strict limits
     let auth_routes = Router::new()
@@ -71,6 +73,8 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>) -> 
         .route("/keys/{userId}", get(keys::get_pre_key_bundle))
         .route("/messages/{recipientId}", post(messages::send_message))
         .route("/gateway", get(gateway::websocket_handler))
+        .route("/attachments", post(attachments::upload_attachment))
+        .route("/attachments/{id}", get(attachments::download_attachment))
         .layer(GovernorLayer::new(standard_conf));
 
     Router::new()

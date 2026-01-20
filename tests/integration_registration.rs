@@ -1,7 +1,7 @@
+use base64::Engine;
 use reqwest::StatusCode;
 use serde_json::json;
 use uuid::Uuid;
-use base64::Engine;
 
 mod common;
 
@@ -25,13 +25,8 @@ async fn test_register_flow() {
         "oneTimePreKeys": []
     });
 
-    let resp = app.client
-        .post(format!("{}/v1/users", app.server_url))
-        .json(&payload)
-        .send()
-        .await
-        .unwrap();
-    
+    let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&payload).send().await.unwrap();
+
     assert_eq!(resp.status(), StatusCode::CREATED);
 
     // Verify response structure
@@ -46,13 +41,9 @@ async fn test_register_flow() {
         "password": "password123"
     });
 
-    let resp_login = app.client
-        .post(format!("{}/v1/sessions", app.server_url))
-        .json(&login_payload)
-        .send()
-        .await
-        .unwrap();
-    
+    let resp_login =
+        app.client.post(format!("{}/v1/sessions", app.server_url)).json(&login_payload).send().await.unwrap();
+
     assert_eq!(resp_login.status(), StatusCode::OK);
 
     let body_json: serde_json::Value = resp_login.json().await.unwrap();
@@ -65,7 +56,8 @@ async fn test_register_flow() {
     let claims: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
     let user_id = claims["sub"].as_str().unwrap();
 
-    let resp_keys = app.client
+    let resp_keys = app
+        .client
         .get(format!("{}/v1/keys/{}", app.server_url, user_id))
         .send() // No auth needed for key fetch
         .await

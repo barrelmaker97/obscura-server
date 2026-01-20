@@ -14,7 +14,14 @@ impl MessageRepository {
         Self { pool }
     }
 
-    pub async fn create(&self, sender_id: Uuid, recipient_id: Uuid, message_type: i32, content: Vec<u8>, ttl_days: i64) -> Result<()> {
+    pub async fn create(
+        &self,
+        sender_id: Uuid,
+        recipient_id: Uuid,
+        message_type: i32,
+        content: Vec<u8>,
+        ttl_days: i64,
+    ) -> Result<()> {
         let expires_at = OffsetDateTime::now_utc() + Duration::days(ttl_days);
 
         let result = sqlx::query(
@@ -92,10 +99,7 @@ impl MessageRepository {
         if message_ids.is_empty() {
             return Ok(());
         }
-        sqlx::query("DELETE FROM messages WHERE id = ANY($1)")
-            .bind(message_ids)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query("DELETE FROM messages WHERE id = ANY($1)").bind(message_ids).execute(&self.pool).await?;
         Ok(())
     }
 

@@ -17,24 +17,31 @@ Command-line options take precedence over environment variables.
 
 | Option | Description | Environment Variable | Default | Required |
 |--------|-------------|----------------------|---------|----------|
-| `--database-url` | PostgreSQL connection string | `DATABASE_URL` | - | **Yes** |
-| `--jwt-secret` | Secret key for signing JWTs | `JWT_SECRET` | - | **Yes** |
-| `--server-host` | Interface to bind the server to | `SERVER_HOST` | `0.0.0.0` | No |
-| `--port` | Port to bind the server to | `PORT` | `3000` | No |
-| `--access-token-ttl-secs` | Access Token lifetime in seconds | `ACCESS_TOKEN_TTL_SECS` | `900` | No |
-| `--refresh-token-ttl-days` | Refresh Token lifetime in days | `REFRESH_TOKEN_TTL_DAYS` | `30` | No |
-| `--message-ttl-days` | Days before a message is auto-deleted | `MESSAGE_TTL_DAYS` | `30` | No |
-| `--max-inbox-size` | Max pending messages per user | `MAX_INBOX_SIZE` | `1000` | No |
-| `--message-batch-limit` | Max messages sent per DB fetch loop | `MESSAGE_BATCH_LIMIT` | `50` | No |
-| `--rate-limit-per-second` | API requests allowed per second | `RATE_LIMIT_PER_SECOND` | `10` | No |
-| `--rate-limit-burst` | Max API burst allowance per IP | `RATE_LIMIT_BURST` | `20` | No |
-| `--auth-rate-limit-per-second` | Auth requests allowed per second | `AUTH_RATE_LIMIT_PER_SECOND` | `1` | No |
-| `--auth-rate-limit-burst` | Auth API burst allowance per IP | `AUTH_RATE_LIMIT_BURST` | `3` | No |
-| `--trusted-proxies` | CIDR ranges of trusted proxies | `TRUSTED_PROXIES` | `10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.1/32` | No |
-| `--ws-outbound-buffer-size` | WS outbound channel capacity | `WS_OUTBOUND_BUFFER_SIZE` | `32` | No |
-| `--ws-ack-buffer-size` | WS ACK channel capacity | `WS_ACK_BUFFER_SIZE` | `100` | No |
-| `--ws-ack-batch-size` | WS ACK DB batch size | `WS_ACK_BATCH_SIZE` | `50` | No |
-| `--ws-ack-flush-interval-ms` | WS ACK DB flush interval | `WS_ACK_FLUSH_INTERVAL_MS` | `500` | No |
+| `--database-url` | PostgreSQL connection string | `OBSCURA_DATABASE_URL` | - | **Yes** |
+| `--ttl-days` | Global days before messages/attachments are auto-deleted | `OBSCURA_TTL_DAYS` | `30` | No |
+| `--jwt-secret` | Secret key for signing JWTs | `OBSCURA_JWT_SECRET` | - | **Yes** |
+| `--host` | Interface to bind the server to | `OBSCURA_HOST` | `0.0.0.0` | No |
+| `--port` | Port to bind the server to | `OBSCURA_PORT` | `3000` | No |
+| `--access-token-ttl-secs` | Access Token lifetime in seconds | `OBSCURA_ACCESS_TOKEN_TTL_SECS` | `900` | No |
+| `--refresh-token-ttl-days` | Refresh Token lifetime in days | `OBSCURA_REFRESH_TOKEN_TTL_DAYS` | `30` | No |
+| `--max-inbox-size` | Max pending messages per user | `OBSCURA_MAX_INBOX_SIZE` | `1000` | No |
+| `--batch-limit` | Max messages sent per DB fetch loop | `OBSCURA_BATCH_LIMIT` | `50` | No |
+| `--per-second` | API requests allowed per second | `OBSCURA_RATE_LIMIT_PER_SECOND` | `10` | No |
+| `--burst` | Max API burst allowance per IP | `OBSCURA_RATE_LIMIT_BURST` | `20` | No |
+| `--auth-per-second` | Auth requests allowed per second | `OBSCURA_AUTH_RATE_LIMIT_PER_SECOND` | `1` | No |
+| `--auth-burst` | Auth API burst allowance per IP | `OBSCURA_AUTH_RATE_LIMIT_BURST` | `3` | No |
+| `--trusted-proxies` | CIDR ranges of trusted proxies | `OBSCURA_TRUSTED_PROXIES` | `10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.1/32` | No |
+| `--outbound-buffer-size` | WS outbound channel capacity | `OBSCURA_WS_OUTBOUND_BUFFER_SIZE` | `32` | No |
+| `--ack-buffer-size` | WS ACK channel capacity | `OBSCURA_WS_ACK_BUFFER_SIZE` | `100` | No |
+| `--ack-batch-size` | WS ACK DB batch size | `OBSCURA_WS_ACK_BATCH_SIZE` | `50` | No |
+| `--ack-flush-interval-ms` | WS ACK DB flush interval | `OBSCURA_WS_ACK_FLUSH_INTERVAL_MS` | `500` | No |
+| `--bucket` | S3 Bucket Name | `OBSCURA_S3_BUCKET` | - | **Yes** |
+| `--region` | S3 Region | `OBSCURA_S3_REGION` | `us-east-1` | No |
+| `--endpoint` | Custom S3 Endpoint (e.g., for MinIO) | `OBSCURA_S3_ENDPOINT` | - | No |
+| `--access-key` | S3 Access Key ID | `OBSCURA_S3_ACCESS_KEY` | - | No |
+| `--secret-key` | S3 Secret Access Key | `OBSCURA_S3_SECRET_KEY` | - | No |
+| `--force-path-style` | Force Path Style (Required for MinIO) | `OBSCURA_S3_FORCE_PATH_STYLE` | `false` | No |
+| `--attachment-max-size-bytes` | Max attachment size in bytes | `OBSCURA_S3_MAX_SIZE_BYTES` | `52428800` | No |
 
 ### Example
 
@@ -43,11 +50,13 @@ Command-line options take precedence over environment variables.
 ./obscura-server \
   --database-url postgres://user:pass@localhost/db \
   --jwt-secret my_secret \
+  --bucket my-attachments \
   --port 8080
 
 # Using Environment Variables
-export DATABASE_URL=postgres://user:pass@localhost/db
-export JWT_SECRET=my_secret
+export OBSCURA_DATABASE_URL=postgres://user:pass@localhost/db
+export OBSCURA_JWT_SECRET=my_secret
+export OBSCURA_S3_BUCKET=my-attachments
 ./obscura-server
 ```
 
@@ -66,8 +75,9 @@ A Dockerfile is included for easy deployment.
    ```bash
    docker run -d \
      -p 3000:3000 \
-     -e DATABASE_URL="postgres://user:pass@host.docker.internal:5432/obscura" \
-     -e JWT_SECRET="your_secret_key" \
+     -e OBSCURA_DATABASE_URL="postgres://user:pass@host.docker.internal:5432/obscura" \
+     -e OBSCURA_JWT_SECRET="your_secret_key" \
+     -e OBSCURA_S3_BUCKET="obscura-attachments" \
      obscura-server
    ```
 
@@ -88,15 +98,16 @@ docker compose up -d
 
 ### Running Locally
 
-1. Start Postgres:
+1. Start Postgres and MinIO:
    ```bash
-   docker compose up -d db
+   docker compose up -d db minio
    ```
 
 2. Run the server:
    ```bash
-   export DATABASE_URL=postgres://user:password@localhost/signal_server
-   export JWT_SECRET=test
+   export OBSCURA_DATABASE_URL=postgres://user:password@localhost/signal_server
+   export OBSCURA_JWT_SECRET=test
+   export OBSCURA_S3_BUCKET=test
    cargo run
    ```
    *Migrations are applied automatically on startup.*
@@ -104,7 +115,7 @@ docker compose up -d
 ### Testing
 
 ```bash
-cargo test
+`cargo test`
 ```
 
 ## Releasing

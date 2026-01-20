@@ -25,15 +25,13 @@ impl RefreshTokenRepository {
     ) -> Result<()> {
         let expires_at = OffsetDateTime::now_utc() + time::Duration::days(ttl_days);
 
-        sqlx::query(
-            "INSERT INTO refresh_tokens (token_hash, user_id, expires_at) VALUES ($1, $2, $3)",
-        )
-        .bind(token_hash)
-        .bind(user_id)
-        .bind(expires_at)
-        .execute(&mut **tx)
-        .await
-        .map_err(|e| AppError::Database(e))?;
+        sqlx::query("INSERT INTO refresh_tokens (token_hash, user_id, expires_at) VALUES ($1, $2, $3)")
+            .bind(token_hash)
+            .bind(user_id)
+            .bind(expires_at)
+            .execute(&mut **tx)
+            .await
+            .map_err(AppError::Database)?;
 
         Ok(())
     }
@@ -79,10 +77,7 @@ impl RefreshTokenRepository {
             }
 
             // 3. Delete (Consume)
-            sqlx::query("DELETE FROM refresh_tokens WHERE token_hash = $1")
-                .bind(token_hash)
-                .execute(&mut **tx)
-                .await?;
+            sqlx::query("DELETE FROM refresh_tokens WHERE token_hash = $1").bind(token_hash).execute(&mut **tx).await?;
 
             Ok(Some(record.user_id))
         } else {

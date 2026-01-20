@@ -18,12 +18,8 @@ async fn test_refresh_token_flow() {
         "refreshToken": refresh_token_1
     });
 
-    let resp_refresh = app.client
-        .post(format!("{}/v1/sessions/refresh", app.server_url))
-        .json(&refresh_payload)
-        .send()
-        .await
-        .unwrap();
+    let resp_refresh =
+        app.client.post(format!("{}/v1/sessions/refresh", app.server_url)).json(&refresh_payload).send().await.unwrap();
 
     assert_eq!(resp_refresh.status(), StatusCode::OK);
 
@@ -38,7 +34,8 @@ async fn test_refresh_token_flow() {
     assert_ne!(refresh_token_1, refresh_token_2, "Refresh token should rotate");
 
     // 3. Verify Old Refresh Token is Invalid (Rotation Check)
-    let resp_old_refresh = app.client
+    let resp_old_refresh = app
+        .client
         .post(format!("{}/v1/sessions/refresh", app.server_url))
         .json(&refresh_payload) // sending refresh_token_1 again
         .send()
@@ -58,7 +55,8 @@ async fn test_logout_revokes_refresh_token() {
     let (token, refresh_token, _) = app.register_user_full(&username, 123).await;
 
     // 2. Logout
-    let resp_logout = app.client
+    let resp_logout = app
+        .client
         .delete(format!("{}/v1/sessions", app.server_url))
         .header("Authorization", format!("Bearer {}", token)) // Pass access token to identify session
         .json(&json!({ "refreshToken": refresh_token }))
@@ -69,7 +67,8 @@ async fn test_logout_revokes_refresh_token() {
     assert_eq!(resp_logout.status(), StatusCode::OK);
 
     // 3. Try to Refresh after Logout
-    let resp_fail = app.client
+    let resp_fail = app
+        .client
         .post(format!("{}/v1/sessions/refresh", app.server_url))
         .json(&json!({ "refreshToken": refresh_token }))
         .send()
@@ -83,8 +82,8 @@ async fn test_logout_revokes_refresh_token() {
 async fn test_refresh_token_expiration() {
     // 1. Setup app with 0-day TTL (immediate expiration)
     let mut config = common::get_test_config();
-    config.refresh_token_ttl_days = 0;
-    
+    config.auth.refresh_token_ttl_days = 0;
+
     let app = common::TestApp::spawn_with_config(config).await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
     let username = format!("expire_user_{}", run_id);
@@ -100,12 +99,8 @@ async fn test_refresh_token_expiration() {
         "refreshToken": refresh_token
     });
 
-    let resp_refresh = app.client
-        .post(format!("{}/v1/sessions/refresh", app.server_url))
-        .json(&refresh_payload)
-        .send()
-        .await
-        .unwrap();
+    let resp_refresh =
+        app.client.post(format!("{}/v1/sessions/refresh", app.server_url)).json(&refresh_payload).send().await.unwrap();
 
     assert_eq!(resp_refresh.status(), StatusCode::UNAUTHORIZED, "Expired refresh token should be rejected");
 }

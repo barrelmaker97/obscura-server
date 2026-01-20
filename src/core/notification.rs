@@ -31,7 +31,7 @@ impl InMemoryNotifier {
     pub fn new(config: Config) -> Self {
         let channels = std::sync::Arc::new(DashMap::new());
         let map_ref = channels.clone();
-        let interval_secs = config.notification_gc_interval_secs;
+        let interval_secs = config.notifications.gc_interval_secs;
 
         // Spawn background GC task
         tokio::spawn(async move {
@@ -43,7 +43,7 @@ impl InMemoryNotifier {
             }
         });
 
-        Self { channels, channel_capacity: config.notification_channel_capacity }
+        Self { channels, channel_capacity: config.notifications.channel_capacity }
     }
 }
 
@@ -81,26 +81,47 @@ mod tests {
     fn test_config(gc_interval: u64, capacity: usize) -> Config {
         Config {
             database_url: "".to_string(),
-            jwt_secret: "".to_string(),
-            rate_limit_per_second: 5,
-            rate_limit_burst: 10,
-            auth_rate_limit_per_second: 1,
-            auth_rate_limit_burst: 3,
-            server_host: "0.0.0.0".to_string(),
-            server_port: 3000,
-            message_ttl_days: 30,
-            max_inbox_size: 1000,
-            access_token_ttl_secs: 900,
-            refresh_token_ttl_days: 30,
-            message_cleanup_interval_secs: 300,
-            notification_gc_interval_secs: gc_interval,
-            notification_channel_capacity: capacity,
-            message_batch_limit: 50,
-            trusted_proxies: "127.0.0.1/32".to_string(),
-            ws_outbound_buffer_size: 32,
-            ws_ack_buffer_size: 100,
-            ws_ack_batch_size: 50,
-            ws_ack_flush_interval_ms: 500,
+            ttl_days: 30,
+            server: crate::config::ServerConfig {
+                host: "0.0.0.0".to_string(),
+                port: 3000,
+                trusted_proxies: vec!["127.0.0.1/32".parse().unwrap()],
+            },
+            auth: crate::config::AuthConfig {
+                jwt_secret: "".to_string(),
+                access_token_ttl_secs: 900,
+                refresh_token_ttl_days: 30,
+            },
+            rate_limit: crate::config::RateLimitConfig {
+                per_second: 5,
+                burst: 10,
+                auth_per_second: 1,
+                auth_burst: 3,
+            },
+            messaging: crate::config::MessagingConfig {
+                max_inbox_size: 1000,
+                cleanup_interval_secs: 300,
+                batch_limit: 50,
+            },
+            notifications: crate::config::NotificationConfig {
+                gc_interval_secs: gc_interval,
+                channel_capacity: capacity,
+            },
+            websocket: crate::config::WsConfig {
+                outbound_buffer_size: 32,
+                ack_buffer_size: 100,
+                ack_batch_size: 50,
+                ack_flush_interval_ms: 500,
+            },
+            s3: crate::config::S3Config {
+                bucket: "".to_string(),
+                region: "us-east-1".to_string(),
+                endpoint: None,
+                access_key: None,
+                secret_key: None,
+                force_path_style: false,
+                attachment_max_size_bytes: 52_428_800,
+            },
         }
     }
 

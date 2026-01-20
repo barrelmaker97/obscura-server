@@ -1,5 +1,5 @@
-use tokio_tungstenite::tungstenite::protocol::Message;
 use futures::{SinkExt, StreamExt};
+use tokio_tungstenite::tungstenite::protocol::Message;
 use uuid::Uuid;
 
 mod common;
@@ -8,7 +8,7 @@ mod common;
 async fn test_ping_pong_under_load() {
     // 1. Setup with large batch limit
     let mut config = common::get_test_config();
-    config.message_batch_limit = 100;
+    config.messaging.batch_limit = 100;
 
     let app = common::TestApp::spawn_with_config(config).await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
@@ -45,19 +45,17 @@ async fn test_ping_pong_under_load() {
 
     while start.elapsed() < timeout {
         match tokio::time::timeout(tokio::time::Duration::from_millis(500), ws.stream.next()).await {
-            Ok(Some(Ok(msg))) => {
-                match msg {
-                    Message::Pong(payload) => {
-                        assert_eq!(payload, vec![1, 2, 3]);
-                        pong_received = true;
-                        break;
-                    }
-                    Message::Binary(_) => {
-                        binary_count += 1;
-                    }
-                    _ => {}
+            Ok(Some(Ok(msg))) => match msg {
+                Message::Pong(payload) => {
+                    assert_eq!(payload, vec![1, 2, 3]);
+                    pong_received = true;
+                    break;
                 }
-            }
+                Message::Binary(_) => {
+                    binary_count += 1;
+                }
+                _ => {}
+            },
             _ => break,
         }
     }
