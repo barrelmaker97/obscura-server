@@ -5,7 +5,10 @@ use obscura_server::{
     api::app_router,
     config::Config,
     core::notification::InMemoryNotifier,
-    proto::obscura::v1::{AckMessage, EncryptedMessage, Envelope, WebSocketFrame, web_socket_frame::Payload},
+    proto::obscura::v1::{
+        AckMessage, EncryptedMessage, Envelope, PreKeyStatus, WebSocketFrame,
+        web_socket_frame::Payload,
+    },
     storage,
 };
 use prost::Message as ProstMessage;
@@ -231,6 +234,27 @@ impl TestWsClient {
                     let frame = WebSocketFrame::decode(bin.as_ref()).unwrap();
                     if let Some(Payload::Envelope(env)) = frame.payload {
                         return Some(env);
+                    }
+                }
+                Ok(Some(Ok(Message::Close(_)))) => return None,
+                _ => continue,
+            }
+        }
+        None
+    }
+
+    pub async fn receive_prekey_status(&mut self) -> Option<PreKeyStatus> {
+        self.receive_prekey_status_timeout(std::time::Duration::from_secs(5)).await
+    }
+
+    pub async fn receive_prekey_status_timeout(&mut self, timeout: std::time::Duration) -> Option<PreKeyStatus> {
+        let start = std::time::Instant::now();
+        while start.elapsed() < timeout {
+            match tokio::time::timeout(std::time::Duration::from_millis(100), self.stream.next()).await {
+                Ok(Some(Ok(Message::Binary(bin)))) => {
+                    let frame = WebSocketFrame::decode(bin.as_ref()).unwrap();
+                    if let Some(Payload::PreKeyStatus(status)) = frame.payload {
+                        return Some(status);
                     }
                 }
                 Ok(Some(Ok(Message::Close(_)))) => return None,

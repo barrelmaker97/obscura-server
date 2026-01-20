@@ -1,8 +1,4 @@
-use futures::StreamExt;
-use obscura_server::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
-use prost::Message as ProstMessage;
 use serde_json::json;
-use tokio_tungstenite::tungstenite::protocol::Message;
 use uuid::Uuid;
 
 mod common;
@@ -21,19 +17,9 @@ async fn test_prekey_status_low_keys() {
     let mut ws = app.connect_ws(&token).await;
 
     // 3. Expect PreKeyStatus message immediately
-    let msg = ws.stream.next().await.expect("Stream closed unexpectedly").expect("Error receiving message");
-    
-    if let Message::Binary(bin) = msg {
-        let frame = WebSocketFrame::decode(bin.as_ref()).expect("Failed to decode frame");
-        if let Some(Payload::PreKeyStatus(status)) = frame.payload {
-            assert_eq!(status.one_time_pre_key_count, 0);
-            assert_eq!(status.min_threshold, 20);
-        } else {
-            panic!("Expected PreKeyStatus, got {:?}", frame.payload);
-        }
-    } else {
-        panic!("Expected Binary message");
-    }
+    let status = ws.receive_prekey_status().await.expect("Did not receive PreKeyStatus");
+    assert_eq!(status.one_time_pre_key_count, 0);
+    assert_eq!(status.min_threshold, 20);
 }
 
 #[tokio::test]
@@ -72,21 +58,6 @@ async fn test_prekey_status_sufficient_keys() {
     let mut ws = app.connect_ws(&token).await;
 
     // 3. Expect NO PreKeyStatus message
-    // We wait a bit to see if anything comes. 
-    // Since there are no pending messages, the stream should be idle.
-    // If we receive something, it's an error (unless it's a ping, but we don't have pings yet).
-    let timeout = std::time::Duration::from_millis(500);
-    match tokio::time::timeout(timeout, ws.stream.next()).await {
-        Ok(Some(Ok(Message::Binary(bin)))) => {
-             let frame = WebSocketFrame::decode(bin.as_ref()).unwrap();
-             if let Some(Payload::PreKeyStatus(_)) = frame.payload {
-                 panic!("Received PreKeyStatus unexpectedly!");
-             }
-        }
-        Ok(Some(Ok(Message::Close(_)))) => {}, // Close is fine
-        Ok(None) => {}, // Stream end is fine
-        Ok(Some(Err(_))) => {},
-        Ok(Some(Ok(_))) => {}, // Other messages ignored
-        Err(_) => {}, // Timeout is SUCCESS here (no message received)
-    }
+    let status = ws.receive_prekey_status_timeout(std::time::Duration::from_millis(500)).await;
+    assert!(status.is_none(), "Received PreKeyStatus unexpectedly!");
 }
