@@ -70,7 +70,7 @@ async fn test_key_limit_enforced() {
 }
 
 #[tokio::test]
-async fn test_key_limit_ignored_on_takeover() {
+async fn test_key_limit_enforced_on_takeover() {
     let mut config = common::get_test_config();
     config.messaging.max_pre_keys = 10; // Very low limit
     let app = common::TestApp::spawn_with_config(config).await;
@@ -82,12 +82,7 @@ async fn test_key_limit_ignored_on_takeover() {
     let (token, _) = app.register_user(&username).await;
 
     // 2. Takeover with 20 keys (More than limit of 10)
-    // Takeover deletes old keys, so this is valid as long as 20 doesn't exceed limit? 
-    // Wait, implementation says "if is_takeover { ... } else { check limit }".
-    // So limit is NOT checked on takeover in my code.
-    // However, the takeover REPLACES keys. So we should probably check if the NEW set exceeds the limit too.
-    // But currently I didn't implement that check for takeover branch.
-    // Let's verify that behavior.
+    // Even in takeover, the new set of keys should not exceed the limit.
     
     let mut keys = Vec::new();
     for i in 0..20 {
@@ -99,7 +94,7 @@ async fn test_key_limit_ignored_on_takeover() {
 
     let takeover_payload = json!({
         "identityKey": "bmV3X2lkZW50aXR5X2tleQ==", // Changed ID Key
-        "registrationId": 456,
+        "registration_id": 456,
         "signedPreKey": {
             "keyId": 2,
             "publicKey": "dGVzdF9zaWduZWRfcHViX2tleQ==",
@@ -115,6 +110,6 @@ async fn test_key_limit_ignored_on_takeover() {
         .await
         .unwrap();
     
-    // Current implementation allows this because it skips the check block
-    assert_eq!(resp.status(), 200);
+    // Should now be 400 because we enforced the limit in KeyService
+    assert_eq!(resp.status(), 400);
 }

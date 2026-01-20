@@ -1,5 +1,6 @@
 pub mod attachment_service;
 pub mod auth;
+pub mod key_service;
 pub mod message;
 pub mod message_service;
 pub mod notification;

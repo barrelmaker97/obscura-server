@@ -183,10 +183,13 @@ impl KeyRepository {
         Ok(())
     }
 
-    pub async fn count_one_time_pre_keys(&self, user_id: Uuid) -> Result<i64> {
+    pub async fn count_one_time_pre_keys<'e, E>(&self, executor: E, user_id: Uuid) -> Result<i64>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM one_time_pre_keys WHERE user_id = $1")
             .bind(user_id)
-            .fetch_one(&self.pool)
+            .fetch_one(executor)
             .await?;
         Ok(count)
     }
