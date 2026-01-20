@@ -29,10 +29,11 @@ jobs:
           --health-retries 5
 
       minio:
-        image: minio/minio:latest
+        image: bitnami/minio:latest
         env:
           MINIO_ROOT_USER: minioadmin
           MINIO_ROOT_PASSWORD: minioadmin
+          MINIO_DEFAULT_BUCKETS: test-bucket
         ports:
           - 9000:9000
         options: >-
@@ -40,7 +41,6 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-          server /data
 
     steps:
       - uses: actions/checkout@v6
