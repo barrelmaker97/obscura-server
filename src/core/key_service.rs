@@ -155,13 +155,13 @@ impl KeyService {
 
 fn verify_keys(ik_bytes: &[u8], signed_pre_key: &SignedPreKey) -> Result<()> {
     // NOTE: Libsignal clients often upload keys with a 0x05 type byte (33 bytes).
-    
+
     // The Identity Key MUST be 32 bytes for the verifier instantiation (Ed25519 specific).
     // We strictly handle the 0x05 wrapper for this specific key type.
     let ik_raw = if ik_bytes.len() == 33 { &ik_bytes[1..] } else { ik_bytes };
 
     // The Signed Pre Key Public Key is the MESSAGE.
-    // Standard libsignal clients (typescript) appear to sign the stripped 32-byte key, 
+    // Standard libsignal clients (typescript) appear to sign the stripped 32-byte key,
     // even though they upload the 33-byte key.
     // Other clients might sign the full 33-byte key.
     // We try both to be robust.
@@ -225,9 +225,9 @@ mod tests {
         let mut spk_bytes = [0u8; 32];
         OsRng.fill_bytes(&mut spk_bytes);
         let spk = SigningKey::from_bytes(&spk_bytes);
-        
+
         let mut spk_pub_33 = spk.verifying_key().to_bytes().to_vec();
-        spk_pub_33.insert(0, 0x05); 
+        spk_pub_33.insert(0, 0x05);
 
         // Sign 33 bytes
         let signature = ik.sign(&spk_pub_33).to_bytes().to_vec();
@@ -250,9 +250,9 @@ mod tests {
         OsRng.fill_bytes(&mut spk_bytes);
         let spk = SigningKey::from_bytes(&spk_bytes);
         let spk_pub_32 = spk.verifying_key().to_bytes().to_vec();
-        
+
         let mut spk_pub_33 = spk_pub_32.clone();
-        spk_pub_33.insert(0, 0x05); 
+        spk_pub_33.insert(0, 0x05);
 
         // Sign 32 bytes (Raw)
         let signature = ik.sign(&spk_pub_32).to_bytes().to_vec();
