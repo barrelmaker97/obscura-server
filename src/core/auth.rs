@@ -22,8 +22,12 @@ pub fn verify_password(password: &str, password_hash: &str) -> Result<bool> {
 
 /// Verifies an Ed25519 signature.
 pub fn verify_signature(public_key_bytes: &[u8], message: &[u8], signature_bytes: &[u8]) -> Result<()> {
+    // Libsignal often provides 33-byte keys (1 type byte + 32 bytes key).
+    // We strip the first byte if present to support this.
+    let key_bytes = if public_key_bytes.len() == 33 { &public_key_bytes[1..] } else { public_key_bytes };
+
     let public_key = VerifyingKey::from_bytes(
-        public_key_bytes.try_into().map_err(|_| AppError::BadRequest("Invalid public key length".into()))?,
+        key_bytes.try_into().map_err(|_| AppError::BadRequest("Invalid public key length".into()))?,
     )
     .map_err(|_| AppError::BadRequest("Invalid public key".into()))?;
 
