@@ -155,12 +155,28 @@ impl KeyService {
 
 fn verify_keys(ik_bytes: &[u8], signed_pre_key: &SignedPreKey) -> Result<()> {
     // NOTE: Libsignal clients often upload keys with a 0x05 type byte (33 bytes).
-    // The signature is usually generated over the raw 32-byte key. We must strip the prefix if present.
+    
+    // The Identity Key MUST be 32 bytes for the verifier instantiation.
     let ik_raw = if ik_bytes.len() == 33 { &ik_bytes[1..] } else { ik_bytes };
-    let spk_pub_raw =
-        if signed_pre_key.public_key.len() == 33 { &signed_pre_key.public_key[1..] } else { &signed_pre_key.public_key };
 
-    verify_signature(ik_raw, spk_pub_raw, &signed_pre_key.signature)
+    // The Signed Pre Key Public Key is the MESSAGE.
+    // Standard libsignal clients sign the 33-byte key (including the 0x05 prefix).
+    // However, we also support clients that might sign the raw 32-byte key.
+    
+    // 1. Try verifying the exact public key provided (e.g. 33 bytes)
+    if verify_signature(ik_raw, &signed_pre_key.public_key, &signed_pre_key.signature).is_ok() {
+        return Ok(());
+    }
+
+    // 2. Fallback: If 33 bytes, try verifying the stripped 32-byte key
+    if signed_pre_key.public_key.len() == 33 {
+        let spk_pub_raw = &signed_pre_key.public_key[1..];
+        if verify_signature(ik_raw, spk_pub_raw, &signed_pre_key.signature).is_ok() {
+            return Ok(());
+        }
+    }
+
+    Err(AppError::BadRequest("Invalid signature".into()))
 }
 
 #[cfg(test)]

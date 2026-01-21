@@ -1,4 +1,5 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use ed25519_dalek::Signer;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -25,6 +26,9 @@ async fn test_registration_with_33_byte_signed_pre_key() {
     let mut spk_pub_33 = spk_pub_32.clone();
     spk_pub_33.insert(0, 0x05);
 
+    // Sign the 33-byte key (Real world behavior)
+    let signature_over_33 = identity_key.sign(&spk_pub_33).to_bytes().to_vec();
+
     // 3. Construct Payload with 33-byte Signed Pre Key
     let reg_payload = json!({
         "username": username,
@@ -33,9 +37,9 @@ async fn test_registration_with_33_byte_signed_pre_key() {
         "identityKey": STANDARD.encode(&ik_pub),
         "signedPreKey": {
             "keyId": 1,
-            // The server receives 33 bytes here, but signature is over 32
+            // The server receives 33 bytes here
             "publicKey": STANDARD.encode(&spk_pub_33),
-            "signature": STANDARD.encode(&spk_sig)
+            "signature": STANDARD.encode(&signature_over_33)
         },
         "oneTimePreKeys": []
     });
