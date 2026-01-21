@@ -1,6 +1,6 @@
 use crate::core::user::{OneTimePreKey, PreKeyBundle, SignedPreKey};
 use crate::error::Result;
-use sqlx::{Executor, PgPool, Postgres, Row, postgres::PgConnection};
+use sqlx::{Executor, PgPool, Postgres, Row};
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -67,26 +67,42 @@ impl KeyRepository {
         Ok(())
     }
 
-    pub async fn insert_one_time_pre_keys(
+    pub async fn insert_one_time_pre_keys<'e, E>(
         &self,
-        executor: &mut PgConnection,
+        executor: E,
         user_id: Uuid,
         keys: &[(i32, Vec<u8>)],
-    ) -> Result<()> {
-        for (id, key) in keys {
-            sqlx::query(
-                r#"
-                INSERT INTO one_time_pre_keys (id, user_id, public_key)
-                VALUES ($2, $1, $3)
-                ON CONFLICT (id, user_id) DO NOTHING
-                "#,
-            )
-            .bind(user_id)
-            .bind(*id)
-            .bind(key)
-            .execute(&mut *executor)
-            .await?;
+    ) -> Result<()>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
+        if keys.is_empty() {
+            return Ok(());
         }
+
+        let mut ids = Vec::with_capacity(keys.len());
+        let mut user_ids = Vec::with_capacity(keys.len());
+        let mut pub_keys = Vec::with_capacity(keys.len());
+
+        for (id, key) in keys {
+            ids.push(*id);
+            user_ids.push(user_id);
+            pub_keys.push(key.clone());
+        }
+
+        sqlx::query(
+            r#"
+            INSERT INTO one_time_pre_keys (id, user_id, public_key)
+            SELECT * FROM UNNEST($1::int4[], $2::uuid[], $3::bytea[])
+            ON CONFLICT (id, user_id) DO NOTHING
+            "#,
+        )
+        .bind(&ids)
+        .bind(&user_ids)
+        .bind(&pub_keys)
+        .execute(executor)
+        .await?;
+
         Ok(())
     }
 
@@ -183,10 +199,13 @@ impl KeyRepository {
         Ok(())
     }
 
-    pub async fn count_one_time_pre_keys(&self, user_id: Uuid) -> Result<i64> {
+    pub async fn count_one_time_pre_keys<'e, E>(&self, executor: E, user_id: Uuid) -> Result<i64>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM one_time_pre_keys WHERE user_id = $1")
             .bind(user_id)
-            .fetch_one(&self.pool)
+            .fetch_one(executor)
             .await?;
         Ok(count)
     }

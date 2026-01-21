@@ -1,6 +1,7 @@
 use crate::config::Config;
+use crate::core::key_service::KeyService;
 use crate::core::notification::Notifier;
-use crate::storage::DbPool;
+use crate::storage::{DbPool, key_repo::KeyRepository, message_repo::MessageRepository};
 use axum::{
     Router,
     body::Body,
@@ -30,10 +31,22 @@ pub struct AppState {
     pub notifier: Arc<dyn Notifier>,
     pub extractor: rate_limit::IpKeyExtractor,
     pub s3_client: aws_sdk_s3::Client,
+    pub key_service: KeyService,
 }
 
 pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_client: aws_sdk_s3::Client) -> Router {
     let extractor = rate_limit::IpKeyExtractor::new(config.server.trusted_proxies.clone());
+
+    // Initialize Services
+    let key_repo = KeyRepository::new(pool.clone());
+    let message_repo = MessageRepository::new(pool.clone());
+    let key_service = KeyService::new(
+        pool.clone(),
+        key_repo,
+        message_repo,
+        notifier.clone(),
+        config.clone(),
+    );
 
     // Standard Tier: For general API usage
     let std_interval_ns = 1_000_000_000 / config.rate_limit.per_second.max(1);
@@ -57,7 +70,7 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_
             .unwrap(),
     );
 
-    let state = AppState { pool, config, notifier, extractor, s3_client };
+    let state = AppState { pool, config, notifier, extractor, s3_client, key_service };
 
     // Sensitive routes with strict limits
     let auth_routes = Router::new()

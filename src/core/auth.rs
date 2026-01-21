@@ -4,6 +4,7 @@ use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
 };
 use base64::Engine;
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use rand::{RngCore, rngs::OsRng};
 use sha2::{Digest, Sha256};
 
@@ -17,6 +18,22 @@ pub fn hash_password(password: &str) -> Result<String> {
 pub fn verify_password(password: &str, password_hash: &str) -> Result<bool> {
     let parsed_hash = PasswordHash::new(password_hash).map_err(|_| AppError::Internal)?;
     Ok(Argon2::default().verify_password(password.as_bytes(), &parsed_hash).is_ok())
+}
+
+/// Verifies an Ed25519 signature.
+pub fn verify_signature(public_key_bytes: &[u8], message: &[u8], signature_bytes: &[u8]) -> Result<()> {
+    let public_key = VerifyingKey::from_bytes(
+        public_key_bytes.try_into().map_err(|_| AppError::BadRequest("Invalid public key length".into()))?,
+    )
+    .map_err(|_| AppError::BadRequest("Invalid public key".into()))?;
+
+    let signature = Signature::from_bytes(
+        signature_bytes.try_into().map_err(|_| AppError::BadRequest("Invalid signature length".into()))?,
+    );
+
+    public_key.verify(message, &signature).map_err(|_| AppError::BadRequest("Invalid signature".into()))?;
+
+    Ok(())
 }
 
 /// Generates a cryptographically secure random string (32 bytes -> Base64).

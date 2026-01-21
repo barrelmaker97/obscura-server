@@ -126,7 +126,7 @@ paths:
         '200':
           description: Keys updated or takeover successful.
         '400':
-          description: Invalid key formats or missing registrationId for takeover.
+          description: Invalid key formats, invalid signature, pre-key limit exceeded, or missing registrationId for takeover.
         '401':
           description: Unauthorized.
 

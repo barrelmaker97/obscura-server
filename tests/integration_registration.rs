@@ -9,25 +9,37 @@ mod common;
 async fn test_register_flow() {
     let app = common::TestApp::spawn().await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let username = format!("testuser_reg_{}", run_id);
+    let username = format!("user_{}", run_id);
 
-    // 1. Register (Manual to verify status code)
+    let identity_key = common::generate_signing_key();
+    let ik_pub = identity_key.verifying_key().to_bytes();
+    let (spk_pub, spk_sig) = common::generate_signed_pre_key(&identity_key);
+
     let payload = json!({
         "username": username,
         "password": "password123",
-        "registrationId": 123,
-        "identityKey": "dGVzdF9pZGVudGl0eV9rZXk=",
+        "registrationId": 12345,
+        "identityKey": base64::engine::general_purpose::STANDARD.encode(&ik_pub),
         "signedPreKey": {
             "keyId": 1,
-            "publicKey": "dGVzdF9zaWduZWRfcHViX2tleQ==",
-            "signature": "dGVzdF9zaWduZWRfc2ln"
+            "publicKey": base64::engine::general_purpose::STANDARD.encode(&spk_pub),
+            "signature": base64::engine::general_purpose::STANDARD.encode(&spk_sig)
         },
-        "oneTimePreKeys": []
+        "oneTimePreKeys": [
+            {
+                "keyId": 1,
+                "publicKey": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
+            },
+            {
+                "keyId": 2,
+                "publicKey": "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI="
+            }
+        ]
     });
 
     let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&payload).send().await.unwrap();
 
-    assert_eq!(resp.status(), StatusCode::CREATED);
+    assert_eq!(resp.status(), 201);
 
     // Verify response structure
     let json: serde_json::Value = resp.json().await.unwrap();
@@ -63,5 +75,5 @@ async fn test_register_flow() {
         .await
         .unwrap();
 
-    assert_eq!(resp_keys.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(resp_keys.status(), StatusCode::OK);
 }

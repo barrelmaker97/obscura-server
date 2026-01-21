@@ -1,8 +1,9 @@
 use crate::api::AppState;
 use crate::api::middleware::{AuthUser, create_jwt};
 use crate::core::auth;
+use crate::core::key_service::KeyUploadParams;
+use crate::core::user::{OneTimePreKey, SignedPreKey};
 use crate::error::{AppError, Result};
-use crate::storage::key_repo::KeyRepository;
 use crate::storage::refresh_token_repo::RefreshTokenRepository;
 use crate::storage::user_repo::UserRepository;
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
@@ -70,9 +71,10 @@ pub async fn login(State(state): State<AppState>, Json(payload): Json<LoginReque
     let password = payload.password.clone();
     let password_hash = user.password_hash.clone();
 
-    let is_valid = tokio::task::spawn_blocking(move || auth::verify_password(&password, &password_hash))
+    let is_valid: Result<bool> = tokio::task::spawn_blocking(move || auth::verify_password(&password, &password_hash))
         .await
-        .map_err(|_| AppError::Internal)??;
+        .map_err(|_| AppError::Internal)?;
+    let is_valid = is_valid?;
 
     if !is_valid {
         return Err(AppError::AuthError);
@@ -99,12 +101,14 @@ pub async fn register(
     Json(payload): Json<RegistrationRequest>,
 ) -> Result<impl IntoResponse> {
     let user_repo = UserRepository::new();
-    let key_repo = KeyRepository::new(state.pool.clone());
     let refresh_repo = RefreshTokenRepository::new(state.pool.clone());
 
     let password = payload.password.clone();
-    let password_hash =
-        tokio::task::spawn_blocking(move || auth::hash_password(&password)).await.map_err(|_| AppError::Internal)??;
+    let password_hash: Result<String> =
+        tokio::task::spawn_blocking(move || auth::hash_password(&password))
+            .await
+            .map_err(|_| AppError::Internal)?;
+    let password_hash = password_hash?;
 
     let mut tx = state.pool.begin().await?;
 
@@ -121,23 +125,33 @@ pub async fn register(
         .decode(&payload.identity_key)
         .map_err(|_| AppError::BadRequest("Invalid base64 identityKey".into()))?;
 
-    key_repo.upsert_identity_key(&mut *tx, user.id, &identity_key_bytes, payload.registration_id).await?;
-
     let spk_pub = STANDARD
         .decode(&payload.signed_pre_key.public_key)
         .map_err(|_| AppError::BadRequest("Invalid base64 signedPreKey public key".into()))?;
     let spk_sig = STANDARD
         .decode(&payload.signed_pre_key.signature)
         .map_err(|_| AppError::BadRequest("Invalid base64 signedPreKey signature".into()))?;
-    key_repo.upsert_signed_pre_key(&mut *tx, user.id, payload.signed_pre_key.key_id, &spk_pub, &spk_sig).await?;
 
     let mut otpk_vec = Vec::new();
     for k in payload.one_time_pre_keys {
         let pub_key =
             STANDARD.decode(&k.public_key).map_err(|_| AppError::BadRequest("Invalid base64 oneTimePreKey".into()))?;
-        otpk_vec.push((k.key_id, pub_key));
+        otpk_vec.push(OneTimePreKey { key_id: k.key_id, public_key: pub_key });
     }
-    key_repo.insert_one_time_pre_keys(&mut tx, user.id, &otpk_vec).await?;
+
+    let key_params = KeyUploadParams {
+        user_id: user.id,
+        identity_key: Some(identity_key_bytes),
+        registration_id: Some(payload.registration_id),
+        signed_pre_key: SignedPreKey {
+            key_id: payload.signed_pre_key.key_id,
+            public_key: spk_pub,
+            signature: spk_sig,
+        },
+        one_time_pre_keys: otpk_vec,
+    };
+
+    state.key_service.upload_keys_internal(&mut *tx, key_params).await?;
 
     // Generate Tokens
     let token = create_jwt(user.id, &state.config.auth.jwt_secret, state.config.auth.access_token_ttl_secs)?;

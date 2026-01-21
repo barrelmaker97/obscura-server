@@ -35,6 +35,8 @@ Command-line options take precedence over environment variables.
 | `--ack-buffer-size` | WS ACK channel capacity | `OBSCURA_WS_ACK_BUFFER_SIZE` | `100` | No |
 | `--ack-batch-size` | WS ACK DB batch size | `OBSCURA_WS_ACK_BATCH_SIZE` | `50` | No |
 | `--ack-flush-interval-ms` | WS ACK DB flush interval | `OBSCURA_WS_ACK_FLUSH_INTERVAL_MS` | `500` | No |
+| `--pre-key-refill-threshold` | Threshold to trigger client refill notification | `OBSCURA_PRE_KEY_REFILL_THRESHOLD` | `20` | No |
+| `--max-pre-keys` | Max One-Time PreKeys allowed per user | `OBSCURA_MAX_PRE_KEYS` | `100` | No |
 | `--bucket` | S3 Bucket Name | `OBSCURA_S3_BUCKET` | - | **Yes** |
 | `--region` | S3 Region | `OBSCURA_S3_REGION` | `us-east-1` | No |
 | `--endpoint` | Custom S3 Endpoint (e.g., for MinIO) | `OBSCURA_S3_ENDPOINT` | - | No |

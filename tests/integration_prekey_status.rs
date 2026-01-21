@@ -1,3 +1,4 @@
+use base64::Engine;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -29,6 +30,11 @@ async fn test_prekey_status_sufficient_keys() {
     let username = format!("status_user_ok_{}", run_id);
 
     // 1. Register with 25 one-time keys (above threshold of 20)
+    let mut rng = rand::rngs::OsRng;
+    let identity_key = common::generate_signing_key();
+    let ik_pub = identity_key.verifying_key().to_bytes();
+    let (spk_pub, spk_sig) = common::generate_signed_pre_key(&identity_key);
+
     let mut keys = Vec::new();
     for i in 0..25 {
         keys.push(json!({
@@ -41,11 +47,11 @@ async fn test_prekey_status_sufficient_keys() {
         "username": username,
         "password": "password",
         "registrationId": 123,
-        "identityKey": "dGVzdF9pZGVudGl0eV9rZXk=",
+        "identityKey": base64::engine::general_purpose::STANDARD.encode(&ik_pub),
         "signedPreKey": {
             "keyId": 1,
-            "publicKey": "dGVzdF9zaWduZWRfcHViX2tleQ==",
-            "signature": "dGVzdF9zaWduZWRfc2ln"
+            "publicKey": base64::engine::general_purpose::STANDARD.encode(&spk_pub),
+            "signature": base64::engine::general_purpose::STANDARD.encode(&spk_sig)
         },
         "oneTimePreKeys": keys
     });
