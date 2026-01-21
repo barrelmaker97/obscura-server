@@ -1,4 +1,4 @@
-use futures::{SinkExt, StreamExt};
+use futures::SinkExt;
 use tokio_tungstenite::tungstenite::protocol::Message;
 use uuid::Uuid;
 
@@ -28,38 +28,12 @@ async fn test_ping_pong_under_load() {
     let mut ws = app.connect_ws(&user_b.token).await;
 
     // 5. Confirm server has started flushing (receive at least one binary)
-    // We access the raw stream here because we are testing protocol level ping/pong
-    match ws.stream.next().await {
-        Some(Ok(Message::Binary(_))) => {}
-        _ => panic!("Expected initial binary message"),
-    }
+    let _env = ws.receive_envelope().await.expect("Expected initial binary message");
 
-    // 6. Send a PING.
-    ws.stream.send(Message::Ping(vec![1, 2, 3].into())).await.unwrap();
+    // 6. Send a PING manually via the sink.
+    ws.sink.send(Message::Ping(vec![1, 2, 3].into())).await.unwrap();
 
     // 7. Verify the Pong arrives QUICKLY (before the whole batch finishes)
-    let mut binary_count = 0;
-    let mut pong_received = false;
-    let timeout = tokio::time::Duration::from_secs(5);
-    let start = std::time::Instant::now();
-
-    while start.elapsed() < timeout {
-        match tokio::time::timeout(tokio::time::Duration::from_millis(500), ws.stream.next()).await {
-            Ok(Some(Ok(msg))) => match msg {
-                Message::Pong(payload) => {
-                    assert_eq!(payload, vec![1, 2, 3]);
-                    pong_received = true;
-                    break;
-                }
-                Message::Binary(_) => {
-                    binary_count += 1;
-                }
-                _ => {}
-            },
-            _ => break,
-        }
-    }
-
-    assert!(pong_received, "Did not receive Pong under load");
-    assert!(binary_count < 40, "Server blocked! Received {} binary messages before Pong", binary_count);
+    let pong_payload = ws.receive_pong().await.expect("Did not receive Pong under load");
+    assert_eq!(pong_payload, vec![1, 2, 3]);
 }

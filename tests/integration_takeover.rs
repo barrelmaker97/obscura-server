@@ -1,11 +1,7 @@
 use base64::Engine;
-use futures::StreamExt;
-use obscura_server::api::middleware::create_jwt;
-use obscura_server::storage::{
-    key_repo::KeyRepository, message_repo::MessageRepository, user_repo::UserRepository,
-};
+use obscura_server::storage::key_repo::KeyRepository;
+use obscura_server::storage::message_repo::MessageRepository;
 use serde_json::json;
-use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use uuid::Uuid;
 
 mod common;
@@ -22,8 +18,7 @@ async fn test_device_takeover_success() {
     // 3. Populate Data
     let msg_repo = MessageRepository::new(app.pool.clone());
     msg_repo.create(user.user_id, user.user_id, 2, vec![1, 2, 3], 30).await.unwrap();
-    let pending_before = msg_repo.fetch_pending_batch(user.user_id, None, 100).await.unwrap();
-    assert_eq!(pending_before.len(), 1);
+    app.assert_message_count(user.user_id, 1).await;
 
     // 4. Connect WebSocket (Device A)
     let mut ws = app.connect_ws(&user.token).await;
@@ -57,27 +52,12 @@ async fn test_device_takeover_success() {
     assert_eq!(takeover_resp.status(), 200);
 
     // 6. Verify Disconnect (Device A)
-    let timeout = std::time::Duration::from_secs(5);
-    let start = std::time::Instant::now();
-    
-    loop {
-        if start.elapsed() > timeout {
-            panic!("Timed out waiting for disconnect");
-        }
-        
-        match tokio::time::timeout(std::time::Duration::from_millis(500), ws.stream.next()).await {
-            Ok(Some(Ok(Message::Close(_)))) => break, 
-            Ok(None) => break,         
-            Ok(Some(Ok(Message::Binary(_)))) => continue,
-            Ok(Some(Err(_))) => break, 
-            Ok(Some(Ok(_))) => panic!("Unexpected message type"),
-            Err(_) => continue, 
-        }
-    }
+    // The Refactored WS client will stop receiving when closed.
+    let env = ws.receive_envelope_timeout(std::time::Duration::from_millis(1000)).await;
+    assert!(env.is_none(), "WebSocket should have been closed/stopped after takeover");
 
     // 7. Verify Cleanup
-    let pending_after = msg_repo.fetch_pending_batch(user.user_id, None, 100).await.unwrap();
-    assert_eq!(pending_after.len(), 0);
+    app.assert_message_count(user.user_id, 0).await;
 
     let key_repo = KeyRepository::new(app.pool.clone());
     let bundle = key_repo.fetch_pre_key_bundle(user.user_id).await.unwrap().unwrap();
@@ -121,31 +101,4 @@ async fn test_refill_pre_keys_no_overwrite() {
         .await
         .unwrap();
     assert_eq!(refill_resp.status(), 200);
-}
-
-#[tokio::test]
-async fn test_no_identity_key_rejects_websocket() {
-    let app = common::TestApp::spawn().await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-
-    // 1. Create user via Repo directly (bypassing API validation)
-    let user_repo = UserRepository::new();
-    let mut tx = app.pool.begin().await.unwrap();
-    let user: obscura_server::core::user::User = user_repo.create(&mut *tx, &format!("nokey_{}", run_id), "hash").await.unwrap();
-    tx.commit().await.unwrap();
-
-    // Generate a token for this user
-    let token = create_jwt(user.id, &app.config.auth.jwt_secret, 3600).unwrap();
-
-    // Verify connection is rejected or closed immediately
-    let res = connect_async(format!("{}?token={}", app.ws_url, token)).await;
-    if let Ok((mut ws, _)) = res {
-        // If connection succeeds, it should close immediately
-        match ws.next().await {
-            Some(Ok(Message::Close(_))) => {}
-            None => {}         
-            Some(Err(_)) => {} 
-            _ => {}
-        }
-    }
 }

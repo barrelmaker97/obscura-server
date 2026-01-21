@@ -19,6 +19,7 @@ use reqwest::Client;
 use serde_json::json;
 use sqlx::PgPool;
 use std::sync::{Arc, Once};
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio_tungstenite::{WebSocketStream, connect_async, tungstenite::protocol::Message};
 use uuid::Uuid;
@@ -48,13 +49,11 @@ pub async fn get_test_pool() -> PgPool {
 
     let pool = storage::init_pool(&database_url).await.expect("Failed to connect to DB. Is Postgres running?");
 
-    // Run migrations automatically
     sqlx::migrate!().run(&pool).await.expect("Failed to run migrations");
 
     pool
 }
 
-#[allow(dead_code)]
 pub fn get_test_config() -> Config {
     Config {
         database_url: "postgres://user:password@localhost/signal_server".to_string(),
@@ -62,10 +61,7 @@ pub fn get_test_config() -> Config {
         server: obscura_server::config::ServerConfig {
             host: "127.0.0.1".to_string(),
             port: 0,
-            trusted_proxies: vec![
-                "127.0.0.1/32".parse().unwrap(),
-                "::1/128".parse().unwrap(),
-            ],
+            trusted_proxies: vec!["127.0.0.1/32".parse().unwrap(), "::1/128".parse().unwrap()],
         },
         auth: obscura_server::config::AuthConfig {
             jwt_secret: "test_secret".to_string(),
@@ -127,7 +123,6 @@ pub struct TestUser {
     pub identity_key: SigningKey,
 }
 
-#[allow(dead_code)]
 pub struct TestApp {
     pub pool: PgPool,
     pub config: Config,
@@ -146,7 +141,6 @@ impl TestApp {
         let pool = get_test_pool().await;
         let notifier = Arc::new(InMemoryNotifier::new(config.clone()));
 
-        // Create S3 client
         let region_provider = aws_config::Region::new(config.s3.region.clone());
         let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider);
 
@@ -178,7 +172,6 @@ impl TestApp {
         TestApp { pool, config, server_url, ws_url, client: Client::new(), s3_client }
     }
 
-    /// High-level registration helper that ensures valid crypto and returns a TestUser.
     pub async fn register_user(&self, username: &str) -> TestUser {
         self.register_user_with_keys(username, 123, 1).await
     }
@@ -209,20 +202,13 @@ impl TestApp {
             "oneTimePreKeys": otpk
         });
 
-        let resp = self
-            .client
-            .post(format!("{}/v1/users", self.server_url))
-            .json(&reg_payload)
-            .send()
-            .await
-            .unwrap();
+        let resp = self.client.post(format!("{}/v1/users", self.server_url)).json(&reg_payload).send().await.unwrap();
 
-        assert_eq!(resp.status(), 201, "User registration failed: {:?}", resp.text().await);
+        assert_eq!(resp.status(), 201, "User registration failed");
         let body = resp.json::<serde_json::Value>().await.unwrap();
         let token = body["token"].as_str().unwrap().to_string();
         let refresh_token = body["refreshToken"].as_str().unwrap_or_default().to_string();
 
-        // Extract user_id from token
         let parts: Vec<&str> = token.split('.').collect();
         let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[1]).unwrap();
         let claims: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
@@ -246,62 +232,107 @@ impl TestApp {
             .await
             .unwrap();
 
-        assert_eq!(resp.status(), 201, "Message sending failed: {:?}", resp.text().await);
+        assert_eq!(resp.status(), 201, "Message sending failed");
     }
 
     pub async fn connect_ws(&self, token: &str) -> TestWsClient {
         let (ws_stream, _) =
             connect_async(format!("{}?token={}", self.ws_url, token)).await.expect("Failed to connect WS");
-        TestWsClient { stream: ws_stream }
+        let (sink, stream) = ws_stream.split();
+        let (tx_env, rx_env) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_status, rx_status) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_pong, rx_pong) = tokio::sync::mpsc::unbounded_channel();
+
+        let mut stream = stream;
+        tokio::spawn(async move {
+            while let Some(msg) = stream.next().await {
+                match msg {
+                    Ok(Message::Binary(bin)) => {
+                        if let Ok(frame) = WebSocketFrame::decode(bin.as_ref()) {
+                            match frame.payload {
+                                Some(Payload::Envelope(e)) => { let _ = tx_env.send(e); }
+                                Some(Payload::PreKeyStatus(s)) => { let _ = tx_status.send(s); }
+                                _ => {}
+                            }
+                        }
+                    }
+                    Ok(Message::Pong(p)) => {
+                        let _ = tx_pong.send(p);
+                    }
+                    _ => {}
+                }
+            }
+        });
+
+        TestWsClient { sink, rx_env, rx_status, rx_pong }
+    }
+
+    pub async fn wait_until<F, Fut>(&self, mut condition: F, timeout: Duration) -> bool
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = bool>,
+    {
+        let start = std::time::Instant::now();
+        while start.elapsed() < timeout {
+            if condition().await {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        false
+    }
+
+    pub async fn assert_message_count(&self, user_id: Uuid, expected: i64) {
+        let success = self.wait_until(|| async {
+            let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM messages WHERE recipient_id = $1")
+                .bind(user_id)
+                .fetch_one(&self.pool)
+                .await
+                .unwrap();
+            count == expected
+        }, Duration::from_secs(5)).await;
+
+        if !success {
+            let actual: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM messages WHERE recipient_id = $1")
+                .bind(user_id)
+                .fetch_one(&self.pool)
+                .await
+                .unwrap();
+            panic!("Message count assertion failed. Expected {}, got {}", expected, actual);
+        }
     }
 }
 
-#[allow(dead_code)]
 pub struct TestWsClient {
-    pub stream: WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+    pub sink: futures::stream::SplitSink<WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, Message>,
+    pub rx_env: tokio::sync::mpsc::UnboundedReceiver<Envelope>,
+    pub rx_status: tokio::sync::mpsc::UnboundedReceiver<PreKeyStatus>,
+    pub rx_pong: tokio::sync::mpsc::UnboundedReceiver<tokio_tungstenite::tungstenite::Bytes>,
 }
 
 impl TestWsClient {
-    pub async fn receive_envelope(&mut self) -> Option<Envelope> {
-        self.receive_envelope_timeout(std::time::Duration::from_secs(5)).await
+    pub async fn receive_pong(&mut self) -> Option<Vec<u8>> {
+        tokio::time::timeout(Duration::from_secs(5), self.rx_pong.recv())
+            .await
+            .ok()
+            .flatten()
+            .map(|b| b.to_vec())
     }
 
-    pub async fn receive_envelope_timeout(&mut self, timeout: std::time::Duration) -> Option<Envelope> {
-        let start = std::time::Instant::now();
-        while start.elapsed() < timeout {
-            match tokio::time::timeout(std::time::Duration::from_millis(100), self.stream.next()).await {
-                Ok(Some(Ok(Message::Binary(bin)))) => {
-                    let frame = WebSocketFrame::decode(bin.as_ref()).unwrap();
-                    if let Some(Payload::Envelope(env)) = frame.payload {
-                        return Some(env);
-                    }
-                }
-                Ok(Some(Ok(Message::Close(_)))) => return None,
-                _ => continue,
-            }
-        }
-        None
+    pub async fn receive_envelope(&mut self) -> Option<Envelope> {
+        self.receive_envelope_timeout(Duration::from_secs(5)).await
+    }
+
+    pub async fn receive_envelope_timeout(&mut self, timeout: Duration) -> Option<Envelope> {
+        tokio::time::timeout(timeout, self.rx_env.recv()).await.ok().flatten()
     }
 
     pub async fn receive_prekey_status(&mut self) -> Option<PreKeyStatus> {
-        self.receive_prekey_status_timeout(std::time::Duration::from_secs(5)).await
+        self.receive_prekey_status_timeout(Duration::from_secs(5)).await
     }
 
-    pub async fn receive_prekey_status_timeout(&mut self, timeout: std::time::Duration) -> Option<PreKeyStatus> {
-        let start = std::time::Instant::now();
-        while start.elapsed() < timeout {
-            match tokio::time::timeout(std::time::Duration::from_millis(100), self.stream.next()).await {
-                Ok(Some(Ok(Message::Binary(bin)))) => {
-                    let frame = WebSocketFrame::decode(bin.as_ref()).unwrap();
-                    if let Some(Payload::PreKeyStatus(status)) = frame.payload {
-                        return Some(status);
-                    }
-                }
-                Ok(Some(Ok(Message::Close(_)))) => return None,
-                _ => continue,
-            }
-        }
-        None
+    pub async fn receive_prekey_status_timeout(&mut self, timeout: Duration) -> Option<PreKeyStatus> {
+        tokio::time::timeout(timeout, self.rx_status.recv()).await.ok().flatten()
     }
 
     pub async fn send_ack(&mut self, message_id: String) {
@@ -309,10 +340,6 @@ impl TestWsClient {
         let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
         let mut buf = Vec::new();
         frame.encode(&mut buf).unwrap();
-        self.stream.send(Message::Binary(buf.into())).await.unwrap();
-    }
-
-    pub async fn close(self) {
-        // Drop closes it
+        self.sink.send(Message::Binary(buf.into())).await.unwrap();
     }
 }
