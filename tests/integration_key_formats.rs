@@ -15,7 +15,7 @@ async fn test_registration_with_33_byte_identity_key() {
     // Generate standard 32-byte keys first
     let identity_key = common::generate_signing_key();
     let mut ik_pub_33 = identity_key.verifying_key().to_bytes().to_vec();
-    
+
     // Prepend 0x05 to simulate Libsignal format (Curve25519/Ed25519 marker)
     ik_pub_33.insert(0, 0x05);
     assert_eq!(ik_pub_33.len(), 33);
@@ -29,7 +29,7 @@ async fn test_registration_with_33_byte_identity_key() {
         "password": "password",
         "registrationId": 123,
         // The server receives 33 bytes here
-        "identityKey": STANDARD.encode(&ik_pub_33), 
+        "identityKey": STANDARD.encode(&ik_pub_33),
         "signedPreKey": {
             "keyId": 1,
             "publicKey": STANDARD.encode(&spk_pub),
@@ -39,17 +39,12 @@ async fn test_registration_with_33_byte_identity_key() {
     });
 
     // 4. Send Registration Request
-    let resp = app.client
-        .post(format!("{}/v1/users", app.server_url))
-        .json(&reg_payload)
-        .send()
-        .await
-        .unwrap();
+    let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&reg_payload).send().await.unwrap();
 
     // 5. Assert Success
     // If the server didn't handle the extra byte, this would be 400 Bad Request
     let status = resp.status();
     let body = resp.text().await.unwrap();
-    
+
     assert_eq!(status, 201, "Registration failed with 33-byte key: {}", body);
 }
