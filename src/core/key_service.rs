@@ -102,7 +102,7 @@ impl KeyService {
         // 2. Verify Cryptographic Signature
         // The signature is expected to be an Ed25519 signature of the Signed Prekey's Public Key,
         // signed by the user's Identity Key.
-        verify_signature(&ik_bytes, &params.signed_pre_key.public_key, &params.signed_pre_key.signature)?;
+        verify_keys(&ik_bytes, &params.signed_pre_key)?;
 
         // 3. Limit Check (Atomic within transaction)
         let current_count =
@@ -152,3 +152,75 @@ impl KeyService {
         Ok(is_takeover)
     }
 }
+
+fn verify_keys(ik_bytes: &[u8], signed_pre_key: &SignedPreKey) -> Result<()> {
+    // NOTE: Libsignal clients often upload keys with a 0x05 type byte (33 bytes).
+    // The signature is usually generated over the raw 32-byte key. We must strip the prefix if present.
+    let ik_raw = if ik_bytes.len() == 33 { &ik_bytes[1..] } else { ik_bytes };
+    let spk_pub_raw =
+        if signed_pre_key.public_key.len() == 33 { &signed_pre_key.public_key[1..] } else { &signed_pre_key.public_key };
+
+    verify_signature(ik_raw, spk_pub_raw, &signed_pre_key.signature)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ed25519_dalek::{Signer, SigningKey};
+    use rand::rngs::OsRng;
+    use rand::RngCore;
+
+    fn generate_keys() -> (SigningKey, Vec<u8>, SigningKey, Vec<u8>, Vec<u8>) {
+        let mut ik_bytes = [0u8; 32];
+        OsRng.fill_bytes(&mut ik_bytes);
+        let ik = SigningKey::from_bytes(&ik_bytes);
+        let ik_pub = ik.verifying_key().to_bytes().to_vec();
+
+        let mut spk_bytes = [0u8; 32];
+        OsRng.fill_bytes(&mut spk_bytes);
+        let spk = SigningKey::from_bytes(&spk_bytes);
+        let spk_pub = spk.verifying_key().to_bytes().to_vec();
+
+        let signature = ik.sign(&spk_pub).to_bytes().to_vec();
+
+        (ik, ik_pub, spk, spk_pub, signature)
+    }
+
+    #[test]
+    fn test_verify_keys_standard() {
+        let (_, ik_pub, _, spk_pub, signature) = generate_keys();
+        let spk = SignedPreKey { key_id: 1, public_key: spk_pub, signature };
+
+        assert!(verify_keys(&ik_pub, &spk).is_ok());
+    }
+
+    #[test]
+    fn test_verify_keys_with_prefix() {
+        let (_, ik_pub, _, spk_pub, signature) = generate_keys();
+
+        let mut ik_pub_33 = ik_pub.clone();
+        ik_pub_33.insert(0, 0x05);
+
+        let mut spk_pub_33 = spk_pub.clone();
+        spk_pub_33.insert(0, 0x05);
+
+        let spk = SignedPreKey { key_id: 1, public_key: spk_pub_33, signature };
+
+        // Should pass by stripping logic
+        assert!(verify_keys(&ik_pub_33, &spk).is_ok());
+    }
+
+    #[test]
+    fn test_verify_keys_mixed() {
+        let (_, ik_pub, _, spk_pub, signature) = generate_keys();
+
+        let mut ik_pub_33 = ik_pub.clone();
+        ik_pub_33.insert(0, 0x05);
+
+        let spk = SignedPreKey { key_id: 1, public_key: spk_pub, signature };
+
+        // 33-byte Identity Key, 32-byte SPK -> OK
+        assert!(verify_keys(&ik_pub_33, &spk).is_ok());
+    }
+}
+
