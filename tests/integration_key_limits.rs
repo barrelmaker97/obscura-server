@@ -9,7 +9,7 @@ async fn test_key_limit_enforced() {
     let mut config = common::get_test_config();
     config.messaging.max_pre_keys = 50; // Set low limit for testing
     let app = common::TestApp::spawn_with_config(config).await;
-    
+
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
     let username = format!("limit_user_{}", run_id);
 
@@ -30,7 +30,7 @@ async fn test_key_limit_enforced() {
         "username": username,
         "password": "password",
         "registrationId": 123,
-        "identityKey": base64::engine::general_purpose::STANDARD.encode(&ik_pub),
+        "identityKey": base64::engine::general_purpose::STANDARD.encode(ik_pub),
         "signedPreKey": {
             "keyId": 1,
             "publicKey": base64::engine::general_purpose::STANDARD.encode(&spk_pub),
@@ -56,7 +56,7 @@ async fn test_key_limit_enforced() {
 
     let refill_payload = json!({
         // Same Identity Key = Refill
-        "identityKey": base64::engine::general_purpose::STANDARD.encode(&ik_pub), 
+        "identityKey": base64::engine::general_purpose::STANDARD.encode(ik_pub),
         "registrationId": 123,
         "signedPreKey": {
             "keyId": 2,
@@ -66,13 +66,15 @@ async fn test_key_limit_enforced() {
         "oneTimePreKeys": refill_keys
     });
 
-    let resp = app.client.post(format!("{}/v1/keys", app.server_url))
+    let resp = app
+        .client
+        .post(format!("{}/v1/keys", app.server_url))
         .header("Authorization", format!("Bearer {}", token))
         .json(&refill_payload)
         .send()
         .await
         .unwrap();
-    
+
     assert_eq!(resp.status(), 400);
 }
 
@@ -81,7 +83,7 @@ async fn test_key_limit_enforced_on_takeover() {
     let mut config = common::get_test_config();
     config.messaging.max_pre_keys = 10; // Very low limit
     let app = common::TestApp::spawn_with_config(config).await;
-    
+
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
     let username = format!("takeover_limit_user_{}", run_id);
 
@@ -91,7 +93,7 @@ async fn test_key_limit_enforced_on_takeover() {
     // 2. Takeover with 20 keys (More than limit of 10)
     let new_identity_key = common::generate_signing_key();
     let (spk_pub, spk_sig) = common::generate_signed_pre_key(&new_identity_key);
-    
+
     let mut keys = Vec::new();
     for i in 0..20 {
         keys.push(json!({
@@ -111,13 +113,15 @@ async fn test_key_limit_enforced_on_takeover() {
         "oneTimePreKeys": keys
     });
 
-    let resp = app.client.post(format!("{}/v1/keys", app.server_url))
+    let resp = app
+        .client
+        .post(format!("{}/v1/keys", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
         .json(&takeover_payload)
         .send()
         .await
         .unwrap();
-    
+
     // Should now be 400 because we enforced the limit in KeyService
     assert_eq!(resp.status(), 400);
 }

@@ -1,9 +1,7 @@
 use crate::api::AppState;
 use crate::api::middleware::verify_jwt;
 use crate::core::notification::UserEvent;
-use crate::proto::obscura::v1::{
-    EncryptedMessage, Envelope, WebSocketFrame, web_socket_frame::Payload,
-};
+use crate::proto::obscura::v1::{EncryptedMessage, Envelope, WebSocketFrame, web_socket_frame::Payload};
 use crate::storage::message_repo::MessageRepository;
 use axum::{
     extract::{
@@ -52,10 +50,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
     if let Ok(Some(status)) = state.key_service.check_pre_key_status(user_id).await {
         let frame = WebSocketFrame { payload: Some(Payload::PreKeyStatus(status)) };
         let mut buf = Vec::new();
-        if frame.encode(&mut buf).is_ok() {
-            if let Err(e) = ws_sink.send(WsMessage::Binary(buf.into())).await {
-                error!("Failed to send PreKeyStatus: {}", e);
-            }
+        if frame.encode(&mut buf).is_ok()
+            && let Err(e) = ws_sink.send(WsMessage::Binary(buf.into())).await
+        {
+            error!("Failed to send PreKeyStatus: {}", e);
         }
     }
 

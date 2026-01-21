@@ -92,12 +92,7 @@ mod tests {
                 access_token_ttl_secs: 900,
                 refresh_token_ttl_days: 30,
             },
-            rate_limit: crate::config::RateLimitConfig {
-                per_second: 5,
-                burst: 10,
-                auth_per_second: 1,
-                auth_burst: 3,
-            },
+            rate_limit: crate::config::RateLimitConfig { per_second: 5, burst: 10, auth_per_second: 1, auth_burst: 3 },
             messaging: crate::config::MessagingConfig {
                 max_inbox_size: 1000,
                 cleanup_interval_secs: 300,

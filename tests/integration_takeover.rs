@@ -29,7 +29,7 @@ async fn test_device_takeover_success() {
     let (new_spk_pub, new_spk_sig) = common::generate_signed_pre_key(&new_identity_key);
 
     let takeover_payload = json!({
-        "identityKey": base64::engine::general_purpose::STANDARD.encode(&new_ik_pub),
+        "identityKey": base64::engine::general_purpose::STANDARD.encode(new_ik_pub),
         "registrationId": 222,
         "signedPreKey": {
             "keyId": 2,
@@ -80,10 +80,10 @@ async fn test_refill_pre_keys_no_overwrite() {
     let (new_spk_pub, new_spk_sig) = common::generate_signed_pre_key(&user.identity_key);
 
     let refill_payload = json!({
-        "identityKey": base64::engine::general_purpose::STANDARD.encode(user.identity_key.verifying_key().to_bytes()), 
+        "identityKey": base64::engine::general_purpose::STANDARD.encode(user.identity_key.verifying_key().to_bytes()),
         "registrationId": 111,
         "signedPreKey": {
-            "keyId": 2, 
+            "keyId": 2,
             "publicKey": base64::engine::general_purpose::STANDARD.encode(&new_spk_pub),
             "signature": base64::engine::general_purpose::STANDARD.encode(&new_spk_sig)
         },

@@ -7,14 +7,13 @@ use obscura_server::{
     config::Config,
     core::notification::InMemoryNotifier,
     proto::obscura::v1::{
-        AckMessage, EncryptedMessage, Envelope, PreKeyStatus, WebSocketFrame,
-        web_socket_frame::Payload,
+        AckMessage, EncryptedMessage, Envelope, PreKeyStatus, WebSocketFrame, web_socket_frame::Payload,
     },
     storage,
 };
 use prost::Message as ProstMessage;
-use rand::rngs::OsRng;
 use rand::RngCore;
+use rand::rngs::OsRng;
 use reqwest::Client;
 use serde_json::json;
 use sqlx::PgPool;
@@ -81,10 +80,7 @@ pub fn get_test_config() -> Config {
             pre_key_refill_threshold: 20,
             max_pre_keys: 100,
         },
-        notifications: obscura_server::config::NotificationConfig {
-            gc_interval_secs: 60,
-            channel_capacity: 16,
-        },
+        notifications: obscura_server::config::NotificationConfig { gc_interval_secs: 60, channel_capacity: 16 },
         websocket: obscura_server::config::WsConfig {
             outbound_buffer_size: 32,
             ack_buffer_size: 100,
@@ -185,7 +181,7 @@ impl TestApp {
         for i in 0..otpk_count {
             otpk.push(json!({
                 "keyId": i,
-                "publicKey": STANDARD.encode(&generate_signing_key().verifying_key().to_bytes())
+                "publicKey": STANDARD.encode(generate_signing_key().verifying_key().to_bytes())
             }));
         }
 
@@ -250,8 +246,12 @@ impl TestApp {
                     Ok(Message::Binary(bin)) => {
                         if let Ok(frame) = WebSocketFrame::decode(bin.as_ref()) {
                             match frame.payload {
-                                Some(Payload::Envelope(e)) => { let _ = tx_env.send(e); }
-                                Some(Payload::PreKeyStatus(s)) => { let _ = tx_status.send(s); }
+                                Some(Payload::Envelope(e)) => {
+                                    let _ = tx_env.send(e);
+                                }
+                                Some(Payload::PreKeyStatus(s)) => {
+                                    let _ = tx_status.send(s);
+                                }
                                 _ => {}
                             }
                         }
@@ -283,14 +283,19 @@ impl TestApp {
     }
 
     pub async fn assert_message_count(&self, user_id: Uuid, expected: i64) {
-        let success = self.wait_until(|| async {
-            let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM messages WHERE recipient_id = $1")
-                .bind(user_id)
-                .fetch_one(&self.pool)
-                .await
-                .unwrap();
-            count == expected
-        }, Duration::from_secs(5)).await;
+        let success = self
+            .wait_until(
+                || async {
+                    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM messages WHERE recipient_id = $1")
+                        .bind(user_id)
+                        .fetch_one(&self.pool)
+                        .await
+                        .unwrap();
+                    count == expected
+                },
+                Duration::from_secs(5),
+            )
+            .await;
 
         if !success {
             let actual: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM messages WHERE recipient_id = $1")
@@ -304,7 +309,8 @@ impl TestApp {
 }
 
 pub struct TestWsClient {
-    pub sink: futures::stream::SplitSink<WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, Message>,
+    pub sink:
+        futures::stream::SplitSink<WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, Message>,
     pub rx_env: tokio::sync::mpsc::UnboundedReceiver<Envelope>,
     pub rx_status: tokio::sync::mpsc::UnboundedReceiver<PreKeyStatus>,
     pub rx_pong: tokio::sync::mpsc::UnboundedReceiver<tokio_tungstenite::tungstenite::Bytes>,
@@ -312,11 +318,7 @@ pub struct TestWsClient {
 
 impl TestWsClient {
     pub async fn receive_pong(&mut self) -> Option<Vec<u8>> {
-        tokio::time::timeout(Duration::from_secs(5), self.rx_pong.recv())
-            .await
-            .ok()
-            .flatten()
-            .map(|b| b.to_vec())
+        tokio::time::timeout(Duration::from_secs(5), self.rx_pong.recv()).await.ok().flatten().map(|b| b.to_vec())
     }
 
     pub async fn receive_envelope(&mut self) -> Option<Envelope> {

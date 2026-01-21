@@ -1,8 +1,8 @@
+use base64::Engine;
 use futures::future::join_all;
 use reqwest::{Client, StatusCode};
 use std::time::Duration;
 use uuid::Uuid;
-use base64::Engine;
 
 mod common;
 
@@ -88,18 +88,14 @@ async fn test_rate_limit_concurrency() {
 
     println!("Firing 20 concurrent requests from unique IPs...");
     let mut tasks = vec![];
-    let client = Client::new(); 
+    let client = Client::new();
 
     for i in 0..20 {
         let url = app.server_url.clone();
         let c = client.clone();
         tasks.push(tokio::spawn(async move {
             let ip = format!("10.10.10.{}", i);
-            c.get(format!("{}/v1/keys/{}", url, Uuid::new_v4()))
-                .header("X-Forwarded-For", ip)
-                .send()
-                .await
-                .unwrap()
+            c.get(format!("{}/v1/keys/{}", url, Uuid::new_v4())).header("X-Forwarded-For", ip).send().await.unwrap()
         }));
     }
 
@@ -189,10 +185,10 @@ async fn test_rate_limit_tiers() {
         "password": "password",
         "registrationId": 123,
         "identityKey": base64::engine::general_purpose::STANDARD.encode(identity_key.verifying_key().to_bytes()),
-        "signedPreKey": { 
-            "keyId": 1, 
-            "publicKey": base64::engine::general_purpose::STANDARD.encode(&spk_pub), 
-            "signature": base64::engine::general_purpose::STANDARD.encode(&spk_sig) 
+        "signedPreKey": {
+            "keyId": 1,
+            "publicKey": base64::engine::general_purpose::STANDARD.encode(&spk_pub),
+            "signature": base64::engine::general_purpose::STANDARD.encode(&spk_sig)
         },
         "oneTimePreKeys": []
     });

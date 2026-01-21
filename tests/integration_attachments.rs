@@ -21,7 +21,8 @@ async fn test_attachment_lifecycle() {
 
     // 1. Upload Success
     let content = b"Hello Obscura!";
-    let resp_up = app.client
+    let resp_up = app
+        .client
         .post(format!("{}/v1/attachments", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
         .header("Content-Length", content.len().to_string())
@@ -35,7 +36,8 @@ async fn test_attachment_lifecycle() {
     let attachment_id = up_json["id"].as_str().unwrap();
 
     // 2. Download Success
-    let resp_down = app.client
+    let resp_down = app
+        .client
         .get(format!("{}/v1/attachments/{}", app.server_url, attachment_id))
         .header("Authorization", format!("Bearer {}", user.token))
         .send()
@@ -46,7 +48,8 @@ async fn test_attachment_lifecycle() {
     assert_eq!(resp_down.bytes().await.unwrap(), content.to_vec());
 
     // 3. Upload Failure (Size Limit - Header check)
-    let resp_big_header = app.client
+    let resp_big_header = app
+        .client
         .post(format!("{}/v1/attachments", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
         .header("Content-Length", "101") // Over 100 limit
@@ -59,7 +62,8 @@ async fn test_attachment_lifecycle() {
     // 4. Upload Failure (Size Limit - Stream check)
     let stream_data = vec![0u8; 150];
     let stream = futures::stream::iter(vec![Ok::<_, std::io::Error>(axum::body::Bytes::from(stream_data))]);
-    let resp_big_stream = app.client
+    let resp_big_stream = app
+        .client
         .post(format!("{}/v1/attachments", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
         .body(reqwest::Body::wrap_stream(stream))
@@ -72,7 +76,8 @@ async fn test_attachment_lifecycle() {
     assert_eq!(resp_big_stream.status(), StatusCode::INTERNAL_SERVER_ERROR);
 
     // 5. Download Not Found
-    let resp_404 = app.client
+    let resp_404 = app
+        .client
         .get(format!("{}/v1/attachments/{}", app.server_url, Uuid::new_v4()))
         .header("Authorization", format!("Bearer {}", user.token))
         .send()

@@ -19,7 +19,7 @@ async fn test_register_flow() {
         "username": username,
         "password": "password123",
         "registrationId": 12345,
-        "identityKey": base64::engine::general_purpose::STANDARD.encode(&ik_pub),
+        "identityKey": base64::engine::general_purpose::STANDARD.encode(ik_pub),
         "signedPreKey": {
             "keyId": 1,
             "publicKey": base64::engine::general_purpose::STANDARD.encode(&spk_pub),

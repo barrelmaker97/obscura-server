@@ -63,7 +63,7 @@ impl KeyService {
         let mut tx = self.pool.begin().await?;
         let user_id = params.user_id;
 
-        let is_takeover = self.upload_keys_internal(&mut *tx, params).await?;
+        let is_takeover = self.upload_keys_internal(&mut tx, params).await?;
 
         tx.commit().await?;
 
@@ -75,11 +75,7 @@ impl KeyService {
     }
 
     /// Internal implementation that accepts a mutable connection.
-    pub async fn upload_keys_internal(
-        &self,
-        conn: &mut PgConnection,
-        params: KeyUploadParams,
-    ) -> Result<bool> {
+    pub async fn upload_keys_internal(&self, conn: &mut PgConnection, params: KeyUploadParams) -> Result<bool> {
         let mut is_takeover = false;
 
         // 1. Identify/Verify Identity Key
@@ -109,11 +105,8 @@ impl KeyService {
         verify_signature(&ik_bytes, &params.signed_pre_key.public_key, &params.signed_pre_key.signature)?;
 
         // 3. Limit Check (Atomic within transaction)
-        let current_count = if is_takeover {
-            0
-        } else {
-            self.key_repo.count_one_time_pre_keys(&mut *conn, params.user_id).await?
-        };
+        let current_count =
+            if is_takeover { 0 } else { self.key_repo.count_one_time_pre_keys(&mut *conn, params.user_id).await? };
 
         let new_keys_count = params.one_time_pre_keys.len() as i64;
 
