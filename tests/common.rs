@@ -7,18 +7,18 @@ use obscura_server::{
     config::Config,
     core::notification::InMemoryNotifier,
     proto::obscura::v1::{
-        AckMessage, EncryptedMessage, Envelope, PreKeyStatus, WebSocketFrame,
-        web_socket_frame::Payload,
+        AckMessage, EncryptedMessage, Envelope, PreKeyStatus, WebSocketFrame, web_socket_frame::Payload,
     },
     storage,
 };
 use prost::Message as ProstMessage;
-use rand::rngs::OsRng;
 use rand::RngCore;
+use rand::rngs::OsRng;
 use reqwest::Client;
 use serde_json::json;
 use sqlx::PgPool;
 use std::sync::{Arc, Once};
+use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio_tungstenite::{WebSocketStream, connect_async, tungstenite::protocol::Message};
 use uuid::Uuid;
@@ -48,13 +48,11 @@ pub async fn get_test_pool() -> PgPool {
 
     let pool = storage::init_pool(&database_url).await.expect("Failed to connect to DB. Is Postgres running?");
 
-    // Run migrations automatically
     sqlx::migrate!().run(&pool).await.expect("Failed to run migrations");
 
     pool
 }
 
-#[allow(dead_code)]
 pub fn get_test_config() -> Config {
     Config {
         database_url: "postgres://user:password@localhost/signal_server".to_string(),
@@ -62,10 +60,7 @@ pub fn get_test_config() -> Config {
         server: obscura_server::config::ServerConfig {
             host: "127.0.0.1".to_string(),
             port: 0,
-            trusted_proxies: vec![
-                "127.0.0.1/32".parse().unwrap(),
-                "::1/128".parse().unwrap(),
-            ],
+            trusted_proxies: vec!["127.0.0.1/32".parse().unwrap(), "::1/128".parse().unwrap()],
         },
         auth: obscura_server::config::AuthConfig {
             jwt_secret: "test_secret".to_string(),
@@ -85,10 +80,7 @@ pub fn get_test_config() -> Config {
             pre_key_refill_threshold: 20,
             max_pre_keys: 100,
         },
-        notifications: obscura_server::config::NotificationConfig {
-            gc_interval_secs: 60,
-            channel_capacity: 16,
-        },
+        notifications: obscura_server::config::NotificationConfig { gc_interval_secs: 60, channel_capacity: 16 },
         websocket: obscura_server::config::WsConfig {
             outbound_buffer_size: 32,
             ack_buffer_size: 100,
@@ -120,13 +112,20 @@ pub fn generate_signed_pre_key(identity_key: &SigningKey) -> (Vec<u8>, Vec<u8>) 
     (spk_pub, signature)
 }
 
-#[allow(dead_code)]
+pub struct TestUser {
+    pub user_id: Uuid,
+    pub token: String,
+    pub refresh_token: String,
+    pub identity_key: SigningKey,
+}
+
 pub struct TestApp {
     pub pool: PgPool,
     pub config: Config,
     pub server_url: String,
     pub ws_url: String,
     pub client: Client,
+    pub s3_client: aws_sdk_s3::Client,
 }
 
 impl TestApp {
@@ -138,7 +137,6 @@ impl TestApp {
         let pool = get_test_pool().await;
         let notifier = Arc::new(InMemoryNotifier::new(config.clone()));
 
-        // Create dummy S3 client
         let region_provider = aws_config::Region::new(config.s3.region.clone());
         let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider);
 
@@ -146,7 +144,6 @@ impl TestApp {
             config_loader = config_loader.endpoint_url(endpoint);
         }
 
-        // Use dummy credentials if provided, or default chain
         if let (Some(ak), Some(sk)) = (&config.s3.access_key, &config.s3.secret_key) {
             let creds = aws_credential_types::Credentials::new(ak.clone(), sk.clone(), None, None, "static");
             config_loader = config_loader.credentials_provider(creds);
@@ -157,7 +154,7 @@ impl TestApp {
             aws_sdk_s3::config::Builder::from(&sdk_config).force_path_style(config.s3.force_path_style);
         let s3_client = aws_sdk_s3::Client::from_conf(s3_config_builder.build());
 
-        let app = app_router(pool.clone(), config.clone(), notifier, s3_client);
+        let app = app_router(pool.clone(), config.clone(), notifier, s3_client.clone());
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -168,86 +165,52 @@ impl TestApp {
             axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
         });
 
-        TestApp { pool, config, server_url, ws_url, client: Client::new() }
+        TestApp { pool, config, server_url, ws_url, client: Client::new(), s3_client }
     }
 
-    pub async fn register_user(&self, username: &str) -> (String, Uuid) {
+    pub async fn register_user(&self, username: &str) -> TestUser {
+        self.register_user_with_keys(username, 123, 1).await
+    }
+
+    pub async fn register_user_with_keys(&self, username: &str, reg_id: u32, otpk_count: usize) -> TestUser {
         let identity_key = generate_signing_key();
         let ik_pub = identity_key.verifying_key().to_bytes().to_vec();
         let (spk_pub, spk_sig) = generate_signed_pre_key(&identity_key);
+
+        let mut otpk = Vec::new();
+        for i in 0..otpk_count {
+            otpk.push(json!({
+                "keyId": i,
+                "publicKey": STANDARD.encode(generate_signing_key().verifying_key().to_bytes())
+            }));
+        }
 
         let reg_payload = json!({
             "username": username,
             "password": "password",
-            "registrationId": 123,
+            "registrationId": reg_id,
             "identityKey": STANDARD.encode(&ik_pub),
             "signedPreKey": {
                 "keyId": 1,
                 "publicKey": STANDARD.encode(&spk_pub),
                 "signature": STANDARD.encode(&spk_sig)
             },
-            "oneTimePreKeys": [
-                {
-                    "keyId": 1,
-                    "publicKey": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
-                }
-            ]
+            "oneTimePreKeys": otpk
         });
 
-        let resp = self
-            .client
-            .post(format!("{}/v1/users", self.server_url))
-            .json(&reg_payload)
-            .send()
-            .await
-            .unwrap();
+        let resp = self.client.post(format!("{}/v1/users", self.server_url)).json(&reg_payload).send().await.unwrap();
 
         assert_eq!(resp.status(), 201, "User registration failed");
         let body = resp.json::<serde_json::Value>().await.unwrap();
         let token = body["token"].as_str().unwrap().to_string();
+        let refresh_token = body["refreshToken"].as_str().unwrap_or_default().to_string();
 
-        // Extract user_id from token
         let parts: Vec<&str> = token.split('.').collect();
         let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[1]).unwrap();
         let claims: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
         let user_id = Uuid::parse_str(claims["sub"].as_str().unwrap()).unwrap();
 
-        (token, user_id)
-    }
-
-    pub async fn register_user_full(&self, username: &str, registration_id: u32) -> (String, String, Uuid) {
-        let identity_key = generate_signing_key();
-        let ik_pub = identity_key.verifying_key().to_bytes().to_vec();
-        let (spk_pub, spk_sig) = generate_signed_pre_key(&identity_key);
-
-        let payload = json!({
-            "username": username,
-            "password": "password",
-            "registrationId": registration_id,
-            "identityKey": STANDARD.encode(&ik_pub),
-            "signedPreKey": {
-                "keyId": 1,
-                "publicKey": STANDARD.encode(&spk_pub),
-                "signature": STANDARD.encode(&spk_sig)
-            },
-            "oneTimePreKeys": []
-        });
-
-        let resp = self.client.post(format!("{}/v1/users", self.server_url)).json(&payload).send().await.unwrap();
-
-        assert_eq!(resp.status(), 201, "User registration failed");
-
-        let json: serde_json::Value = resp.json().await.unwrap();
-        let token = json["token"].as_str().unwrap().to_string();
-        let refresh_token = json["refreshToken"].as_str().unwrap_or_default().to_string();
-
-        // Decode user_id from token
-        let parts: Vec<&str> = token.split('.').collect();
-        let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[1]).unwrap();
-        let claims: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
-        let user_id = Uuid::parse_str(claims["sub"].as_str().unwrap()).unwrap();
-
-        (token, refresh_token, user_id)
+        TestUser { user_id, token, refresh_token, identity_key }
     }
 
     pub async fn send_message(&self, token: &str, recipient_id: Uuid, content: &[u8]) {
@@ -271,56 +234,107 @@ impl TestApp {
     pub async fn connect_ws(&self, token: &str) -> TestWsClient {
         let (ws_stream, _) =
             connect_async(format!("{}?token={}", self.ws_url, token)).await.expect("Failed to connect WS");
-        TestWsClient { stream: ws_stream }
+        let (sink, stream) = ws_stream.split();
+        let (tx_env, rx_env) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_status, rx_status) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_pong, rx_pong) = tokio::sync::mpsc::unbounded_channel();
+
+        let mut stream = stream;
+        tokio::spawn(async move {
+            while let Some(msg) = stream.next().await {
+                match msg {
+                    Ok(Message::Binary(bin)) => {
+                        if let Ok(frame) = WebSocketFrame::decode(bin.as_ref()) {
+                            match frame.payload {
+                                Some(Payload::Envelope(e)) => {
+                                    let _ = tx_env.send(e);
+                                }
+                                Some(Payload::PreKeyStatus(s)) => {
+                                    let _ = tx_status.send(s);
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    Ok(Message::Pong(p)) => {
+                        let _ = tx_pong.send(p);
+                    }
+                    _ => {}
+                }
+            }
+        });
+
+        TestWsClient { sink, rx_env, rx_status, rx_pong }
+    }
+
+    pub async fn wait_until<F, Fut>(&self, mut condition: F, timeout: Duration) -> bool
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = bool>,
+    {
+        let start = std::time::Instant::now();
+        while start.elapsed() < timeout {
+            if condition().await {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        false
+    }
+
+    pub async fn assert_message_count(&self, user_id: Uuid, expected: i64) {
+        let success = self
+            .wait_until(
+                || async {
+                    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM messages WHERE recipient_id = $1")
+                        .bind(user_id)
+                        .fetch_one(&self.pool)
+                        .await
+                        .unwrap();
+                    count == expected
+                },
+                Duration::from_secs(5),
+            )
+            .await;
+
+        if !success {
+            let actual: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM messages WHERE recipient_id = $1")
+                .bind(user_id)
+                .fetch_one(&self.pool)
+                .await
+                .unwrap();
+            panic!("Message count assertion failed. Expected {}, got {}", expected, actual);
+        }
     }
 }
 
-#[allow(dead_code)]
 pub struct TestWsClient {
-    pub stream: WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+    pub sink:
+        futures::stream::SplitSink<WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, Message>,
+    pub rx_env: tokio::sync::mpsc::UnboundedReceiver<Envelope>,
+    pub rx_status: tokio::sync::mpsc::UnboundedReceiver<PreKeyStatus>,
+    pub rx_pong: tokio::sync::mpsc::UnboundedReceiver<tokio_tungstenite::tungstenite::Bytes>,
 }
 
 impl TestWsClient {
-    pub async fn receive_envelope(&mut self) -> Option<Envelope> {
-        self.receive_envelope_timeout(std::time::Duration::from_secs(5)).await
+    pub async fn receive_pong(&mut self) -> Option<Vec<u8>> {
+        tokio::time::timeout(Duration::from_secs(5), self.rx_pong.recv()).await.ok().flatten().map(|b| b.to_vec())
     }
 
-    pub async fn receive_envelope_timeout(&mut self, timeout: std::time::Duration) -> Option<Envelope> {
-        let start = std::time::Instant::now();
-        while start.elapsed() < timeout {
-            match tokio::time::timeout(std::time::Duration::from_millis(100), self.stream.next()).await {
-                Ok(Some(Ok(Message::Binary(bin)))) => {
-                    let frame = WebSocketFrame::decode(bin.as_ref()).unwrap();
-                    if let Some(Payload::Envelope(env)) = frame.payload {
-                        return Some(env);
-                    }
-                }
-                Ok(Some(Ok(Message::Close(_)))) => return None,
-                _ => continue,
-            }
-        }
-        None
+    pub async fn receive_envelope(&mut self) -> Option<Envelope> {
+        self.receive_envelope_timeout(Duration::from_secs(5)).await
+    }
+
+    pub async fn receive_envelope_timeout(&mut self, timeout: Duration) -> Option<Envelope> {
+        tokio::time::timeout(timeout, self.rx_env.recv()).await.ok().flatten()
     }
 
     pub async fn receive_prekey_status(&mut self) -> Option<PreKeyStatus> {
-        self.receive_prekey_status_timeout(std::time::Duration::from_secs(5)).await
+        self.receive_prekey_status_timeout(Duration::from_secs(5)).await
     }
 
-    pub async fn receive_prekey_status_timeout(&mut self, timeout: std::time::Duration) -> Option<PreKeyStatus> {
-        let start = std::time::Instant::now();
-        while start.elapsed() < timeout {
-            match tokio::time::timeout(std::time::Duration::from_millis(100), self.stream.next()).await {
-                Ok(Some(Ok(Message::Binary(bin)))) => {
-                    let frame = WebSocketFrame::decode(bin.as_ref()).unwrap();
-                    if let Some(Payload::PreKeyStatus(status)) = frame.payload {
-                        return Some(status);
-                    }
-                }
-                Ok(Some(Ok(Message::Close(_)))) => return None,
-                _ => continue,
-            }
-        }
-        None
+    pub async fn receive_prekey_status_timeout(&mut self, timeout: Duration) -> Option<PreKeyStatus> {
+        tokio::time::timeout(timeout, self.rx_status.recv()).await.ok().flatten()
     }
 
     pub async fn send_ack(&mut self, message_id: String) {
@@ -328,10 +342,6 @@ impl TestWsClient {
         let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
         let mut buf = Vec::new();
         frame.encode(&mut buf).unwrap();
-        self.stream.send(Message::Binary(buf.into())).await.unwrap();
-    }
-
-    pub async fn close(self) {
-        // Drop closes it
+        self.sink.send(Message::Binary(buf.into())).await.unwrap();
     }
 }

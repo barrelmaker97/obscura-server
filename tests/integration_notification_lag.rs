@@ -13,17 +13,17 @@ async fn test_notification_lag_recovery() {
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
 
     // 2. Register Users
-    let (token_a, _) = app.register_user(&format!("alice_{}", run_id)).await;
-    let (token_b, user_b_id) = app.register_user(&format!("bob_{}", run_id)).await;
+    let user_a = app.register_user(&format!("alice_{}", run_id)).await;
+    let user_b = app.register_user(&format!("bob_{}", run_id)).await;
 
     // 3. Connect User B but DO NOT read from the stream initially
-    let mut ws = app.connect_ws(&token_b).await;
+    let mut ws = app.connect_ws(&user_b.token).await;
 
     // 4. Flood the system with messages (100 > 10 buffer)
     let message_count = 100;
     for i in 0..message_count {
         let content = format!("Message {}", i).into_bytes();
-        app.send_message(&token_a, user_b_id, &content).await;
+        app.send_message(&user_a.token, user_b.user_id, &content).await;
     }
 
     // Allow time for notifications to propagate and overflow

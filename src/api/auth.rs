@@ -105,9 +105,7 @@ pub async fn register(
 
     let password = payload.password.clone();
     let password_hash: Result<String> =
-        tokio::task::spawn_blocking(move || auth::hash_password(&password))
-            .await
-            .map_err(|_| AppError::Internal)?;
+        tokio::task::spawn_blocking(move || auth::hash_password(&password)).await.map_err(|_| AppError::Internal)?;
     let password_hash = password_hash?;
 
     let mut tx = state.pool.begin().await?;
@@ -143,15 +141,11 @@ pub async fn register(
         user_id: user.id,
         identity_key: Some(identity_key_bytes),
         registration_id: Some(payload.registration_id),
-        signed_pre_key: SignedPreKey {
-            key_id: payload.signed_pre_key.key_id,
-            public_key: spk_pub,
-            signature: spk_sig,
-        },
+        signed_pre_key: SignedPreKey { key_id: payload.signed_pre_key.key_id, public_key: spk_pub, signature: spk_sig },
         one_time_pre_keys: otpk_vec,
     };
 
-    state.key_service.upload_keys_internal(&mut *tx, key_params).await?;
+    state.key_service.upload_keys_internal(&mut tx, key_params).await?;
 
     // Generate Tokens
     let token = create_jwt(user.id, &state.config.auth.jwt_secret, state.config.auth.access_token_ttl_secs)?;

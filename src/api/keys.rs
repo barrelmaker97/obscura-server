@@ -58,7 +58,8 @@ pub async fn upload_keys(
         .decode(&payload.signed_pre_key.signature)
         .map_err(|_| AppError::BadRequest("Invalid base64 signedPreKey signature".into()))?;
 
-    let signed_pre_key = SignedPreKey { key_id: payload.signed_pre_key.key_id, public_key: spk_pub, signature: spk_sig };
+    let signed_pre_key =
+        SignedPreKey { key_id: payload.signed_pre_key.key_id, public_key: spk_pub, signature: spk_sig };
 
     // 3. Decode One-Time Pre-Keys
     let mut one_time_pre_keys = Vec::with_capacity(payload.one_time_pre_keys.len());

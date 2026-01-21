@@ -1,13 +1,15 @@
+use base64::Engine;
 use futures::future::join_all;
 use reqwest::{Client, StatusCode};
 use std::time::Duration;
+use uuid::Uuid;
 
 mod common;
 
 #[tokio::test]
 async fn test_rate_limit_isolation() {
     let mut config = common::get_test_config();
-    config.rate_limit.per_second = 1;1;
+    config.rate_limit.per_second = 1;
     config.rate_limit.burst = 2;
     let app = common::TestApp::spawn_with_config(config).await;
 
@@ -18,7 +20,7 @@ async fn test_rate_limit_isolation() {
     for i in 1..=2 {
         let resp = app
             .client
-            .get(format!("{}/v1/keys/{}", app.server_url, uuid::Uuid::new_v4()))
+            .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
             .header("X-Forwarded-For", user_a)
             .send()
             .await
@@ -28,7 +30,7 @@ async fn test_rate_limit_isolation() {
 
     let resp_a = app
         .client
-        .get(format!("{}/v1/keys/{}", app.server_url, uuid::Uuid::new_v4()))
+        .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
         .header("X-Forwarded-For", user_a)
         .send()
         .await
@@ -38,7 +40,7 @@ async fn test_rate_limit_isolation() {
     println!("Verifying User B is unaffected...");
     let resp_b = app
         .client
-        .get(format!("{}/v1/keys/{}", app.server_url, uuid::Uuid::new_v4()))
+        .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
         .header("X-Forwarded-For", user_b)
         .send()
         .await
@@ -49,18 +51,17 @@ async fn test_rate_limit_isolation() {
 #[tokio::test]
 async fn test_rate_limit_proxy_chain() {
     let mut config = common::get_test_config();
-    config.rate_limit.per_second = 1;1;
+    config.rate_limit.per_second = 1;
     config.rate_limit.burst = 2;
     let app = common::TestApp::spawn_with_config(config).await;
 
     let chain = "9.9.9.9, 1.1.1.1, 2.2.2.2";
 
     println!("Testing proxy chain header parsing...");
-    // 2.2.2.2 is not trusted, so it is treated as the client IP
     for _ in 0..2 {
         let resp = app
             .client
-            .get(format!("{}/v1/keys/{}", app.server_url, uuid::Uuid::new_v4()))
+            .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
             .header("X-Forwarded-For", chain)
             .send()
             .await
@@ -68,10 +69,9 @@ async fn test_rate_limit_proxy_chain() {
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 
-    // Should be blocked based on the LAST untrusted IP (2.2.2.2)
     let resp = app
         .client
-        .get(format!("{}/v1/keys/{}", app.server_url, uuid::Uuid::new_v4()))
+        .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
         .header("X-Forwarded-For", "different.spoof, 2.2.2.2")
         .send()
         .await
@@ -82,24 +82,20 @@ async fn test_rate_limit_proxy_chain() {
 #[tokio::test]
 async fn test_rate_limit_concurrency() {
     let mut config = common::get_test_config();
-    config.rate_limit.per_second = 1;1;
+    config.rate_limit.per_second = 1;
     config.rate_limit.burst = 2;
     let app = common::TestApp::spawn_with_config(config).await;
 
     println!("Firing 20 concurrent requests from unique IPs...");
     let mut tasks = vec![];
-    let client = Client::new(); // Use a separate client for tasks to avoid Arc cloning issues if TestApp isn't Arc
+    let client = Client::new();
 
     for i in 0..20 {
         let url = app.server_url.clone();
         let c = client.clone();
         tasks.push(tokio::spawn(async move {
             let ip = format!("10.10.10.{}", i);
-            c.get(format!("{}/v1/keys/{}", url, uuid::Uuid::new_v4()))
-                .header("X-Forwarded-For", ip)
-                .send()
-                .await
-                .unwrap()
+            c.get(format!("{}/v1/keys/{}", url, Uuid::new_v4())).header("X-Forwarded-For", ip).send().await.unwrap()
         }));
     }
 
@@ -112,24 +108,23 @@ async fn test_rate_limit_concurrency() {
 #[tokio::test]
 async fn test_rate_limit_fallback_to_peer_ip() {
     let mut config = common::get_test_config();
-    config.rate_limit.per_second = 1;1;
+    config.rate_limit.per_second = 1;
     config.rate_limit.burst = 2;
     let app = common::TestApp::spawn_with_config(config).await;
 
     println!("Testing fallback to peer IP when header is missing...");
     for _ in 0..2 {
-        let resp = app.client.get(format!("{}/v1/keys/{}", app.server_url, uuid::Uuid::new_v4())).send().await.unwrap();
+        let resp = app.client.get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4())).send().await.unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
-    let resp = app.client.get(format!("{}/v1/keys/{}", app.server_url, uuid::Uuid::new_v4())).send().await.unwrap();
+    let resp = app.client.get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4())).send().await.unwrap();
     assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS, "Should have fallen back to local peer IP and blocked");
 }
 
 #[tokio::test]
 async fn test_rate_limit_spoofing_protection() {
     let mut config = common::get_test_config();
-    // Only 127.0.0.1 is trusted by default in get_test_config()
-    config.rate_limit.per_second = 1;1;
+    config.rate_limit.per_second = 1;
     config.rate_limit.burst = 1;
     let app = common::TestApp::spawn_with_config(config).await;
 
@@ -138,19 +133,17 @@ async fn test_rate_limit_spoofing_protection() {
 
     println!("Sending spoofed header X-Forwarded-For: {}, {}", spoofed_ip, real_attacker_ip);
 
-    // First request - should be counted against 5.6.7.8, NOT 1.2.3.4
     let _ = app
         .client
-        .get(format!("{}/v1/keys/{}", app.server_url, uuid::Uuid::new_v4()))
+        .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
         .header("X-Forwarded-For", format!("{}, {}", spoofed_ip, real_attacker_ip))
         .send()
         .await
         .unwrap();
 
-    // Second request with same 'real' IP but different 'spoofed' IP - should be blocked
     let resp = app
         .client
-        .get(format!("{}/v1/keys/{}", app.server_url, uuid::Uuid::new_v4()))
+        .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
         .header("X-Forwarded-For", format!("9.9.9.9, {}", real_attacker_ip))
         .send()
         .await
@@ -162,10 +155,9 @@ async fn test_rate_limit_spoofing_protection() {
         "Should block based on real IP, ignoring the spoofed part"
     );
 
-    // Request from the 'spoofed' IP without the chain - should work (because it's a different person)
     let resp_ok = app
         .client
-        .get(format!("{}/v1/keys/{}", app.server_url, uuid::Uuid::new_v4()))
+        .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
         .header("X-Forwarded-For", spoofed_ip)
         .send()
         .await
@@ -185,13 +177,19 @@ async fn test_rate_limit_tiers() {
     let ip = "1.2.3.4";
 
     println!("Testing Auth Tier (Registration)...");
-    // First auth request passes
+    let identity_key = common::generate_signing_key();
+    let (spk_pub, spk_sig) = common::generate_signed_pre_key(&identity_key);
+
     let reg_payload = serde_json::json!({
         "username": "tier_test",
         "password": "password",
         "registrationId": 123,
-        "identityKey": "dGVzdA==",
-        "signedPreKey": { "keyId": 1, "publicKey": "dGVzdA==", "signature": "dGVzdA==" },
+        "identityKey": base64::engine::general_purpose::STANDARD.encode(identity_key.verifying_key().to_bytes()),
+        "signedPreKey": {
+            "keyId": 1,
+            "publicKey": base64::engine::general_purpose::STANDARD.encode(&spk_pub),
+            "signature": base64::engine::general_purpose::STANDARD.encode(&spk_sig)
+        },
         "oneTimePreKeys": []
     });
 
@@ -205,7 +203,6 @@ async fn test_rate_limit_tiers() {
         .unwrap();
     assert_ne!(resp1.status(), StatusCode::TOO_MANY_REQUESTS);
 
-    // Second auth request immediately after should be blocked (Auth Burst = 1)
     let resp2 = app
         .client
         .post(format!("{}/v1/users", app.server_url))
@@ -217,11 +214,10 @@ async fn test_rate_limit_tiers() {
     assert_eq!(resp2.status(), StatusCode::TOO_MANY_REQUESTS, "Auth endpoint should be strictly limited");
 
     println!("Testing Standard Tier (Keys) from same IP...");
-    // Standard endpoint should STILL WORK because it's a different bucket
     for _ in 0..5 {
         let resp = app
             .client
-            .get(format!("{}/v1/keys/{}", app.server_url, uuid::Uuid::new_v4()))
+            .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
             .header("X-Forwarded-For", ip)
             .send()
             .await
@@ -237,7 +233,7 @@ async fn test_rate_limit_tiers() {
 #[tokio::test]
 async fn test_rate_limit_recovery() {
     let mut config = common::get_test_config();
-    config.rate_limit.per_second = 1;1;
+    config.rate_limit.per_second = 1;
     config.rate_limit.burst = 1;
     let app = common::TestApp::spawn_with_config(config).await;
 
@@ -246,7 +242,7 @@ async fn test_rate_limit_recovery() {
     println!("Testing rate limit recovery (refill)...");
     let _ = app
         .client
-        .get(format!("{}/v1/keys/{}", app.server_url, uuid::Uuid::new_v4()))
+        .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
         .header("X-Forwarded-For", ip)
         .send()
         .await
@@ -254,19 +250,18 @@ async fn test_rate_limit_recovery() {
 
     let resp = app
         .client
-        .get(format!("{}/v1/keys/{}", app.server_url, uuid::Uuid::new_v4()))
+        .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
         .header("X-Forwarded-For", ip)
         .send()
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS, "Should be blocked initially");
 
-    // Wait for refill
     tokio::time::sleep(Duration::from_millis(1100)).await;
 
     let resp_ok = app
         .client
-        .get(format!("{}/v1/keys/{}", app.server_url, uuid::Uuid::new_v4()))
+        .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
         .header("X-Forwarded-For", ip)
         .send()
         .await
@@ -277,24 +272,22 @@ async fn test_rate_limit_recovery() {
 #[tokio::test]
 async fn test_rate_limit_retry_after_header() {
     let mut config = common::get_test_config();
-    config.rate_limit.per_second = 1;1;
+    config.rate_limit.per_second = 1;
     config.rate_limit.burst = 1;
     let app = common::TestApp::spawn_with_config(config).await;
 
     let ip = "7.7.7.7";
 
-    // First request consumes the budget
     app.client
-        .get(format!("{}/v1/keys/{}", app.server_url, uuid::Uuid::new_v4()))
+        .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
         .header("X-Forwarded-For", ip)
         .send()
         .await
         .unwrap();
 
-    // Second request should be rate limited
     let resp = app
         .client
-        .get(format!("{}/v1/keys/{}", app.server_url, uuid::Uuid::new_v4()))
+        .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
         .header("X-Forwarded-For", ip)
         .send()
         .await

@@ -40,13 +40,7 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_
     // Initialize Services
     let key_repo = KeyRepository::new(pool.clone());
     let message_repo = MessageRepository::new(pool.clone());
-    let key_service = KeyService::new(
-        pool.clone(),
-        key_repo,
-        message_repo,
-        notifier.clone(),
-        config.clone(),
-    );
+    let key_service = KeyService::new(pool.clone(), key_repo, message_repo, notifier.clone(), config.clone());
 
     // Standard Tier: For general API usage
     let std_interval_ns = 1_000_000_000 / config.rate_limit.per_second.max(1);
