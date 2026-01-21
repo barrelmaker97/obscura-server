@@ -155,7 +155,7 @@ impl KeyService {
 
 fn verify_keys(ik_bytes: &[u8], signed_pre_key: &SignedPreKey) -> Result<()> {
     // NOTE: Libsignal clients often upload keys with a 0x05 type byte (33 bytes).
-    
+
     // The Identity Key MUST be 32 bytes for the verifier instantiation (Ed25519 specific).
     // We strictly handle the 0x05 wrapper for this specific key type.
     let ik_raw = if ik_bytes.len() == 33 { &ik_bytes[1..] } else { ik_bytes };
@@ -170,8 +170,8 @@ fn verify_keys(ik_bytes: &[u8], signed_pre_key: &SignedPreKey) -> Result<()> {
 mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
-    use rand::rngs::OsRng;
     use rand::RngCore;
+    use rand::rngs::OsRng;
 
     fn generate_keys() -> (SigningKey, Vec<u8>, SigningKey, Vec<u8>, Vec<u8>) {
         let mut ik_bytes = [0u8; 32];
@@ -210,7 +210,7 @@ mod tests {
         let mut spk_bytes = [0u8; 32];
         OsRng.fill_bytes(&mut spk_bytes);
         let spk = SigningKey::from_bytes(&spk_bytes);
-        
+
         let mut spk_pub_33 = spk.verifying_key().to_bytes().to_vec();
         spk_pub_33.insert(0, 0x05); // Add prefix
 
@@ -237,4 +237,3 @@ mod tests {
         assert!(verify_keys(&ik_pub_33, &spk).is_ok());
     }
 }
-

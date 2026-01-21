@@ -20,7 +20,7 @@ async fn test_registration_with_33_byte_signed_pre_key() {
     let ik_pub = identity_key.verifying_key().to_bytes().to_vec();
 
     // Generate Signed PreKey (standard 32 bytes for the SPK itself)
-    let (spk_pub_32, spk_sig) = common::generate_signed_pre_key(&identity_key);
+    let (spk_pub_32, _spk_sig) = common::generate_signed_pre_key(&identity_key);
 
     // Create 33-byte SPK for upload
     let mut spk_pub_33 = spk_pub_32.clone();
