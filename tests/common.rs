@@ -120,6 +120,13 @@ pub fn generate_signed_pre_key(identity_key: &SigningKey) -> (Vec<u8>, Vec<u8>) 
     (spk_pub, signature)
 }
 
+pub struct TestUser {
+    pub user_id: Uuid,
+    pub token: String,
+    pub refresh_token: String,
+    pub identity_key: SigningKey,
+}
+
 #[allow(dead_code)]
 pub struct TestApp {
     pub pool: PgPool,
@@ -127,6 +134,7 @@ pub struct TestApp {
     pub server_url: String,
     pub ws_url: String,
     pub client: Client,
+    pub s3_client: aws_sdk_s3::Client,
 }
 
 impl TestApp {
@@ -138,7 +146,7 @@ impl TestApp {
         let pool = get_test_pool().await;
         let notifier = Arc::new(InMemoryNotifier::new(config.clone()));
 
-        // Create dummy S3 client
+        // Create S3 client
         let region_provider = aws_config::Region::new(config.s3.region.clone());
         let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider);
 
@@ -146,7 +154,6 @@ impl TestApp {
             config_loader = config_loader.endpoint_url(endpoint);
         }
 
-        // Use dummy credentials if provided, or default chain
         if let (Some(ak), Some(sk)) = (&config.s3.access_key, &config.s3.secret_key) {
             let creds = aws_credential_types::Credentials::new(ak.clone(), sk.clone(), None, None, "static");
             config_loader = config_loader.credentials_provider(creds);
@@ -157,7 +164,7 @@ impl TestApp {
             aws_sdk_s3::config::Builder::from(&sdk_config).force_path_style(config.s3.force_path_style);
         let s3_client = aws_sdk_s3::Client::from_conf(s3_config_builder.build());
 
-        let app = app_router(pool.clone(), config.clone(), notifier, s3_client);
+        let app = app_router(pool.clone(), config.clone(), notifier, s3_client.clone());
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -168,30 +175,38 @@ impl TestApp {
             axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
         });
 
-        TestApp { pool, config, server_url, ws_url, client: Client::new() }
+        TestApp { pool, config, server_url, ws_url, client: Client::new(), s3_client }
     }
 
-    pub async fn register_user(&self, username: &str) -> (String, Uuid) {
+    /// High-level registration helper that ensures valid crypto and returns a TestUser.
+    pub async fn register_user(&self, username: &str) -> TestUser {
+        self.register_user_with_keys(username, 123, 1).await
+    }
+
+    pub async fn register_user_with_keys(&self, username: &str, reg_id: u32, otpk_count: usize) -> TestUser {
         let identity_key = generate_signing_key();
         let ik_pub = identity_key.verifying_key().to_bytes().to_vec();
         let (spk_pub, spk_sig) = generate_signed_pre_key(&identity_key);
 
+        let mut otpk = Vec::new();
+        for i in 0..otpk_count {
+            otpk.push(json!({
+                "keyId": i,
+                "publicKey": STANDARD.encode(&generate_signing_key().verifying_key().to_bytes())
+            }));
+        }
+
         let reg_payload = json!({
             "username": username,
             "password": "password",
-            "registrationId": 123,
+            "registrationId": reg_id,
             "identityKey": STANDARD.encode(&ik_pub),
             "signedPreKey": {
                 "keyId": 1,
                 "publicKey": STANDARD.encode(&spk_pub),
                 "signature": STANDARD.encode(&spk_sig)
             },
-            "oneTimePreKeys": [
-                {
-                    "keyId": 1,
-                    "publicKey": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
-                }
-            ]
+            "oneTimePreKeys": otpk
         });
 
         let resp = self
@@ -202,9 +217,10 @@ impl TestApp {
             .await
             .unwrap();
 
-        assert_eq!(resp.status(), 201, "User registration failed");
+        assert_eq!(resp.status(), 201, "User registration failed: {:?}", resp.text().await);
         let body = resp.json::<serde_json::Value>().await.unwrap();
         let token = body["token"].as_str().unwrap().to_string();
+        let refresh_token = body["refreshToken"].as_str().unwrap_or_default().to_string();
 
         // Extract user_id from token
         let parts: Vec<&str> = token.split('.').collect();
@@ -212,42 +228,7 @@ impl TestApp {
         let claims: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
         let user_id = Uuid::parse_str(claims["sub"].as_str().unwrap()).unwrap();
 
-        (token, user_id)
-    }
-
-    pub async fn register_user_full(&self, username: &str, registration_id: u32) -> (String, String, Uuid) {
-        let identity_key = generate_signing_key();
-        let ik_pub = identity_key.verifying_key().to_bytes().to_vec();
-        let (spk_pub, spk_sig) = generate_signed_pre_key(&identity_key);
-
-        let payload = json!({
-            "username": username,
-            "password": "password",
-            "registrationId": registration_id,
-            "identityKey": STANDARD.encode(&ik_pub),
-            "signedPreKey": {
-                "keyId": 1,
-                "publicKey": STANDARD.encode(&spk_pub),
-                "signature": STANDARD.encode(&spk_sig)
-            },
-            "oneTimePreKeys": []
-        });
-
-        let resp = self.client.post(format!("{}/v1/users", self.server_url)).json(&payload).send().await.unwrap();
-
-        assert_eq!(resp.status(), 201, "User registration failed");
-
-        let json: serde_json::Value = resp.json().await.unwrap();
-        let token = json["token"].as_str().unwrap().to_string();
-        let refresh_token = json["refreshToken"].as_str().unwrap_or_default().to_string();
-
-        // Decode user_id from token
-        let parts: Vec<&str> = token.split('.').collect();
-        let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[1]).unwrap();
-        let claims: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
-        let user_id = Uuid::parse_str(claims["sub"].as_str().unwrap()).unwrap();
-
-        (token, refresh_token, user_id)
+        TestUser { user_id, token, refresh_token, identity_key }
     }
 
     pub async fn send_message(&self, token: &str, recipient_id: Uuid, content: &[u8]) {
@@ -265,7 +246,7 @@ impl TestApp {
             .await
             .unwrap();
 
-        assert_eq!(resp.status(), 201, "Message sending failed");
+        assert_eq!(resp.status(), 201, "Message sending failed: {:?}", resp.text().await);
     }
 
     pub async fn connect_ws(&self, token: &str) -> TestWsClient {

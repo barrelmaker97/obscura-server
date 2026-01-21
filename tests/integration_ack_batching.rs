@@ -18,16 +18,16 @@ async fn test_ack_batching_behavior() {
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
 
     // 2. Register Users
-    let (token_a, _) = app.register_user(&format!("alice_{}", run_id)).await;
-    let (token_b, user_b_id) = app.register_user(&format!("bob_{}", run_id)).await;
+    let user_a = app.register_user(&format!("alice_{}", run_id)).await;
+    let user_b = app.register_user(&format!("bob_{}", run_id)).await;
 
     // 3. Send 3 messages
     for i in 0..3 {
-        app.send_message(&token_a, user_b_id, format!("msg {}", i).as_bytes()).await;
+        app.send_message(&user_a.token, user_b.user_id, format!("msg {}", i).as_bytes()).await;
     }
 
     // 4. Connect WS
-    let mut ws = app.connect_ws(&token_b).await;
+    let mut ws = app.connect_ws(&user_b.token).await;
 
     // 5. Receive messages
     let mut message_ids = Vec::new();
@@ -46,7 +46,7 @@ async fn test_ack_batching_behavior() {
     // 7. Verify NOT deleted immediately (Buffer < Batch Size)
     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
     let count: i64 = sqlx::query("SELECT COUNT(*) FROM messages WHERE recipient_id = $1")
-        .bind(user_b_id)
+        .bind(user_b.user_id)
         .fetch_one(&app.pool)
         .await
         .unwrap()
@@ -56,7 +56,7 @@ async fn test_ack_batching_behavior() {
     // 8. Verify flushed after interval
     tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
     let count: i64 = sqlx::query("SELECT COUNT(*) FROM messages WHERE recipient_id = $1")
-        .bind(user_b_id)
+        .bind(user_b.user_id)
         .fetch_one(&app.pool)
         .await
         .unwrap()
@@ -65,7 +65,7 @@ async fn test_ack_batching_behavior() {
 
     // 9. Test Batch Size Trigger
     for i in 0..5 {
-        app.send_message(&token_a, user_b_id, format!("batch msg {}", i).as_bytes()).await;
+        app.send_message(&user_a.token, user_b.user_id, format!("batch msg {}", i).as_bytes()).await;
     }
 
     for _ in 0..5 {
@@ -80,7 +80,7 @@ async fn test_ack_batching_behavior() {
     // Verify immediate flush (Buffer >= Batch Size)
     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
     let count: i64 = sqlx::query("SELECT COUNT(*) FROM messages WHERE recipient_id = $1")
-        .bind(user_b_id)
+        .bind(user_b.user_id)
         .fetch_one(&app.pool)
         .await
         .unwrap()

@@ -7,16 +7,16 @@ async fn test_message_pagination_large_backlog() {
     let app = common::TestApp::spawn().await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
 
-    let (token_a, _) = app.register_user(&format!("alice_{}", run_id)).await;
-    let (token_b, user_b_id) = app.register_user(&format!("bob_{}", run_id)).await;
+    let user_a = app.register_user(&format!("alice_{}", run_id)).await;
+    let user_b = app.register_user(&format!("bob_{}", run_id)).await;
 
     let message_count = 125;
     for i in 0..message_count {
         let content = format!("Message {}", i);
-        app.send_message(&token_a, user_b_id, content.as_bytes()).await;
+        app.send_message(&user_a.token, user_b.user_id, content.as_bytes()).await;
     }
 
-    let mut ws = app.connect_ws(&token_b).await;
+    let mut ws = app.connect_ws(&user_b.token).await;
 
     let mut received_messages = Vec::new();
     let mut received_ids = Vec::new();

@@ -14,18 +14,18 @@ async fn test_ping_pong_under_load() {
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
 
     // 2. Register Users
-    let (token_a, _) = app.register_user(&format!("alice_{}", run_id)).await;
-    let (token_b, user_b_id) = app.register_user(&format!("bob_{}", run_id)).await;
+    let user_a = app.register_user(&format!("alice_{}", run_id)).await;
+    let user_b = app.register_user(&format!("bob_{}", run_id)).await;
 
     // 3. Fill Inbox with LARGE messages to fill TCP buffer
     // 100 messages * 500KB = 50MB.
     let large_payload = vec![0u8; 1024 * 500];
     for _ in 0..100 {
-        app.send_message(&token_a, user_b_id, &large_payload).await;
+        app.send_message(&user_a.token, user_b.user_id, &large_payload).await;
     }
 
     // 4. Connect via WebSocket
-    let mut ws = app.connect_ws(&token_b).await;
+    let mut ws = app.connect_ws(&user_b.token).await;
 
     // 5. Confirm server has started flushing (receive at least one binary)
     // We access the raw stream here because we are testing protocol level ping/pong

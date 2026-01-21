@@ -86,7 +86,7 @@ async fn test_key_limit_enforced_on_takeover() {
     let username = format!("takeover_limit_user_{}", run_id);
 
     // 1. Register
-    let (token, _) = app.register_user(&username).await;
+    let user = app.register_user(&username).await;
 
     // 2. Takeover with 20 keys (More than limit of 10)
     let new_identity_key = common::generate_signing_key();
@@ -112,7 +112,7 @@ async fn test_key_limit_enforced_on_takeover() {
     });
 
     let resp = app.client.post(format!("{}/v1/keys", app.server_url))
-        .header("Authorization", format!("Bearer {}", token))
+        .header("Authorization", format!("Bearer {}", user.token))
         .json(&takeover_payload)
         .send()
         .await

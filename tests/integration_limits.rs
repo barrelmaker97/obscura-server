@@ -14,13 +14,13 @@ async fn test_message_limit_fifo() {
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
 
-    let (token_a, _) = app.register_user(&format!("alice_{}", run_id)).await;
-    let (token_b, user_b_id) = app.register_user(&format!("bob_{}", run_id)).await;
+    let user_a = app.register_user(&format!("alice_{}", run_id)).await;
+    let user_b = app.register_user(&format!("bob_{}", run_id)).await;
 
     // Flood 1005 messages
     for i in 0..1005 {
         let payload = format!("msg_{}", i).into_bytes();
-        app.send_message(&token_a, user_b_id, &payload).await;
+        app.send_message(&user_a.token, user_b.user_id, &payload).await;
     }
 
     // Manually trigger cleanup using the repo
@@ -28,7 +28,7 @@ async fn test_message_limit_fifo() {
     repo.delete_global_overflow(1000).await.expect("Failed to run cleanup");
 
     // Connect WS and verify first message is msg_5 (0-4 dropped)
-    let mut ws = app.connect_ws(&token_b).await;
+    let mut ws = app.connect_ws(&user_b.token).await;
 
     if let Some(env) = ws.receive_envelope().await {
         let content = env.message.unwrap().content;
