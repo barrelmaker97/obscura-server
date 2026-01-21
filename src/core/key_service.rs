@@ -156,27 +156,14 @@ impl KeyService {
 fn verify_keys(ik_bytes: &[u8], signed_pre_key: &SignedPreKey) -> Result<()> {
     // NOTE: Libsignal clients often upload keys with a 0x05 type byte (33 bytes).
     
-    // The Identity Key MUST be 32 bytes for the verifier instantiation.
+    // The Identity Key MUST be 32 bytes for the verifier instantiation (Ed25519 specific).
+    // We strictly handle the 0x05 wrapper for this specific key type.
     let ik_raw = if ik_bytes.len() == 33 { &ik_bytes[1..] } else { ik_bytes };
 
     // The Signed Pre Key Public Key is the MESSAGE.
-    // Standard libsignal clients sign the 33-byte key (including the 0x05 prefix).
-    // However, we also support clients that might sign the raw 32-byte key.
-    
-    // 1. Try verifying the exact public key provided (e.g. 33 bytes)
-    if verify_signature(ik_raw, &signed_pre_key.public_key, &signed_pre_key.signature).is_ok() {
-        return Ok(());
-    }
-
-    // 2. Fallback: If 33 bytes, try verifying the stripped 32-byte key
-    if signed_pre_key.public_key.len() == 33 {
-        let spk_pub_raw = &signed_pre_key.public_key[1..];
-        if verify_signature(ik_raw, spk_pub_raw, &signed_pre_key.signature).is_ok() {
-            return Ok(());
-        }
-    }
-
-    Err(AppError::BadRequest("Invalid signature".into()))
+    // We verify the signature against the exact bytes provided by the client.
+    // We do NOT attempt to strip prefixes or modify the message.
+    verify_signature(ik_raw, &signed_pre_key.public_key, &signed_pre_key.signature)
 }
 
 #[cfg(test)]
@@ -212,17 +199,27 @@ mod tests {
 
     #[test]
     fn test_verify_keys_with_prefix() {
-        let (_, ik_pub, _, spk_pub, signature) = generate_keys();
+        // Manually setup keys to emulate a proper Libsignal client
+        // that signs the FULL 33-byte key.
+        let mut ik_bytes = [0u8; 32];
+        OsRng.fill_bytes(&mut ik_bytes);
+        let ik = SigningKey::from_bytes(&ik_bytes);
+        let mut ik_pub_33 = ik.verifying_key().to_bytes().to_vec();
+        ik_pub_33.insert(0, 0x05); // Add prefix
 
-        let mut ik_pub_33 = ik_pub.clone();
-        ik_pub_33.insert(0, 0x05);
+        let mut spk_bytes = [0u8; 32];
+        OsRng.fill_bytes(&mut spk_bytes);
+        let spk = SigningKey::from_bytes(&spk_bytes);
+        
+        let mut spk_pub_33 = spk.verifying_key().to_bytes().to_vec();
+        spk_pub_33.insert(0, 0x05); // Add prefix
 
-        let mut spk_pub_33 = spk_pub.clone();
-        spk_pub_33.insert(0, 0x05);
+        // CRITICAL: Sign the 33-byte version!
+        let signature = ik.sign(&spk_pub_33).to_bytes().to_vec();
 
         let spk = SignedPreKey { key_id: 1, public_key: spk_pub_33, signature };
 
-        // Should pass by stripping logic
+        // Should pass strict verification
         assert!(verify_keys(&ik_pub_33, &spk).is_ok());
     }
 
@@ -236,6 +233,7 @@ mod tests {
         let spk = SignedPreKey { key_id: 1, public_key: spk_pub, signature };
 
         // 33-byte Identity Key, 32-byte SPK -> OK
+        // (Signature was generated over 32 bytes, spk.public_key is 32 bytes)
         assert!(verify_keys(&ik_pub_33, &spk).is_ok());
     }
 }
