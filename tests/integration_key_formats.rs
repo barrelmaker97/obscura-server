@@ -6,14 +6,14 @@ use uuid::Uuid;
 mod common;
 
 #[tokio::test]
-async fn test_registration_with_33_byte_signed_pre_key() {
-    // This test ensures the KeyService correctly handles the 33-byte SignedPreKey
-    // by stripping the prefix before verification.
+async fn test_registration_with_33_byte_signed_pre_key_strict() {
+    // This test ensures we support clients that sign the full 33-byte key
+    // (Explicit strictness)
 
     // 1. Setup
     let app = common::TestApp::spawn().await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let username = format!("signal_user_spk_{}", run_id);
+    let username = format!("signal_user_strict_{}", run_id);
 
     // 2. Generate Keys
     let identity_key = common::generate_signing_key();
@@ -26,7 +26,7 @@ async fn test_registration_with_33_byte_signed_pre_key() {
     let mut spk_pub_33 = spk_pub_32.clone();
     spk_pub_33.insert(0, 0x05);
 
-    // Sign the 33-byte key (Real world behavior)
+    // Sign the 33-byte key (Strict client)
     let signature_over_33 = identity_key.sign(&spk_pub_33).to_bytes().to_vec();
 
     // 3. Construct Payload with 33-byte Signed Pre Key
@@ -37,7 +37,6 @@ async fn test_registration_with_33_byte_signed_pre_key() {
         "identityKey": STANDARD.encode(&ik_pub),
         "signedPreKey": {
             "keyId": 1,
-            // The server receives 33 bytes here
             "publicKey": STANDARD.encode(&spk_pub_33),
             "signature": STANDARD.encode(&signature_over_33)
         },
@@ -51,7 +50,52 @@ async fn test_registration_with_33_byte_signed_pre_key() {
     let status = resp.status();
     let body = resp.text().await.unwrap();
 
-    assert_eq!(status, 201, "Registration failed with 33-byte Signed Pre Key: {}", body);
+    assert_eq!(status, 201, "Registration failed with strict 33-byte signature: {}", body);
+}
+
+#[tokio::test]
+async fn test_registration_with_libsignal_behavior() {
+    // This test ensures we support Libsignal behavior:
+    // Upload 33-byte key, but signature is over 32-byte key.
+
+    // 1. Setup
+    let app = common::TestApp::spawn().await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let username = format!("signal_user_libsignal_{}", run_id);
+
+    // 2. Generate Keys
+    let identity_key = common::generate_signing_key();
+    let ik_pub = identity_key.verifying_key().to_bytes().to_vec();
+
+    // Generate Signed PreKey (standard 32 bytes for the SPK itself)
+    let (spk_pub_32, spk_sig) = common::generate_signed_pre_key(&identity_key); // Signature over 32 bytes
+
+    // Create 33-byte SPK for upload
+    let mut spk_pub_33 = spk_pub_32.clone();
+    spk_pub_33.insert(0, 0x05);
+
+    // 3. Construct Payload with 33-byte Signed Pre Key but 32-byte signature
+    let reg_payload = json!({
+        "username": username,
+        "password": "password",
+        "registrationId": 123,
+        "identityKey": STANDARD.encode(&ik_pub),
+        "signedPreKey": {
+            "keyId": 1,
+            "publicKey": STANDARD.encode(&spk_pub_33), // Upload 33
+            "signature": STANDARD.encode(&spk_sig)       // Signed 32
+        },
+        "oneTimePreKeys": []
+    });
+
+    // 4. Send Registration Request
+    let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&reg_payload).send().await.unwrap();
+
+    // 5. Assert Success
+    let status = resp.status();
+    let body = resp.text().await.unwrap();
+
+    assert_eq!(status, 201, "Registration failed with Libsignal behavior (33-byte key, 32-byte sig): {}", body);
 }
 
 #[tokio::test]
