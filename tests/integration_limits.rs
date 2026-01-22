@@ -24,8 +24,8 @@ async fn test_message_limit_fifo() {
     }
 
     // Manually trigger cleanup using the repo
-    let repo = MessageRepository::new(app.pool.clone());
-    repo.delete_global_overflow(1000).await.expect("Failed to run cleanup");
+    let repo = MessageRepository::new();
+    repo.delete_global_overflow(&app.pool, 1000).await.expect("Failed to run cleanup");
 
     // Connect WS and verify first message is msg_5 (0-4 dropped)
     let mut ws = app.connect_ws(&user_b.token).await;

@@ -1,14 +1,10 @@
 use crate::api::AppState;
-use crate::api::middleware::{AuthUser, create_jwt};
-use crate::core::auth;
+use crate::api::middleware::AuthUser;
 use crate::core::crypto_types::{PublicKey, Signature};
-use crate::core::key_service::KeyUploadParams;
 use crate::core::user::{OneTimePreKey, SignedPreKey};
-use crate::error::{AppError, Result};
-use crate::storage::refresh_token_repo::RefreshTokenRepository;
-use crate::storage::user_repo::UserRepository;
+use crate::error::Result;
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -54,134 +50,42 @@ pub struct OneTimePreKeyDto {
     pub public_key: PublicKey,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AuthResponse {
-    pub token: String,
-    pub refresh_token: String,
-    pub expires_at: i64,
-}
-
 pub async fn login(State(state): State<AppState>, Json(payload): Json<LoginRequest>) -> Result<impl IntoResponse> {
-    let user_repo = UserRepository::new();
-    let refresh_repo = RefreshTokenRepository::new(state.pool.clone());
-
-    let user = user_repo.find_by_username(&state.pool, &payload.username).await?.ok_or(AppError::AuthError)?;
-
-    let password = payload.password.clone();
-    let password_hash = user.password_hash.clone();
-
-    let is_valid: Result<bool> = tokio::task::spawn_blocking(move || auth::verify_password(&password, &password_hash))
-        .await
-        .map_err(|_| AppError::Internal)?;
-    let is_valid = is_valid?;
-
-    if !is_valid {
-        return Err(AppError::AuthError);
-    }
-
-    // Generate Tokens
-    let token = create_jwt(user.id, &state.config.auth.jwt_secret, state.config.auth.access_token_ttl_secs)?;
-    let refresh_token = auth::generate_opaque_token();
-    let refresh_hash = auth::hash_token(&refresh_token);
-
-    let mut tx = state.pool.begin().await?;
-    refresh_repo.create(&mut tx, user.id, &refresh_hash, state.config.auth.refresh_token_ttl_days).await?;
-    tx.commit().await?;
-
-    let expires_at = (time::OffsetDateTime::now_utc()
-        + time::Duration::seconds(state.config.auth.access_token_ttl_secs as i64))
-    .unix_timestamp();
-
-    Ok(Json(AuthResponse { token, refresh_token, expires_at }))
+    let auth_response = state.account_service.login(payload.username, payload.password).await?;
+    Ok(Json(auth_response))
 }
 
 pub async fn register(
     State(state): State<AppState>,
     Json(payload): Json<RegistrationRequest>,
 ) -> Result<impl IntoResponse> {
-    let user_repo = UserRepository::new();
-    let refresh_repo = RefreshTokenRepository::new(state.pool.clone());
-
-    let password = payload.password.clone();
-    let password_hash: Result<String> =
-        tokio::task::spawn_blocking(move || auth::hash_password(&password)).await.map_err(|_| AppError::Internal)?;
-    let password_hash = password_hash?;
-
-    let mut tx = state.pool.begin().await?;
-
-    let user = user_repo.create(&mut *tx, &payload.username, &password_hash).await.map_err(|e| {
-        if let AppError::Database(sqlx::Error::Database(db_err)) = &e
-            && db_err.code().as_deref() == Some("23505")
-        {
-            return AppError::BadRequest("Username already exists".into());
-        }
-        e
-    })?;
-
-    let identity_key = payload.identity_key;
-
     let mut otpk_vec = Vec::new();
     for k in payload.one_time_pre_keys {
         otpk_vec.push(OneTimePreKey { key_id: k.key_id, public_key: k.public_key });
     }
 
-    let key_params = KeyUploadParams {
-        user_id: user.id,
-        identity_key: Some(identity_key),
-        registration_id: Some(payload.registration_id),
-        signed_pre_key: SignedPreKey { 
-            key_id: payload.signed_pre_key.key_id, 
-            public_key: payload.signed_pre_key.public_key, 
-            signature: payload.signed_pre_key.signature,
-        },
-        one_time_pre_keys: otpk_vec,
-    };
+    let auth_response = state
+        .account_service
+        .register(
+            payload.username,
+            payload.password,
+            payload.identity_key,
+            payload.registration_id,
+            SignedPreKey {
+                key_id: payload.signed_pre_key.key_id,
+                public_key: payload.signed_pre_key.public_key,
+                signature: payload.signed_pre_key.signature,
+            },
+            otpk_vec,
+        )
+        .await?;
 
-    state.key_service.upload_keys_internal(&mut tx, key_params).await?;
-
-    // Generate Tokens
-    let token = create_jwt(user.id, &state.config.auth.jwt_secret, state.config.auth.access_token_ttl_secs)?;
-    let refresh_token = auth::generate_opaque_token();
-    let refresh_hash = auth::hash_token(&refresh_token);
-
-    refresh_repo.create(&mut tx, user.id, &refresh_hash, state.config.auth.refresh_token_ttl_days).await?;
-
-    tx.commit().await?;
-
-    let expires_at = (time::OffsetDateTime::now_utc()
-        + time::Duration::seconds(state.config.auth.access_token_ttl_secs as i64))
-    .unix_timestamp();
-
-    Ok((StatusCode::CREATED, Json(AuthResponse { token, refresh_token, expires_at })))
+    Ok((StatusCode::CREATED, Json(auth_response)))
 }
 
 pub async fn refresh(State(state): State<AppState>, Json(payload): Json<RefreshRequest>) -> Result<impl IntoResponse> {
-    let refresh_repo = RefreshTokenRepository::new(state.pool.clone());
-
-    // 1. Hash the incoming token to look it up
-    let hash = auth::hash_token(&payload.refresh_token);
-
-    // 2. Verify and Rotate (Atomic Transaction)
-    let mut tx = state.pool.begin().await?;
-
-    let user_id = refresh_repo.verify_and_consume(&mut tx, &hash).await?.ok_or(AppError::AuthError)?;
-
-    // 3. Generate New Pair
-    let new_access_token = create_jwt(user_id, &state.config.auth.jwt_secret, state.config.auth.access_token_ttl_secs)?;
-    let new_refresh_token = auth::generate_opaque_token();
-    let new_refresh_hash = auth::hash_token(&new_refresh_token);
-
-    // 4. Store New Refresh Token
-    refresh_repo.create(&mut tx, user_id, &new_refresh_hash, state.config.auth.refresh_token_ttl_days).await?;
-
-    tx.commit().await?;
-
-    let expires_at = (time::OffsetDateTime::now_utc()
-        + time::Duration::seconds(state.config.auth.access_token_ttl_secs as i64))
-    .unix_timestamp();
-
-    Ok(Json(AuthResponse { token: new_access_token, refresh_token: new_refresh_token, expires_at }))
+    let auth_response = state.account_service.refresh(payload.refresh_token).await?;
+    Ok(Json(auth_response))
 }
 
 pub async fn logout(
@@ -189,10 +93,6 @@ pub async fn logout(
     State(state): State<AppState>,
     Json(payload): Json<LogoutRequest>,
 ) -> Result<impl IntoResponse> {
-    let refresh_repo = RefreshTokenRepository::new(state.pool.clone());
-    let hash = auth::hash_token(&payload.refresh_token);
-
-    refresh_repo.delete_owned(&hash, auth_user.user_id).await?;
-
+    state.account_service.logout(auth_user.user_id, payload.refresh_token).await?;
     Ok(StatusCode::OK)
 }

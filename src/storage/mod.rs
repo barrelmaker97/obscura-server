@@ -1,6 +1,7 @@
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Pool, Postgres};
 
+pub mod attachment_repo;
 pub mod key_repo;
 pub mod message_repo;
 pub mod refresh_token_repo;

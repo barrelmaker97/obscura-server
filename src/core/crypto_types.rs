@@ -1,6 +1,6 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
- 
+
 /// Prefix byte used by Signal/DJB for Montgomery (X25519) keys.
 pub const DJB_KEY_PREFIX: u8 = 0x05;
 
@@ -62,7 +62,7 @@ impl PublicKey {
                 arr.copy_from_slice(&bytes[1..]);
                 Ok(PublicKey::Montgomery(arr))
             }
-            _ => Err(format!("Invalid key length: {}", bytes.len()))
+            _ => Err(format!("Invalid key length: {}", bytes.len())),
         }
     }
 }

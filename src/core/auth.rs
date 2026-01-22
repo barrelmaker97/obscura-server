@@ -6,13 +6,37 @@ use argon2::{
 use base64::Engine;
 use curve25519_dalek::montgomery::MontgomeryPoint;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use rand::{RngCore, rngs::OsRng};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::time::{SystemTime, UNIX_EPOCH};
+use uuid::Uuid;
 
 /// Bitmask to clear the XEdDSA sign bit (the 255th bit of the scalar 's').
 pub const XEDDSA_SIGN_BIT_MASK: u8 = 0x7F;
 /// The XEdDSA sign bit itself.
 pub const XEDDSA_SIGN_BIT: u8 = 0x80;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Claims {
+    pub sub: Uuid,
+    pub exp: usize,
+}
+
+pub fn create_jwt(user_id: Uuid, secret: &str, ttl_secs: u64) -> Result<String> {
+    let expiration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as usize + ttl_secs as usize;
+
+    let claims = Claims { sub: user_id, exp: expiration };
+
+    encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes())).map_err(|_| AppError::Internal)
+}
+
+pub fn verify_jwt(token: &str, secret: &str) -> Result<Claims> {
+    let token_data = decode::<Claims>(token, &DecodingKey::from_secret(secret.as_bytes()), &Validation::default())
+        .map_err(|_| AppError::AuthError)?;
+    Ok(token_data.claims)
+}
 
 pub fn hash_password(password: &str) -> Result<String> {
     let salt = SaltString::generate(&mut OsRng);
@@ -43,11 +67,7 @@ pub fn verify_signature(public_key_bytes: &[u8], message: &[u8], signature_bytes
 }
 
 /// Verifies an Ed25519 signature using a Montgomery (Curve25519) public key by converting it.
-pub fn verify_signature_with_montgomery(
-    public_key_bytes: &[u8],
-    message: &[u8],
-    signature_bytes: &[u8],
-) -> Result<()> {
+pub fn verify_signature_with_montgomery(public_key_bytes: &[u8], message: &[u8], signature_bytes: &[u8]) -> Result<()> {
     let mont_bytes: [u8; 32] =
         public_key_bytes.try_into().map_err(|_| AppError::BadRequest("Invalid public key length".into()))?;
     let mont_point = MontgomeryPoint(mont_bytes);
@@ -55,31 +75,36 @@ pub fn verify_signature_with_montgomery(
     // XEdDSA signatures (as used by Signal) store a sign bit in the 255th bit of 's'.
     // Standard Ed25519 (and ed25519_dalek) expect 's' to be a canonical scalar < L.
     // We must clear this bit before verification if we are using an Ed25519 library.
-    let mut signature_bytes_fixed: [u8; 64] = signature_bytes.try_into().map_err(|_| AppError::BadRequest("Invalid signature length".into()))?;
+    let mut signature_bytes_fixed: [u8; 64] =
+        signature_bytes.try_into().map_err(|_| AppError::BadRequest("Invalid signature length".into()))?;
     signature_bytes_fixed[63] &= XEDDSA_SIGN_BIT_MASK;
 
     let signature = Signature::from_bytes(&signature_bytes_fixed);
 
-    tracing::debug!("verify_signature_with_montgomery: message_len={}, signature_len={}", message.len(), signature_bytes.len());
+    tracing::debug!(
+        "verify_signature_with_montgomery: message_len={}, signature_len={}",
+        message.len(),
+        signature_bytes.len()
+    );
 
     // XEd25519 conversion has a sign ambiguity. One Montgomery point corresponds to two Edwards points (P and -P).
     // Try converting with sign 0 first (standard XEd25519).
     if let Some(ed_point) = mont_point.to_edwards(0) {
         let ed_bytes = ed_point.compress().to_bytes();
-        if let Ok(public_key) = VerifyingKey::from_bytes(&ed_bytes) {
-            if public_key.verify(message, &signature).is_ok() {
-                return Ok(());
-            }
+        if let Ok(public_key) = VerifyingKey::from_bytes(&ed_bytes)
+            && public_key.verify(message, &signature).is_ok()
+        {
+            return Ok(());
         }
     }
 
     // If that fails, try sign 1.
     if let Some(ed_point) = mont_point.to_edwards(1) {
         let ed_bytes = ed_point.compress().to_bytes();
-        if let Ok(public_key) = VerifyingKey::from_bytes(&ed_bytes) {
-            if public_key.verify(message, &signature).is_ok() {
-                return Ok(());
-            }
+        if let Ok(public_key) = VerifyingKey::from_bytes(&ed_bytes)
+            && public_key.verify(message, &signature).is_ok()
+        {
+            return Ok(());
         }
     }
 

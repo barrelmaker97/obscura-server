@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::MessagingConfig;
 use crate::core::auth::verify_signature;
 use crate::core::crypto_types::PublicKey;
 use crate::core::notification::{Notifier, UserEvent};
@@ -17,7 +17,7 @@ pub struct KeyService {
     key_repo: KeyRepository,
     message_repo: MessageRepository,
     notifier: Arc<dyn Notifier>,
-    config: Config,
+    config: MessagingConfig,
 }
 
 pub struct KeyUploadParams {
@@ -34,25 +34,26 @@ impl KeyService {
         key_repo: KeyRepository,
         message_repo: MessageRepository,
         notifier: Arc<dyn Notifier>,
-        config: Config,
+        config: MessagingConfig,
     ) -> Self {
         Self { pool, key_repo, message_repo, notifier, config }
     }
 
     pub async fn get_pre_key_bundle(&self, user_id: Uuid) -> Result<Option<PreKeyBundle>> {
-        self.key_repo.fetch_pre_key_bundle(user_id).await
+        let mut conn = self.pool.acquire().await?;
+        self.key_repo.fetch_pre_key_bundle(&mut conn, user_id).await
     }
 
     pub async fn fetch_identity_key(&self, user_id: Uuid) -> Result<Option<Vec<u8>>> {
-        self.key_repo.fetch_identity_key(user_id).await
+        self.key_repo.fetch_identity_key(&self.pool, user_id).await
     }
 
     pub async fn check_pre_key_status(&self, user_id: Uuid) -> Result<Option<PreKeyStatus>> {
         let count = self.key_repo.count_one_time_pre_keys(&self.pool, user_id).await?;
-        if count < self.config.messaging.pre_key_refill_threshold as i64 {
+        if count < self.config.pre_key_refill_threshold as i64 {
             Ok(Some(PreKeyStatus {
                 one_time_pre_key_count: count as i32,
-                min_threshold: self.config.messaging.pre_key_refill_threshold,
+                min_threshold: self.config.pre_key_refill_threshold,
             }))
         } else {
             Ok(None)
@@ -61,8 +62,15 @@ impl KeyService {
 
     /// Public entry point for key uploads.
     pub async fn upload_keys(&self, params: KeyUploadParams) -> Result<()> {
-        let mut tx = self.pool.begin().await?;
         let user_id = params.user_id;
+
+        // If identity key is provided, we can verify the signature BEFORE starting a transaction.
+        // This avoids holding a DB lock during CPU-intensive crypto verification.
+        if let Some(ref ik) = params.identity_key {
+            verify_keys(ik, &params.signed_pre_key)?;
+        }
+
+        let mut tx = self.pool.begin().await?;
 
         let is_takeover = self.upload_keys_internal(&mut tx, params).await?;
 
@@ -76,7 +84,7 @@ impl KeyService {
     }
 
     /// Internal implementation that accepts a mutable connection.
-    pub async fn upload_keys_internal(&self, conn: &mut PgConnection, params: KeyUploadParams) -> Result<bool> {
+    pub(crate) async fn upload_keys_internal(&self, conn: &mut PgConnection, params: KeyUploadParams) -> Result<bool> {
         let mut is_takeover = false;
 
         // 1. Identify/Verify Identity Key
@@ -85,28 +93,35 @@ impl KeyService {
             let existing_ik_bytes_opt = self.key_repo.fetch_identity_key_for_update(&mut *conn, params.user_id).await?;
 
             if let Some(existing_ik_bytes) = existing_ik_bytes_opt {
-                 // Compare bytes (new_ik.to_wire_bytes() vs existing DB bytes)
-                 let new_ik_bytes = new_ik.to_wire_bytes();
-                 if existing_ik_bytes != new_ik_bytes {
+                // Compare bytes (new_ik.to_wire_bytes() vs existing DB bytes)
+                let new_ik_bytes = new_ik.to_wire_bytes();
+                if existing_ik_bytes != new_ik_bytes {
                     is_takeover = true;
                 }
             } else {
                 // No existing key? Treat as takeover to ensure clean slate.
                 is_takeover = true;
             }
+
+            // Note: Verification was likely already done in the public wrapper,
+            // but we keep it here for safety (in case it's called internally).
+            // This is fast if already verified because the math is the same.
+            verify_keys(&new_ik, &params.signed_pre_key)?;
             new_ik
         } else {
-             // Must exist
-             let bytes = self.key_repo
+            // Must exist
+            let bytes = self
+                .key_repo
                 .fetch_identity_key_for_update(&mut *conn, params.user_id)
                 .await?
                 .ok_or_else(|| AppError::BadRequest("Identity key missing".into()))?;
-             
-             PublicKey::try_from(bytes).map_err(|_| AppError::Internal)?
-        };
 
-        // 2. Verify Cryptographic Signature
-        verify_keys(&ik, &params.signed_pre_key)?;
+            let ik = PublicKey::try_from(bytes).map_err(|_| AppError::Internal)?;
+
+            // Verify signature with the stored key
+            verify_keys(&ik, &params.signed_pre_key)?;
+            ik
+        };
 
         // 3. Limit Check (Atomic within transaction)
         let current_count =
@@ -114,11 +129,8 @@ impl KeyService {
 
         let new_keys_count = params.one_time_pre_keys.len() as i64;
 
-        if current_count + new_keys_count > self.config.messaging.max_pre_keys {
-            return Err(AppError::BadRequest(format!(
-                "Too many pre-keys. Limit is {}",
-                self.config.messaging.max_pre_keys
-            )));
+        if current_count + new_keys_count > self.config.max_pre_keys {
+            return Err(AppError::BadRequest(format!("Too many pre-keys. Limit is {}", self.config.max_pre_keys)));
         }
 
         // 4. Handle Takeover Cleanup
@@ -159,39 +171,42 @@ fn verify_keys(ik: &PublicKey, signed_pre_key: &SignedPreKey) -> Result<()> {
 
     // Verification Attempt Helper
     let try_verify = |verifier_ik: &[u8], is_montgomery: bool| -> bool {
-         // 1. Try full bytes
-         if is_montgomery {
-             if crate::core::auth::verify_signature_with_montgomery(verifier_ik, &spk_bytes_full, signature).is_ok() {
-                 return true;
-             }
-         } else {
-             if verify_signature(verifier_ik, &spk_bytes_full, signature).is_ok() {
-                 return true;
-             }
-         }
+        // 1. Try full bytes
+        if is_montgomery {
+            if crate::core::auth::verify_signature_with_montgomery(verifier_ik, &spk_bytes_full, signature).is_ok() {
+                return true;
+            }
+        } else if verify_signature(verifier_ik, &spk_bytes_full, signature).is_ok() {
+            return true;
+        }
 
-         // 2. Try inner bytes (if different)
-         if spk_bytes_full.len() != spk_bytes_inner.len() {
-              if is_montgomery {
-                if crate::core::auth::verify_signature_with_montgomery(verifier_ik, &spk_bytes_inner, signature).is_ok() {
+        // 2. Try inner bytes (if different)
+        if spk_bytes_full.len() != spk_bytes_inner.len() {
+            if is_montgomery {
+                if crate::core::auth::verify_signature_with_montgomery(verifier_ik, &spk_bytes_inner, signature).is_ok()
+                {
                     return true;
                 }
-             } else {
-                 if verify_signature(verifier_ik, &spk_bytes_inner, signature).is_ok() {
-                     return true;
-                 }
-             }
-         }
-         false
+            } else if verify_signature(verifier_ik, &spk_bytes_inner, signature).is_ok() {
+                return true;
+            }
+        }
+        false
     };
 
     match ik {
         PublicKey::Edwards(bytes) => {
-             if try_verify(bytes, false) { return Ok(()); }
-        },
+            if try_verify(bytes, false) {
+                return Ok(());
+            }
+        }
         PublicKey::Montgomery(bytes) => {
-             if try_verify(bytes, true) { return Ok(()); }
-             if try_verify(bytes, false) { return Ok(()); }
+            if try_verify(bytes, true) {
+                return Ok(());
+            }
+            if try_verify(bytes, false) {
+                return Ok(());
+            }
         }
     }
 
