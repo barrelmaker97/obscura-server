@@ -2226,6 +2226,7 @@ dependencies = [
  "axum",
  "base64",
  "clap",
+ "curve25519-dalek",
  "dashmap",
  "ed25519-dalek",
  "futures",

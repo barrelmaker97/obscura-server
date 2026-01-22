@@ -179,6 +179,20 @@ fn verify_keys(ik_bytes: &[u8], signed_pre_key: &SignedPreKey) -> Result<()> {
         }
     }
 
+    // 3. Fallback: Try converting Identity Key from Montgomery to Edwards (XEd25519)
+    // This handles clients (like Libsignal) that send X25519 keys for Identity Keys.
+    if crate::core::auth::verify_signature_with_montgomery(ik_raw, &signed_pre_key.public_key, &signed_pre_key.signature).is_ok() {
+        return Ok(());
+    }
+
+    // 4. Fallback: Try converting Identity Key from Montgomery to Edwards AND using stripped SPK
+    if signed_pre_key.public_key.len() == 33 {
+        let spk_pub_raw = &signed_pre_key.public_key[1..];
+        if crate::core::auth::verify_signature_with_montgomery(ik_raw, spk_pub_raw, &signed_pre_key.signature).is_ok() {
+            return Ok(());
+        }
+    }
+
     Err(AppError::BadRequest("Invalid signature".into()))
 }
 
