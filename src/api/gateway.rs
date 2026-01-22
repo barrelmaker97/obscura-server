@@ -1,7 +1,7 @@
 use crate::api::AppState;
 use crate::core::auth::verify_jwt;
 use crate::core::message_service::MessageService;
-use crate::core::notification::{Notifier, UserEvent};
+use crate::core::notification::UserEvent;
 use crate::proto::obscura::v1::{EncryptedMessage, Envelope, WebSocketFrame, web_socket_frame::Payload};
 use axum::{
     extract::{
@@ -37,28 +37,32 @@ pub async fn websocket_handler(
 struct GatewaySession {
     user_id: Uuid,
     message_service: MessageService,
-    _notifier: Arc<dyn Notifier>,
     outbound_tx: mpsc::Sender<WsMessage>,
-    _fetch_trigger: mpsc::Sender<()>,
-    _ack_tx: mpsc::Sender<Uuid>,
 }
 
 impl GatewaySession {
-    fn new(
-        user_id: Uuid,
-        state: &AppState,
-        outbound_tx: mpsc::Sender<WsMessage>,
-        fetch_trigger: mpsc::Sender<()>,
-        ack_tx: mpsc::Sender<Uuid>,
-    ) -> Self {
-        Self {
-            user_id,
-            message_service: state.message_service.clone(),
-            _notifier: state.notifier.clone(),
-            outbound_tx,
-            _fetch_trigger: fetch_trigger,
-            _ack_tx: ack_tx,
-        }
+    fn new(user_id: Uuid, state: &AppState, outbound_tx: mpsc::Sender<WsMessage>) -> Self {
+        Self { user_id, message_service: state.message_service.clone(), outbound_tx }
+    }
+
+    fn spawn_background_tasks(
+        self: Arc<Self>,
+        fetch_signal: mpsc::Receiver<()>,
+        ack_rx: mpsc::Receiver<Uuid>,
+        ack_batch_size: usize,
+        ack_flush_interval_ms: u64,
+    ) -> (tokio::task::JoinHandle<()>, tokio::task::JoinHandle<()>) {
+        let poller_session = self.clone();
+        let db_poller_task = tokio::spawn(async move {
+            poller_session.run_poller(fetch_signal).await;
+        });
+
+        let ack_session = self.clone();
+        let ack_processor_task = tokio::spawn(async move {
+            ack_session.run_ack_processor(ack_rx, ack_batch_size, ack_flush_interval_ms).await;
+        });
+
+        (db_poller_task, ack_processor_task)
     }
 
     async fn run_poller(&self, mut fetch_signal: mpsc::Receiver<()>) {
@@ -185,19 +189,14 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
     let (fetch_trigger, fetch_signal) = mpsc::channel(1);
     let (ack_tx, ack_rx) = mpsc::channel(state.config.websocket.ack_buffer_size);
 
-    let session = Arc::new(GatewaySession::new(user_id, &state, outbound_tx, fetch_trigger.clone(), ack_tx.clone()));
+    let session = Arc::new(GatewaySession::new(user_id, &state, outbound_tx));
 
-    let poller_session = session.clone();
-    let mut db_poller_task = tokio::spawn(async move {
-        poller_session.run_poller(fetch_signal).await;
-    });
-
-    let ack_session = session.clone();
-    let ack_batch_size = state.config.websocket.ack_batch_size;
-    let ack_flush_interval_ms = state.config.websocket.ack_flush_interval_ms;
-    let mut ack_processor_task = tokio::spawn(async move {
-        ack_session.run_ack_processor(ack_rx, ack_batch_size, ack_flush_interval_ms).await;
-    });
+    let (mut db_poller_task, mut ack_processor_task) = session.clone().spawn_background_tasks(
+        fetch_signal,
+        ack_rx,
+        state.config.websocket.ack_batch_size,
+        state.config.websocket.ack_flush_interval_ms,
+    );
 
     loop {
         tokio::select! {
