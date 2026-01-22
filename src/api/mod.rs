@@ -54,10 +54,34 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_
     let attachment_repo = AttachmentRepository::new();
 
     // Initialize Services
-    let key_service = KeyService::new(pool.clone(), key_repo, message_repo.clone(), notifier.clone(), config.clone());
-    let attachment_service = AttachmentService::new(pool.clone(), attachment_repo, s3_client.clone(), config.clone());
-    let account_service = AccountService::new(pool.clone(), config.clone(), key_service.clone(), user_repo, refresh_repo);
-    let message_service = MessageService::new(pool.clone(), message_repo.clone(), notifier.clone(), config.clone());
+    let key_service = KeyService::new(
+        pool.clone(),
+        key_repo,
+        message_repo.clone(),
+        notifier.clone(),
+        config.messaging.clone(),
+    );
+    let attachment_service = AttachmentService::new(
+        pool.clone(),
+        attachment_repo,
+        s3_client.clone(),
+        config.s3.clone(),
+        config.ttl_days,
+    );
+    let account_service = AccountService::new(
+        pool.clone(),
+        config.auth.clone(),
+        key_service.clone(),
+        user_repo,
+        refresh_repo,
+    );
+    let message_service = MessageService::new(
+        pool.clone(),
+        message_repo.clone(),
+        notifier.clone(),
+        config.messaging.clone(),
+        config.ttl_days,
+    );
 
     // Standard Tier: For general API usage
     let std_interval_ns = 1_000_000_000 / config.rate_limit.per_second.max(1);

@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::S3Config;
 use crate::error::{AppError, Result};
 use crate::storage::DbPool;
 use crate::storage::attachment_repo::AttachmentRepository;
@@ -46,18 +46,19 @@ pub struct AttachmentService {
     pool: DbPool,
     repo: AttachmentRepository,
     s3_client: Client,
-    config: Config,
+    config: S3Config,
+    ttl_days: i64,
 }
 
 impl AttachmentService {
-    pub fn new(pool: DbPool, repo: AttachmentRepository, s3_client: Client, config: Config) -> Self {
-        Self { pool, repo, s3_client, config }
+    pub fn new(pool: DbPool, repo: AttachmentRepository, s3_client: Client, config: S3Config, ttl_days: i64) -> Self {
+        Self { pool, repo, s3_client, config, ttl_days }
     }
 
     pub async fn upload(&self, content_len: Option<usize>, body: Body) -> Result<(Uuid, i64)> {
         // 1. Check Content-Length (Early rejection)
         if let Some(len) = content_len {
-            if len > self.config.s3.attachment_max_size_bytes {
+            if len > self.config.attachment_max_size_bytes {
                 return Err(AppError::BadRequest("Attachment too large".into()));
             }
         }
@@ -66,7 +67,7 @@ impl AttachmentService {
         let key = id.to_string();
 
         // 2. Bridge Axum Body -> SyncBody with Size Limit enforcement
-        let limit = self.config.s3.attachment_max_size_bytes;
+        let limit = self.config.attachment_max_size_bytes;
         let limited_body = Limited::new(body, limit);
 
         let (tx, rx) = mpsc::channel(2);
@@ -103,7 +104,7 @@ impl AttachmentService {
 
         self.s3_client
             .put_object()
-            .bucket(&self.config.s3.bucket)
+            .bucket(&self.config.bucket)
             .key(&key)
             .set_content_length(content_len.map(|l| l as i64))
             .body(byte_stream)
@@ -115,7 +116,7 @@ impl AttachmentService {
             })?;
 
         // 3. Record Metadata
-        let expires_at = OffsetDateTime::now_utc() + Duration::days(self.config.ttl_days);
+        let expires_at = OffsetDateTime::now_utc() + Duration::days(self.ttl_days);
         self.repo.create(&self.pool, id, expires_at).await?;
 
         Ok((id, expires_at.unix_timestamp()))
@@ -136,7 +137,7 @@ impl AttachmentService {
         let key = id.to_string();
         let output = self.s3_client
             .get_object()
-            .bucket(&self.config.s3.bucket)
+            .bucket(&self.config.bucket)
             .key(&key)
             .send()
             .await
@@ -187,7 +188,7 @@ impl AttachmentService {
                 let key = id.to_string();
 
                 // 1. Delete from S3
-                let res = self.s3_client.delete_object().bucket(&self.config.s3.bucket).key(&key).send().await;
+                let res = self.s3_client.delete_object().bucket(&self.config.bucket).key(&key).send().await;
 
                 match res {
                     Ok(_) => {}

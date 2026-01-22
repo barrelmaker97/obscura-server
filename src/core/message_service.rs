@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::MessagingConfig;
 use crate::error::{AppError, Result};
 use crate::storage::DbPool;
 use crate::storage::message_repo::MessageRepository;
@@ -15,12 +15,13 @@ pub struct MessageService {
     pool: DbPool,
     repo: MessageRepository,
     notifier: Arc<dyn Notifier>,
-    config: Config,
+    config: MessagingConfig,
+    ttl_days: i64,
 }
 
 impl MessageService {
-    pub fn new(pool: DbPool, repo: MessageRepository, notifier: Arc<dyn Notifier>, config: Config) -> Self {
-        Self { pool, repo, notifier, config }
+    pub fn new(pool: DbPool, repo: MessageRepository, notifier: Arc<dyn Notifier>, config: MessagingConfig, ttl_days: i64) -> Self {
+        Self { pool, repo, notifier, config, ttl_days }
     }
 
     pub async fn send_message(
@@ -36,7 +37,7 @@ impl MessageService {
         // 2. Store raw body directly (blind relay)
         // Optimization: We no longer check limits synchronously.
         // The background cleanup loop handles overflow.
-        self.repo.create(&self.pool, sender_id, recipient_id, msg.r#type, msg.content, self.config.ttl_days).await?;
+        self.repo.create(&self.pool, sender_id, recipient_id, msg.r#type, msg.content, self.ttl_days).await?;
 
         // 3. Notify the user if they are connected
         self.notifier.notify(recipient_id, UserEvent::MessageReceived);
@@ -51,7 +52,7 @@ impl MessageService {
         message_type: i32,
         content: Vec<u8>,
     ) -> Result<()> {
-        self.repo.create(&self.pool, sender_id, recipient_id, message_type, content, self.config.ttl_days).await?;
+        self.repo.create(&self.pool, sender_id, recipient_id, message_type, content, self.ttl_days).await?;
         Ok(())
     }
 
@@ -69,12 +70,12 @@ impl MessageService {
     }
 
     pub fn batch_limit(&self) -> i64 {
-        self.config.messaging.batch_limit
+        self.config.batch_limit
     }
 
     /// Periodically cleans up expired messages and enforces inbox limits.
     pub async fn run_cleanup_loop(&self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
-        let mut interval = tokio::time::interval(Duration::from_secs(self.config.messaging.cleanup_interval_secs));
+        let mut interval = tokio::time::interval(Duration::from_secs(self.config.cleanup_interval_secs));
 
         loop {
             tokio::select! {
@@ -93,7 +94,7 @@ impl MessageService {
 
                     // 2. Enforce Inbox Limits (Global Overflow)
                     // Limit to max_inbox_size messages per user
-                    match self.repo.delete_global_overflow(&self.pool, self.config.messaging.max_inbox_size).await {
+                    match self.repo.delete_global_overflow(&self.pool, self.config.max_inbox_size).await {
                         Ok(count) => {
                             if count > 0 {
                                 tracing::info!("Cleanup: Pruned {} overflow messages.", count);

@@ -29,7 +29,8 @@ async fn main() -> anyhow::Result<()> {
         pool.clone(),
         obscura_server::storage::message_repo::MessageRepository::new(),
         notifier.clone(),
-        config.clone(),
+        config.messaging.clone(),
+        config.ttl_days,
     );
     let message_cleanup = message_service.clone();
     let message_cleanup_rx = shutdown_rx.clone();
@@ -58,7 +59,8 @@ async fn main() -> anyhow::Result<()> {
         pool.clone(),
         obscura_server::storage::attachment_repo::AttachmentRepository::new(),
         s3_client.clone(),
-        config.clone(),
+        config.s3.clone(),
+        config.ttl_days,
     );
     let cleanup_service = attachment_service.clone();
     let attachment_cleanup_rx = shutdown_rx.clone();

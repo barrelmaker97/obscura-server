@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::AuthConfig;
 use crate::core::auth::{self, create_jwt};
 use crate::core::key_service::{KeyService, KeyUploadParams};
 use crate::core::user::{OneTimePreKey, SignedPreKey};
@@ -20,7 +20,7 @@ pub struct AuthResponse {
 #[derive(Clone)]
 pub struct AccountService {
     pool: DbPool,
-    config: Config,
+    config: AuthConfig,
     key_service: KeyService,
     user_repo: UserRepository,
     refresh_repo: RefreshTokenRepository,
@@ -29,7 +29,7 @@ pub struct AccountService {
 impl AccountService {
     pub fn new(
         pool: DbPool,
-        config: Config,
+        config: AuthConfig,
         key_service: KeyService,
         user_repo: UserRepository,
         refresh_repo: RefreshTokenRepository,
@@ -79,16 +79,16 @@ impl AccountService {
         self.key_service.upload_keys_internal(&mut tx, key_params).await?;
 
         // Generate Tokens
-        let token = create_jwt(user.id, &self.config.auth.jwt_secret, self.config.auth.access_token_ttl_secs)?;
+        let token = create_jwt(user.id, &self.config.jwt_secret, self.config.access_token_ttl_secs)?;
         let refresh_token = auth::generate_opaque_token();
         let refresh_hash = auth::hash_token(&refresh_token);
 
-        self.refresh_repo.create(&mut *tx, user.id, &refresh_hash, self.config.auth.refresh_token_ttl_days).await?;
+        self.refresh_repo.create(&mut *tx, user.id, &refresh_hash, self.config.refresh_token_ttl_days).await?;
 
         tx.commit().await?;
 
         let expires_at = (time::OffsetDateTime::now_utc()
-            + time::Duration::seconds(self.config.auth.access_token_ttl_secs as i64))
+            + time::Duration::seconds(self.config.access_token_ttl_secs as i64))
         .unix_timestamp();
 
         Ok(AuthResponse { token, refresh_token, expires_at })
@@ -112,16 +112,16 @@ impl AccountService {
         }
 
         // Generate Tokens
-        let token = create_jwt(user.id, &self.config.auth.jwt_secret, self.config.auth.access_token_ttl_secs)?;
+        let token = create_jwt(user.id, &self.config.jwt_secret, self.config.access_token_ttl_secs)?;
         let refresh_token = auth::generate_opaque_token();
         let refresh_hash = auth::hash_token(&refresh_token);
 
         let mut tx = self.pool.begin().await?;
-        self.refresh_repo.create(&mut *tx, user.id, &refresh_hash, self.config.auth.refresh_token_ttl_days).await?;
+        self.refresh_repo.create(&mut *tx, user.id, &refresh_hash, self.config.refresh_token_ttl_days).await?;
         tx.commit().await?;
 
         let expires_at = (time::OffsetDateTime::now_utc()
-            + time::Duration::seconds(self.config.auth.access_token_ttl_secs as i64))
+            + time::Duration::seconds(self.config.access_token_ttl_secs as i64))
         .unix_timestamp();
 
         Ok(AuthResponse { token, refresh_token, expires_at })
@@ -137,17 +137,17 @@ impl AccountService {
         let user_id = self.refresh_repo.verify_and_consume(&mut *tx, &hash).await?.ok_or(AppError::AuthError)?;
 
         // 3. Generate New Pair
-        let new_access_token = create_jwt(user_id, &self.config.auth.jwt_secret, self.config.auth.access_token_ttl_secs)?;
+        let new_access_token = create_jwt(user_id, &self.config.jwt_secret, self.config.access_token_ttl_secs)?;
         let new_refresh_token = auth::generate_opaque_token();
         let new_refresh_hash = auth::hash_token(&new_refresh_token);
 
         // 4. Store New Refresh Token
-        self.refresh_repo.create(&mut *tx, user_id, &new_refresh_hash, self.config.auth.refresh_token_ttl_days).await?;
+        self.refresh_repo.create(&mut *tx, user_id, &new_refresh_hash, self.config.refresh_token_ttl_days).await?;
 
         tx.commit().await?;
 
         let expires_at = (time::OffsetDateTime::now_utc()
-            + time::Duration::seconds(self.config.auth.access_token_ttl_secs as i64))
+            + time::Duration::seconds(self.config.access_token_ttl_secs as i64))
         .unix_timestamp();
 
         Ok(AuthResponse { token: new_access_token, refresh_token: new_refresh_token, expires_at })

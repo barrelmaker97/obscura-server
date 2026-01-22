@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::MessagingConfig;
 use crate::core::auth::verify_signature;
 use crate::core::crypto_types::PublicKey;
 use crate::core::notification::{Notifier, UserEvent};
@@ -17,7 +17,7 @@ pub struct KeyService {
     key_repo: KeyRepository,
     message_repo: MessageRepository,
     notifier: Arc<dyn Notifier>,
-    config: Config,
+    config: MessagingConfig,
 }
 
 pub struct KeyUploadParams {
@@ -34,7 +34,7 @@ impl KeyService {
         key_repo: KeyRepository,
         message_repo: MessageRepository,
         notifier: Arc<dyn Notifier>,
-        config: Config,
+        config: MessagingConfig,
     ) -> Self {
         Self { pool, key_repo, message_repo, notifier, config }
     }
@@ -50,10 +50,10 @@ impl KeyService {
 
     pub async fn check_pre_key_status(&self, user_id: Uuid) -> Result<Option<PreKeyStatus>> {
         let count = self.key_repo.count_one_time_pre_keys(&self.pool, user_id).await?;
-        if count < self.config.messaging.pre_key_refill_threshold as i64 {
+        if count < self.config.pre_key_refill_threshold as i64 {
             Ok(Some(PreKeyStatus {
                 one_time_pre_key_count: count as i32,
-                min_threshold: self.config.messaging.pre_key_refill_threshold,
+                min_threshold: self.config.pre_key_refill_threshold,
             }))
         } else {
             Ok(None)
@@ -128,10 +128,10 @@ impl KeyService {
 
         let new_keys_count = params.one_time_pre_keys.len() as i64;
 
-        if current_count + new_keys_count > self.config.messaging.max_pre_keys {
+        if current_count + new_keys_count > self.config.max_pre_keys {
             return Err(AppError::BadRequest(format!(
                 "Too many pre-keys. Limit is {}",
-                self.config.messaging.max_pre_keys
+                self.config.max_pre_keys
             )));
         }
 
