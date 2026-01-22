@@ -1,5 +1,5 @@
 use crate::api::AppState;
-use crate::api::middleware::verify_jwt;
+use crate::core::auth::verify_jwt;
 use crate::core::message_service::MessageService;
 use crate::core::notification::{Notifier, UserEvent};
 use crate::proto::obscura::v1::{EncryptedMessage, Envelope, WebSocketFrame, web_socket_frame::Payload};

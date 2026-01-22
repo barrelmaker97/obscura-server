@@ -6,13 +6,37 @@ use argon2::{
 use base64::Engine;
 use curve25519_dalek::montgomery::MontgomeryPoint;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use rand::{RngCore, rngs::OsRng};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::time::{SystemTime, UNIX_EPOCH};
+use uuid::Uuid;
 
 /// Bitmask to clear the XEdDSA sign bit (the 255th bit of the scalar 's').
 pub const XEDDSA_SIGN_BIT_MASK: u8 = 0x7F;
 /// The XEdDSA sign bit itself.
 pub const XEDDSA_SIGN_BIT: u8 = 0x80;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Claims {
+    pub sub: Uuid,
+    pub exp: usize,
+}
+
+pub fn create_jwt(user_id: Uuid, secret: &str, ttl_secs: u64) -> Result<String> {
+    let expiration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as usize + ttl_secs as usize;
+
+    let claims = Claims { sub: user_id, exp: expiration };
+
+    encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes())).map_err(|_| AppError::Internal)
+}
+
+pub fn verify_jwt(token: &str, secret: &str) -> Result<Claims> {
+    let token_data = decode::<Claims>(token, &DecodingKey::from_secret(secret.as_bytes()), &Validation::default())
+        .map_err(|_| AppError::AuthError)?;
+    Ok(token_data.claims)
+}
 
 pub fn hash_password(password: &str) -> Result<String> {
     let salt = SaltString::generate(&mut OsRng);

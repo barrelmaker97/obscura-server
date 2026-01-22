@@ -1,12 +1,11 @@
 use crate::config::Config;
-use crate::core::auth;
+use crate::core::auth::{self, create_jwt};
 use crate::core::key_service::{KeyService, KeyUploadParams};
 use crate::core::user::{OneTimePreKey, SignedPreKey};
 use crate::error::{AppError, Result};
 use crate::storage::DbPool;
 use crate::storage::refresh_token_repo::RefreshTokenRepository;
 use crate::storage::user_repo::UserRepository;
-use crate::api::middleware::create_jwt;
 use serde::Serialize;
 use uuid::Uuid;
 
