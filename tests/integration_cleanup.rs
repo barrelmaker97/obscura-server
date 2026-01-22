@@ -8,7 +8,7 @@ mod common;
 async fn test_expired_message_cleanup() {
     let pool = common::get_test_pool().await;
 
-    let repo = MessageRepository::new(pool.clone());
+    let repo = MessageRepository::new();
 
     // 1. Create a dummy user
     let user_id = Uuid::new_v4();
@@ -54,7 +54,7 @@ async fn test_expired_message_cleanup() {
     assert_eq!(count, 2);
 
     // 4. Run cleanup
-    let deleted = repo.delete_expired().await.unwrap();
+    let deleted = repo.delete_expired(&pool).await.unwrap();
     assert!(deleted >= 1);
 
     // 5. Verify only active one remains

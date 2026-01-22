@@ -47,17 +47,17 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_
     let extractor = IpKeyExtractor::new(config.server.trusted_proxies.clone());
 
     // Initialize Repositories
-    let key_repo = KeyRepository::new(pool.clone());
-    let message_repo = MessageRepository::new(pool.clone());
+    let key_repo = KeyRepository::new();
+    let message_repo = MessageRepository::new();
     let user_repo = UserRepository::new();
-    let refresh_repo = RefreshTokenRepository::new(pool.clone());
-    let attachment_repo = AttachmentRepository::new(pool.clone());
+    let refresh_repo = RefreshTokenRepository::new();
+    let attachment_repo = AttachmentRepository::new();
 
     // Initialize Services
     let key_service = KeyService::new(pool.clone(), key_repo, message_repo.clone(), notifier.clone(), config.clone());
-    let attachment_service = AttachmentService::new(attachment_repo, s3_client.clone(), config.clone());
+    let attachment_service = AttachmentService::new(pool.clone(), attachment_repo, s3_client.clone(), config.clone());
     let account_service = AccountService::new(pool.clone(), config.clone(), key_service.clone(), user_repo, refresh_repo);
-    let message_service = MessageService::new(message_repo.clone(), notifier.clone(), config.clone());
+    let message_service = MessageService::new(pool.clone(), message_repo.clone(), notifier.clone(), config.clone());
 
     // Standard Tier: For general API usage
     let std_interval_ns = 1_000_000_000 / config.rate_limit.per_second.max(1);

@@ -40,11 +40,12 @@ impl KeyService {
     }
 
     pub async fn get_pre_key_bundle(&self, user_id: Uuid) -> Result<Option<PreKeyBundle>> {
-        self.key_repo.fetch_pre_key_bundle(user_id).await
+        let mut conn = self.pool.acquire().await?;
+        self.key_repo.fetch_pre_key_bundle(&mut conn, user_id).await
     }
 
     pub async fn fetch_identity_key(&self, user_id: Uuid) -> Result<Option<Vec<u8>>> {
-        self.key_repo.fetch_identity_key(user_id).await
+        self.key_repo.fetch_identity_key(&self.pool, user_id).await
     }
 
     pub async fn check_pre_key_status(&self, user_id: Uuid) -> Result<Option<PreKeyStatus>> {

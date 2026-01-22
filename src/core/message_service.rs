@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::error::{AppError, Result};
+use crate::storage::DbPool;
 use crate::storage::message_repo::MessageRepository;
 use crate::core::notification::{Notifier, UserEvent};
 use crate::proto::obscura::v1::EncryptedMessage;
@@ -11,14 +12,15 @@ use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct MessageService {
+    pool: DbPool,
     repo: MessageRepository,
     notifier: Arc<dyn Notifier>,
     config: Config,
 }
 
 impl MessageService {
-    pub fn new(repo: MessageRepository, notifier: Arc<dyn Notifier>, config: Config) -> Self {
-        Self { repo, notifier, config }
+    pub fn new(pool: DbPool, repo: MessageRepository, notifier: Arc<dyn Notifier>, config: Config) -> Self {
+        Self { pool, repo, notifier, config }
     }
 
     pub async fn send_message(
@@ -34,7 +36,7 @@ impl MessageService {
         // 2. Store raw body directly (blind relay)
         // Optimization: We no longer check limits synchronously.
         // The background cleanup loop handles overflow.
-        self.repo.create(sender_id, recipient_id, msg.r#type, msg.content, self.config.ttl_days).await?;
+        self.repo.create(&self.pool, sender_id, recipient_id, msg.r#type, msg.content, self.config.ttl_days).await?;
 
         // 3. Notify the user if they are connected
         self.notifier.notify(recipient_id, UserEvent::MessageReceived);
@@ -49,7 +51,7 @@ impl MessageService {
         message_type: i32,
         content: Vec<u8>,
     ) -> Result<()> {
-        self.repo.create(sender_id, recipient_id, message_type, content, self.config.ttl_days).await?;
+        self.repo.create(&self.pool, sender_id, recipient_id, message_type, content, self.config.ttl_days).await?;
         Ok(())
     }
 
@@ -59,11 +61,11 @@ impl MessageService {
         cursor: Option<(time::OffsetDateTime, Uuid)>,
         limit: i64,
     ) -> Result<Vec<crate::core::message::Message>> {
-        self.repo.fetch_pending_batch(recipient_id, cursor, limit).await
+        self.repo.fetch_pending_batch(&self.pool, recipient_id, cursor, limit).await
     }
 
     pub async fn delete_batch(&self, message_ids: &[Uuid]) -> Result<()> {
-        self.repo.delete_batch(message_ids).await
+        self.repo.delete_batch(&self.pool, message_ids).await
     }
 
     pub fn batch_limit(&self) -> i64 {
@@ -80,7 +82,7 @@ impl MessageService {
                     tracing::debug!("Running message cleanup (expiry + limits)...");
 
                     // 1. Delete Expired (TTL)
-                    match self.repo.delete_expired().await {
+                    match self.repo.delete_expired(&self.pool).await {
                         Ok(count) => {
                             if count > 0 {
                                 tracing::info!("Cleanup: Deleted {} expired messages.", count);
@@ -91,7 +93,7 @@ impl MessageService {
 
                     // 2. Enforce Inbox Limits (Global Overflow)
                     // Limit to max_inbox_size messages per user
-                    match self.repo.delete_global_overflow(self.config.messaging.max_inbox_size).await {
+                    match self.repo.delete_global_overflow(&self.pool, self.config.messaging.max_inbox_size).await {
                         Ok(count) => {
                             if count > 0 {
                                 tracing::info!("Cleanup: Pruned {} overflow messages.", count);

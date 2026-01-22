@@ -1,35 +1,35 @@
 use crate::error::{AppError, Result};
-use crate::storage::DbPool;
-use sqlx::{Postgres, Transaction};
+use sqlx::{Executor, PgConnection, Postgres};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-#[derive(Clone)]
-pub struct RefreshTokenRepository {
-    pool: DbPool,
-}
+#[derive(Clone, Default)]
+pub struct RefreshTokenRepository {}
 
 impl RefreshTokenRepository {
-    pub fn new(pool: DbPool) -> Self {
-        Self { pool }
+    pub fn new() -> Self {
+        Self {}
     }
 
     /// Creates a new refresh token record.
     /// Note: We store the HASH, not the raw token.
-    pub async fn create(
+    pub async fn create<'e, E>(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        executor: E,
         user_id: Uuid,
         token_hash: &str,
         ttl_days: i64,
-    ) -> Result<()> {
+    ) -> Result<()>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
         let expires_at = OffsetDateTime::now_utc() + time::Duration::days(ttl_days);
 
         sqlx::query("INSERT INTO refresh_tokens (token_hash, user_id, expires_at) VALUES ($1, $2, $3)")
             .bind(token_hash)
             .bind(user_id)
             .bind(expires_at)
-            .execute(&mut **tx)
+            .execute(executor)
             .await
             .map_err(AppError::Database)?;
 
@@ -42,7 +42,7 @@ impl RefreshTokenRepository {
     /// The caller MUST commit the transaction.
     pub async fn verify_and_consume(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        executor: &mut PgConnection,
         token_hash: &str,
     ) -> Result<Option<Uuid>> {
         #[derive(sqlx::FromRow)]
@@ -61,7 +61,7 @@ impl RefreshTokenRepository {
             "#,
         )
         .bind(token_hash)
-        .fetch_optional(&mut **tx)
+        .fetch_optional(&mut *executor)
         .await
         .map_err(AppError::Database)?;
 
@@ -71,13 +71,13 @@ impl RefreshTokenRepository {
                 // Delete expired token to clean up
                 sqlx::query("DELETE FROM refresh_tokens WHERE token_hash = $1")
                     .bind(token_hash)
-                    .execute(&mut **tx)
+                    .execute(&mut *executor)
                     .await?;
                 return Ok(None);
             }
 
             // 3. Delete (Consume)
-            sqlx::query("DELETE FROM refresh_tokens WHERE token_hash = $1").bind(token_hash).execute(&mut **tx).await?;
+            sqlx::query("DELETE FROM refresh_tokens WHERE token_hash = $1").bind(token_hash).execute(&mut *executor).await?;
 
             Ok(Some(record.user_id))
         } else {
@@ -86,11 +86,14 @@ impl RefreshTokenRepository {
     }
 
     /// Revokes a specific refresh token owned by the user (Logout).
-    pub async fn delete_owned(&self, token_hash: &str, user_id: Uuid) -> Result<()> {
+    pub async fn delete_owned<'e, E>(&self, executor: E, token_hash: &str, user_id: Uuid) -> Result<()>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
         sqlx::query("DELETE FROM refresh_tokens WHERE token_hash = $1 AND user_id = $2")
             .bind(token_hash)
             .bind(user_id)
-            .execute(&self.pool)
+            .execute(executor)
             .await
             .map_err(AppError::Database)?;
         Ok(())

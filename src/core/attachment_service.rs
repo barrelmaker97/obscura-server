@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::error::{AppError, Result};
+use crate::storage::DbPool;
 use crate::storage::attachment_repo::AttachmentRepository;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::primitives::ByteStream;
@@ -42,14 +43,15 @@ impl http_body::Body for SyncBody {
 
 #[derive(Clone)]
 pub struct AttachmentService {
+    pool: DbPool,
     repo: AttachmentRepository,
     s3_client: Client,
     config: Config,
 }
 
 impl AttachmentService {
-    pub fn new(repo: AttachmentRepository, s3_client: Client, config: Config) -> Self {
-        Self { repo, s3_client, config }
+    pub fn new(pool: DbPool, repo: AttachmentRepository, s3_client: Client, config: Config) -> Self {
+        Self { pool, repo, s3_client, config }
     }
 
     pub async fn upload(&self, content_len: Option<usize>, body: Body) -> Result<(Uuid, i64)> {
@@ -114,14 +116,14 @@ impl AttachmentService {
 
         // 3. Record Metadata
         let expires_at = OffsetDateTime::now_utc() + Duration::days(self.config.ttl_days);
-        self.repo.create(id, expires_at).await?;
+        self.repo.create(&self.pool, id, expires_at).await?;
 
         Ok((id, expires_at.unix_timestamp()))
     }
 
     pub async fn download(&self, id: Uuid) -> Result<(u64, ByteStream)> {
         // 1. Check Existence & Expiry
-        match self.repo.get_expires_at(id).await? {
+        match self.repo.get_expires_at(&self.pool, id).await? {
             Some(expires_at) => {
                 if expires_at < OffsetDateTime::now_utc() {
                     return Err(AppError::NotFound);
@@ -173,7 +175,7 @@ impl AttachmentService {
     async fn cleanup_batch(&self) -> anyhow::Result<()> {
         loop {
             // Fetch expired attachments (Limit 100 per cycle to avoid blocking)
-            let ids = self.repo.fetch_expired(100).await?;
+            let ids = self.repo.fetch_expired(&self.pool, 100).await?;
 
             if ids.is_empty() {
                 break;
@@ -200,7 +202,7 @@ impl AttachmentService {
                 }
 
                 // 2. Delete from DB
-                self.repo.delete(id).await?;
+                self.repo.delete(&self.pool, id).await?;
             }
         }
         Ok(())

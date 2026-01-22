@@ -1,27 +1,29 @@
 use crate::core::message::Message;
 use crate::error::{AppError, Result};
-use sqlx::PgPool;
+use sqlx::{Executor, Postgres};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
-#[derive(Clone)]
-pub struct MessageRepository {
-    pool: PgPool,
-}
+#[derive(Clone, Default)]
+pub struct MessageRepository {}
 
 impl MessageRepository {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new() -> Self {
+        Self {}
     }
 
-    pub async fn create(
+    pub async fn create<'e, E>(
         &self,
+        executor: E,
         sender_id: Uuid,
         recipient_id: Uuid,
         message_type: i32,
         content: Vec<u8>,
         ttl_days: i64,
-    ) -> Result<()> {
+    ) -> Result<()>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
         let expires_at = OffsetDateTime::now_utc() + Duration::days(ttl_days);
 
         let result = sqlx::query(
@@ -35,7 +37,7 @@ impl MessageRepository {
         .bind(message_type)
         .bind(content)
         .bind(expires_at)
-        .execute(&self.pool)
+        .execute(executor)
         .await;
 
         match result {
@@ -48,12 +50,16 @@ impl MessageRepository {
         }
     }
 
-    pub async fn fetch_pending_batch(
+    pub async fn fetch_pending_batch<'e, E>(
         &self,
+        executor: E,
         recipient_id: Uuid,
         cursor: Option<(OffsetDateTime, Uuid)>,
         limit: i64,
-    ) -> Result<Vec<Message>> {
+    ) -> Result<Vec<Message>>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
         let messages = match cursor {
             Some((last_ts, last_id)) => {
                 sqlx::query_as::<_, Message>(
@@ -71,7 +77,7 @@ impl MessageRepository {
                 .bind(last_ts)
                 .bind(last_id)
                 .bind(limit)
-                .fetch_all(&self.pool)
+                .fetch_all(executor)
                 .await?
             }
             None => {
@@ -87,7 +93,7 @@ impl MessageRepository {
                 )
                 .bind(recipient_id)
                 .bind(limit)
-                .fetch_all(&self.pool)
+                .fetch_all(executor)
                 .await?
             }
         };
@@ -95,20 +101,29 @@ impl MessageRepository {
         Ok(messages)
     }
 
-    pub async fn delete_batch(&self, message_ids: &[Uuid]) -> Result<()> {
+    pub async fn delete_batch<'e, E>(&self, executor: E, message_ids: &[Uuid]) -> Result<()>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
         if message_ids.is_empty() {
             return Ok(());
         }
-        sqlx::query("DELETE FROM messages WHERE id = ANY($1)").bind(message_ids).execute(&self.pool).await?;
+        sqlx::query("DELETE FROM messages WHERE id = ANY($1)").bind(message_ids).execute(executor).await?;
         Ok(())
     }
 
-    pub async fn delete_expired(&self) -> Result<u64> {
-        let result = sqlx::query("DELETE FROM messages WHERE expires_at < NOW()").execute(&self.pool).await?;
+    pub async fn delete_expired<'e, E>(&self, executor: E) -> Result<u64>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
+        let result = sqlx::query("DELETE FROM messages WHERE expires_at < NOW()").execute(executor).await?;
         Ok(result.rows_affected())
     }
 
-    pub async fn delete_global_overflow(&self, limit: i64) -> Result<u64> {
+    pub async fn delete_global_overflow<'e, E>(&self, executor: E, limit: i64) -> Result<u64>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
         // Deletes messages that exceed the 'limit' per recipient
         let result = sqlx::query(
             r#"
@@ -122,7 +137,7 @@ impl MessageRepository {
             "#,
         )
         .bind(limit)
-        .execute(&self.pool)
+        .execute(executor)
         .await?;
         Ok(result.rows_affected())
     }

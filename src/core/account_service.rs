@@ -83,7 +83,7 @@ impl AccountService {
         let refresh_token = auth::generate_opaque_token();
         let refresh_hash = auth::hash_token(&refresh_token);
 
-        self.refresh_repo.create(&mut tx, user.id, &refresh_hash, self.config.auth.refresh_token_ttl_days).await?;
+        self.refresh_repo.create(&mut *tx, user.id, &refresh_hash, self.config.auth.refresh_token_ttl_days).await?;
 
         tx.commit().await?;
 
@@ -117,7 +117,7 @@ impl AccountService {
         let refresh_hash = auth::hash_token(&refresh_token);
 
         let mut tx = self.pool.begin().await?;
-        self.refresh_repo.create(&mut tx, user.id, &refresh_hash, self.config.auth.refresh_token_ttl_days).await?;
+        self.refresh_repo.create(&mut *tx, user.id, &refresh_hash, self.config.auth.refresh_token_ttl_days).await?;
         tx.commit().await?;
 
         let expires_at = (time::OffsetDateTime::now_utc()
@@ -134,7 +134,7 @@ impl AccountService {
         // 2. Verify and Rotate (Atomic Transaction)
         let mut tx = self.pool.begin().await?;
 
-        let user_id = self.refresh_repo.verify_and_consume(&mut tx, &hash).await?.ok_or(AppError::AuthError)?;
+        let user_id = self.refresh_repo.verify_and_consume(&mut *tx, &hash).await?.ok_or(AppError::AuthError)?;
 
         // 3. Generate New Pair
         let new_access_token = create_jwt(user_id, &self.config.auth.jwt_secret, self.config.auth.access_token_ttl_secs)?;
@@ -142,7 +142,7 @@ impl AccountService {
         let new_refresh_hash = auth::hash_token(&new_refresh_token);
 
         // 4. Store New Refresh Token
-        self.refresh_repo.create(&mut tx, user_id, &new_refresh_hash, self.config.auth.refresh_token_ttl_days).await?;
+        self.refresh_repo.create(&mut *tx, user_id, &new_refresh_hash, self.config.auth.refresh_token_ttl_days).await?;
 
         tx.commit().await?;
 
@@ -156,7 +156,7 @@ impl AccountService {
     pub async fn logout(&self, user_id: Uuid, refresh_token: String) -> Result<()> {
         let hash = auth::hash_token(&refresh_token);
 
-        self.refresh_repo.delete_owned(&hash, user_id).await?;
+        self.refresh_repo.delete_owned(&self.pool, &hash, user_id).await?;
 
         Ok(())
     }

@@ -16,8 +16,8 @@ async fn test_device_takeover_success() {
     let user = app.register_user_with_keys(&username, 111, 1).await;
 
     // 3. Populate Data
-    let msg_repo = MessageRepository::new(app.pool.clone());
-    msg_repo.create(user.user_id, user.user_id, 2, vec![1, 2, 3], 30).await.unwrap();
+    let msg_repo = MessageRepository::new();
+    msg_repo.create(&app.pool, user.user_id, user.user_id, 2, vec![1, 2, 3], 30).await.unwrap();
     app.assert_message_count(user.user_id, 1).await;
 
     // 4. Connect WebSocket (Device A)
@@ -59,8 +59,9 @@ async fn test_device_takeover_success() {
     // 7. Verify Cleanup
     app.assert_message_count(user.user_id, 0).await;
 
-    let key_repo = KeyRepository::new(app.pool.clone());
-    let bundle = key_repo.fetch_pre_key_bundle(user.user_id).await.unwrap().unwrap();
+    let key_repo = KeyRepository::new();
+    let mut conn = app.pool.acquire().await.unwrap();
+    let bundle = key_repo.fetch_pre_key_bundle(&mut conn, user.user_id).await.unwrap().unwrap();
 
     use obscura_server::core::crypto_types::PublicKey;
     assert_eq!(bundle.identity_key, PublicKey::Edwards(new_ik_pub));

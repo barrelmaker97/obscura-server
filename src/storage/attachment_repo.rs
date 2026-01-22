@@ -1,46 +1,55 @@
 use crate::error::Result;
-use crate::storage::DbPool;
-use sqlx::Row;
+use sqlx::{Executor, Postgres, Row};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-#[derive(Clone)]
-pub struct AttachmentRepository {
-    pool: DbPool,
-}
+#[derive(Clone, Default)]
+pub struct AttachmentRepository {}
 
 impl AttachmentRepository {
-    pub fn new(pool: DbPool) -> Self {
-        Self { pool }
+    pub fn new() -> Self {
+        Self {}
     }
 
-    pub async fn create(&self, id: Uuid, expires_at: OffsetDateTime) -> Result<()> {
+    pub async fn create<'e, E>(&self, executor: E, id: Uuid, expires_at: OffsetDateTime) -> Result<()>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
         sqlx::query("INSERT INTO attachments (id, expires_at) VALUES ($1, $2)")
             .bind(id)
             .bind(expires_at)
-            .execute(&self.pool)
+            .execute(executor)
             .await?;
         Ok(())
     }
 
-    pub async fn get_expires_at(&self, id: Uuid) -> Result<Option<OffsetDateTime>> {
+    pub async fn get_expires_at<'e, E>(&self, executor: E, id: Uuid) -> Result<Option<OffsetDateTime>>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
         let row = sqlx::query("SELECT expires_at FROM attachments WHERE id = $1")
             .bind(id)
-            .fetch_optional(&self.pool)
+            .fetch_optional(executor)
             .await?;
 
         Ok(row.map(|r| r.get("expires_at")))
     }
 
-    pub async fn delete(&self, id: Uuid) -> Result<()> {
-        sqlx::query("DELETE FROM attachments WHERE id = $1").bind(id).execute(&self.pool).await?;
+    pub async fn delete<'e, E>(&self, executor: E, id: Uuid) -> Result<()>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
+        sqlx::query("DELETE FROM attachments WHERE id = $1").bind(id).execute(executor).await?;
         Ok(())
     }
 
-    pub async fn fetch_expired(&self, limit: i64) -> Result<Vec<Uuid>> {
+    pub async fn fetch_expired<'e, E>(&self, executor: E, limit: i64) -> Result<Vec<Uuid>>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
         let rows = sqlx::query("SELECT id FROM attachments WHERE expires_at < NOW() LIMIT $1")
             .bind(limit)
-            .fetch_all(&self.pool)
+            .fetch_all(executor)
             .await?;
 
         Ok(rows.into_iter().map(|r| r.get("id")).collect())
