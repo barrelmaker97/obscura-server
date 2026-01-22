@@ -26,7 +26,17 @@ paths:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
         '400':
-          description: Invalid input or username already exists.
+          description: Invalid input.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Username already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /v1/sessions:
     post:
@@ -54,12 +64,18 @@ paths:
                 $ref: '#/components/schemas/AuthResponse'
         '401':
           description: Unauthorized (Invalid credentials).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
     delete:
       summary: Logout (Revoke Refresh Token).
       description: |
         Revokes the provided Refresh Token, effectively logging the user out of that session.
       tags: [Account]
+      security:
+        - bearerAuth: []
       requestBody:
         content:
           application/json:
@@ -72,6 +88,8 @@ paths:
       responses:
         '200':
           description: Session revoked.
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
 
   /v1/sessions/refresh:
     post:
@@ -84,11 +102,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [refreshToken]
-              properties:
-                refreshToken:
-                  type: string
+              $ref: '#/components/schemas/RefreshRequest'
       responses:
         '200':
           description: Tokens refreshed.
@@ -97,7 +111,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
         '401':
-          description: Unauthorized (Invalid or expired refresh token).
+          description: Invalid or expired refresh token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   # --- Keys (X3DH) ---
   /v1/keys:
@@ -126,9 +144,13 @@ paths:
         '200':
           description: Keys updated or takeover successful.
         '400':
-          description: Invalid key formats, invalid signature, pre-key limit exceeded, or missing registrationId for takeover.
+          description: Invalid key formats, invalid signature, or pre-key limit exceeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '401':
-          description: Unauthorized.
+          $ref: '#/components/responses/UnauthorizedError'
 
   /v1/keys/{userId}:
     get:
@@ -153,6 +175,10 @@ paths:
                 $ref: '#/components/schemas/PreKeyBundle'
         '404':
           description: User not found or no keys available.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   # --- Messaging (REST Upstream) ---
   /v1/messages/{recipientId}:
@@ -160,7 +186,7 @@ paths:
       summary: Send an encrypted message (Push).
       description: |
         Pushes an encrypted envelope to the target device's queue.
-        **Payload:** `OutgoingMessage` (Protobuf).
+        **Payload:** `EncryptedMessage` (Protobuf).
         The recipient will receive this via WebSocket.
       tags: [Messaging]
       security:
@@ -178,21 +204,29 @@ paths:
             schema:
               type: string
               format: binary
-              description: Serialized `OutgoingMessage` protobuf.
+              description: Serialized `EncryptedMessage` protobuf.
           application/octet-stream:
              schema:
               type: string
               format: binary
-              description: Serialized `OutgoingMessage` protobuf.
+              description: Serialized `EncryptedMessage` protobuf.
       responses:
         '201':
           description: Message queued.
         '400':
           description: Invalid Protobuf.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '401':
-          description: Unauthorized.
+          $ref: '#/components/responses/UnauthorizedError'
         '404':
           description: Recipient not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   # --- WebSocket Gateway (Documentation Only) ---
   /v1/gateway:
@@ -203,7 +237,7 @@ paths:
         Clients must connect here to receive messages.
         - **Protocol:** `WebSocketFrame` (Protobuf).
         - **Auth:** Pass the JWT in the query string: `ws://.../v1/gateway?token=<jwt>`.
-        - **Flow:** Server pushes `IncomingEnvelope`. Client responds with `AckMessage`. Server deletes message.
+        - **Flow:** Server pushes `Envelope`. Client responds with `AckMessage`. Server deletes message.
       tags: [Messaging]
       parameters:
         - name: token
@@ -251,8 +285,12 @@ paths:
                     description: UNIX timestamp of when the file will be deleted.
         '400':
           description: File too large.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '401':
-          description: Unauthorized.
+          $ref: '#/components/responses/UnauthorizedError'
 
   /v1/attachments/{id}:
     get:
@@ -276,9 +314,13 @@ paths:
                 type: string
                 format: binary
         '401':
-          description: Unauthorized.
+          $ref: '#/components/responses/UnauthorizedError'
         '404':
           description: Not found or expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
 components:
   securitySchemes:
@@ -287,7 +329,23 @@ components:
       scheme: bearer
       bearerFormat: JWT
 
+  responses:
+    UnauthorizedError:
+      description: Unauthorized (Invalid or missing token).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
   schemas:
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Semantic error message.
+
     AuthResponse:
       type: object
       required:
@@ -306,6 +364,13 @@ components:
           format: int64
           description: UNIX timestamp of access token expiration.
 
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+
     RegistrationRequest:
       type: object
       required:
@@ -322,6 +387,7 @@ components:
           type: string
         identityKey:
           type: string
+          format: byte
           description: Base64 encoded public identity key.
         registrationId:
           type: integer
@@ -340,6 +406,7 @@ components:
       properties:
         identityKey:
           type: string
+          format: byte
           description: Optional Base64 Identity Key. Triggers takeover if changed.
         registrationId:
           type: integer
@@ -376,9 +443,11 @@ components:
           type: integer
         publicKey:
           type: string
+          format: byte
           description: Base64 encoded public key
         signature:
           type: string
+          format: byte
           description: Base64 encoded signature
 
     OneTimePreKeyDto:
@@ -391,4 +460,5 @@ components:
           type: integer
         publicKey:
           type: string
+          format: byte
           description: Base64 encoded public key
