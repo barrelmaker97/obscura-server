@@ -47,9 +47,15 @@ pub fn verify_signature_with_montgomery(
         public_key_bytes.try_into().map_err(|_| AppError::BadRequest("Invalid public key length".into()))?;
     let mont_point = MontgomeryPoint(mont_bytes);
 
-    let signature = Signature::from_bytes(
-        signature_bytes.try_into().map_err(|_| AppError::BadRequest("Invalid signature length".into()))?,
-    );
+    // XEdDSA signatures (as used by Signal) store a sign bit in the 255th bit of 's'.
+    // Standard Ed25519 (and ed25519_dalek) expect 's' to be a canonical scalar < L.
+    // We must clear this bit before verification if we are using an Ed25519 library.
+    let mut signature_bytes_fixed: [u8; 64] = signature_bytes.try_into().map_err(|_| AppError::BadRequest("Invalid signature length".into()))?;
+    signature_bytes_fixed[63] &= 0x7F;
+
+    let signature = Signature::from_bytes(&signature_bytes_fixed);
+
+    tracing::debug!("verify_signature_with_montgomery: message_len={}, signature_len={}", message.len(), signature_bytes.len());
 
     // XEd25519 conversion has a sign ambiguity. One Montgomery point corresponds to two Edwards points (P and -P).
     // Try converting with sign 0 first (standard XEd25519).
@@ -128,5 +134,34 @@ mod tests {
         ik_pub_33.insert(0, 0x05);
         let res3 = verify_signature(&ik_pub_33, &spk_pub_32, &signature);
         assert!(res3.is_err(), "Case 3 failed: verify_signature should NOT accept 33-byte verifier keys implicitly");
+    }
+
+    #[test]
+    fn test_verify_signature_with_high_bit_set() {
+        use curve25519_dalek::edwards::CompressedEdwardsY;
+
+        // 1. Generate Identity Key (Verifier)
+        let mut ik_bytes = [0u8; 32];
+        OsRng.fill_bytes(&mut ik_bytes);
+        let identity_key = SigningKey::from_bytes(&ik_bytes);
+        let ik_pub_ed = identity_key.verifying_key().to_bytes();
+
+        // Convert Ed25519 Public Key (Edwards) -> X25519 Public Key (Montgomery)
+        let ed_point = CompressedEdwardsY(ik_pub_ed).decompress().unwrap();
+        let mont_point = ed_point.to_montgomery();
+        let ik_pub_x25519 = mont_point.to_bytes();
+
+        // 2. Generate Message
+        let message = b"test message";
+
+        // 3. Sign
+        let mut signature_bytes = identity_key.sign(message).to_bytes();
+
+        // 4. Force non-canonical by setting high bit (simulating XEdDSA)
+        signature_bytes[63] |= 0x80;
+
+        // 5. Verify using Montgomery path
+        let res = verify_signature_with_montgomery(&ik_pub_x25519, message, &signature_bytes);
+        assert!(res.is_ok(), "Should verify signature even with high bit set by clearing it internally");
     }
 }
