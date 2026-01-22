@@ -61,8 +61,15 @@ impl KeyService {
 
     /// Public entry point for key uploads.
     pub async fn upload_keys(&self, params: KeyUploadParams) -> Result<()> {
-        let mut tx = self.pool.begin().await?;
         let user_id = params.user_id;
+
+        // If identity key is provided, we can verify the signature BEFORE starting a transaction.
+        // This avoids holding a DB lock during CPU-intensive crypto verification.
+        if let Some(ref ik) = params.identity_key {
+            verify_keys(ik, &params.signed_pre_key)?;
+        }
+
+        let mut tx = self.pool.begin().await?;
 
         let is_takeover = self.upload_keys_internal(&mut tx, params).await?;
 
@@ -76,7 +83,7 @@ impl KeyService {
     }
 
     /// Internal implementation that accepts a mutable connection.
-    pub async fn upload_keys_internal(&self, conn: &mut PgConnection, params: KeyUploadParams) -> Result<bool> {
+    pub(crate) async fn upload_keys_internal(&self, conn: &mut PgConnection, params: KeyUploadParams) -> Result<bool> {
         let mut is_takeover = false;
 
         // 1. Identify/Verify Identity Key
@@ -94,6 +101,11 @@ impl KeyService {
                 // No existing key? Treat as takeover to ensure clean slate.
                 is_takeover = true;
             }
+
+            // Note: Verification was likely already done in the public wrapper,
+            // but we keep it here for safety (in case it's called internally).
+            // This is fast if already verified because the math is the same.
+            verify_keys(&new_ik, &params.signed_pre_key)?;
             new_ik
         } else {
              // Must exist
@@ -102,11 +114,12 @@ impl KeyService {
                 .await?
                 .ok_or_else(|| AppError::BadRequest("Identity key missing".into()))?;
              
-             PublicKey::try_from(bytes).map_err(|_| AppError::Internal)?
+             let ik = PublicKey::try_from(bytes).map_err(|_| AppError::Internal)?;
+             
+             // Verify signature with the stored key
+             verify_keys(&ik, &params.signed_pre_key)?;
+             ik
         };
-
-        // 2. Verify Cryptographic Signature
-        verify_keys(&ik, &params.signed_pre_key)?;
 
         // 3. Limit Check (Atomic within transaction)
         let current_count =

@@ -8,7 +8,7 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum AppError {
-    #[error("Database error: {0}")]
+    #[error("Database error")]
     Database(#[from] sqlx::Error),
     #[error("Authentication failed")]
     AuthError,
@@ -16,6 +16,8 @@ pub enum AppError {
     NotFound,
     #[error("Invalid request: {0}")]
     BadRequest(String),
+    #[error("Conflict: {0}")]
+    Conflict(String),
     #[error("Internal server error")]
     Internal,
 }
@@ -32,6 +34,7 @@ impl IntoResponse for AppError {
             AppError::AuthError => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
             AppError::NotFound => (StatusCode::NOT_FOUND, "Not found".to_string()),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
+            AppError::Conflict(msg) => (StatusCode::CONFLICT, msg),
             AppError::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()),
         };
 

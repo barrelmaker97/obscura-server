@@ -28,7 +28,7 @@ pub struct InMemoryNotifier {
 }
 
 impl InMemoryNotifier {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: Config, mut shutdown: tokio::sync::watch::Receiver<bool>) -> Self {
         let channels = std::sync::Arc::new(DashMap::new());
         let map_ref = channels.clone();
         let interval_secs = config.notifications.gc_interval_secs;
@@ -37,9 +37,15 @@ impl InMemoryNotifier {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
             loop {
-                interval.tick().await;
-                // Atomic cleanup: Remove entries with 0 receivers
-                map_ref.retain(|_, sender: &mut broadcast::Sender<UserEvent>| sender.receiver_count() > 0);
+                tokio::select! {
+                    _ = interval.tick() => {
+                        // Atomic cleanup: Remove entries with 0 receivers
+                        map_ref.retain(|_, sender: &mut broadcast::Sender<UserEvent>| sender.receiver_count() > 0);
+                    }
+                    _ = shutdown.changed() => {
+                        break;
+                    }
+                }
             }
         });
 
@@ -125,7 +131,8 @@ mod tests {
     #[tokio::test]
     async fn test_notifier_gc_cleans_up_unused_channels() {
         let config = test_config(1, 16);
-        let notifier = InMemoryNotifier::new(config);
+        let (_tx, rx) = tokio::sync::watch::channel(false);
+        let notifier = InMemoryNotifier::new(config, rx);
         let user_id = Uuid::new_v4();
 
         // 2. Subscribe (creates entry)
@@ -149,7 +156,8 @@ mod tests {
     #[tokio::test]
     async fn test_notifier_gc_keeps_active_channels() {
         let config = test_config(1, 16);
-        let notifier = InMemoryNotifier::new(config);
+        let (_tx, rx) = tokio::sync::watch::channel(false);
+        let notifier = InMemoryNotifier::new(config, rx);
         let user_id = Uuid::new_v4();
 
         // Subscribe and KEEP the receiver

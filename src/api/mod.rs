@@ -1,19 +1,18 @@
+use crate::api::rate_limit::{IpKeyExtractor, log_rate_limit_events};
 use crate::config::Config;
+use crate::core::account_service::AccountService;
+use crate::core::attachment_service::AttachmentService;
 use crate::core::key_service::KeyService;
+use crate::core::message_service::MessageService;
 use crate::core::notification::Notifier;
 use crate::storage::{DbPool, key_repo::KeyRepository, message_repo::MessageRepository};
 use axum::{
     Router,
-    body::Body,
-    extract::State,
-    http::{Request, StatusCode},
-    middleware::{Next, from_fn_with_state},
-    response::Response,
+    middleware::from_fn_with_state,
     routing::{get, post},
 };
 use std::sync::Arc;
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
-use tracing::warn;
 
 pub mod attachments;
 pub mod auth;
@@ -29,18 +28,24 @@ pub struct AppState {
     pub pool: DbPool,
     pub config: Config,
     pub notifier: Arc<dyn Notifier>,
-    pub extractor: rate_limit::IpKeyExtractor,
+    pub extractor: IpKeyExtractor,
     pub s3_client: aws_sdk_s3::Client,
     pub key_service: KeyService,
+    pub attachment_service: AttachmentService,
+    pub account_service: AccountService,
+    pub message_service: MessageService,
 }
 
 pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_client: aws_sdk_s3::Client) -> Router {
-    let extractor = rate_limit::IpKeyExtractor::new(config.server.trusted_proxies.clone());
+    let extractor = IpKeyExtractor::new(config.server.trusted_proxies.clone());
 
     // Initialize Services
     let key_repo = KeyRepository::new(pool.clone());
     let message_repo = MessageRepository::new(pool.clone());
-    let key_service = KeyService::new(pool.clone(), key_repo, message_repo, notifier.clone(), config.clone());
+    let key_service = KeyService::new(pool.clone(), key_repo, message_repo.clone(), notifier.clone(), config.clone());
+    let attachment_service = AttachmentService::new(pool.clone(), s3_client.clone(), config.clone());
+    let account_service = AccountService::new(pool.clone(), config.clone(), key_service.clone());
+    let message_service = MessageService::new(message_repo.clone(), notifier.clone(), config.clone());
 
     // Standard Tier: For general API usage
     let std_interval_ns = 1_000_000_000 / config.rate_limit.per_second.max(1);
@@ -64,7 +69,17 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_
             .unwrap(),
     );
 
-    let state = AppState { pool, config, notifier, extractor, s3_client, key_service };
+    let state = AppState {
+        pool,
+        config,
+        notifier,
+        extractor,
+        s3_client,
+        key_service,
+        attachment_service,
+        account_service,
+        message_service,
+    };
 
     // Sensitive routes with strict limits
     let auth_routes = Router::new()
@@ -89,33 +104,4 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_
         .nest("/v1", auth_routes.merge(api_routes))
         .layer(from_fn_with_state(state.clone(), log_rate_limit_events))
         .with_state(state)
-}
-
-async fn log_rate_limit_events(State(state): State<AppState>, req: Request<Body>, next: Next) -> Response {
-    let method = req.method().clone();
-
-    // We must extract information BEFORE calling next.run(req), as that consumes the request.
-    let path = req.uri().path().to_string();
-    let headers = req.headers().clone();
-    let peer_addr = req.extensions().get::<axum::extract::ConnectInfo<std::net::SocketAddr>>().map(|info| info.0.ip());
-
-    let mut response = next.run(req).await;
-
-    if response.status() == StatusCode::TOO_MANY_REQUESTS {
-        // Use the exact same secure logic as the rate limiter to identify the client IP.
-        let ip = peer_addr
-            .map(|addr| state.extractor.identify_client_ip(&headers, addr).to_string())
-            .unwrap_or_else(|| "unknown".into());
-
-        warn!("Rate limit hit: client_ip={}, method={}, path={}", ip, method, path);
-
-        // Map the internal x-ratelimit-after to the standard Retry-After header
-        // for better compatibility with standard HTTP clients.
-        if let Some(after) = response.headers().get("x-ratelimit-after") {
-            let after = after.clone();
-            response.headers_mut().insert("retry-after", after);
-        }
-    }
-
-    response
 }

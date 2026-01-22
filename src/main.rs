@@ -1,6 +1,7 @@
 use obscura_server::{api, config::Config, core::notification::InMemoryNotifier, storage};
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::sync::watch;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -18,15 +19,21 @@ async fn main() -> anyhow::Result<()> {
     // Run migrations
     tracing::info!("Running migrations...");
     sqlx::migrate!().run(&pool).await?;
-    tracing::info!("Migrations complete.");
+    // Shutdown signaling
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+
+    let notifier = Arc::new(InMemoryNotifier::new(config.clone(), shutdown_rx.clone()));
 
     // Start background tasks
     let message_service = obscura_server::core::message_service::MessageService::new(
         obscura_server::storage::message_repo::MessageRepository::new(pool.clone()),
+        notifier.clone(),
         config.clone(),
     );
-    tokio::spawn(async move {
-        message_service.run_cleanup_loop().await;
+    let message_cleanup = message_service.clone();
+    let message_cleanup_rx = shutdown_rx.clone();
+    let message_task = tokio::spawn(async move {
+        message_cleanup.run_cleanup_loop(message_cleanup_rx).await;
     });
 
     // S3 Setup
@@ -46,16 +53,17 @@ async fn main() -> anyhow::Result<()> {
     let s3_config_builder = aws_sdk_s3::config::Builder::from(&sdk_config).force_path_style(config.s3.force_path_style);
     let s3_client = aws_sdk_s3::Client::from_conf(s3_config_builder.build());
 
-    let attachment_service = obscura_server::core::attachment_service::AttachmentCleanupService::new(
+    let attachment_service = obscura_server::core::attachment_service::AttachmentService::new(
         pool.clone(),
         s3_client.clone(),
         config.clone(),
     );
-    tokio::spawn(async move {
-        attachment_service.run_cleanup_loop().await;
+    let cleanup_service = attachment_service.clone();
+    let attachment_cleanup_rx = shutdown_rx.clone();
+    let attachment_task = tokio::spawn(async move {
+        cleanup_service.run_cleanup_loop(attachment_cleanup_rx).await;
     });
 
-    let notifier = Arc::new(InMemoryNotifier::new(config.clone()));
     let app = api::app_router(pool, config.clone(), notifier, s3_client);
 
     let addr_str = format!("{}:{}", config.server.host, config.server.port);
@@ -66,6 +74,22 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
         .with_graceful_shutdown(shutdown_signal())
         .await?;
+
+    // Signal background tasks to shut down
+    tracing::info!("Signaling background tasks to shut down...");
+    let _ = shutdown_tx.send(true);
+
+    // Wait for tasks to finish (with timeout)
+    tokio::select! {
+        _ = async {
+            let _ = tokio::join!(message_task, attachment_task);
+        } => {
+            tracing::info!("Background tasks finished.");
+        }
+        _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
+            tracing::warn!("Timeout waiting for background tasks to finish.");
+        }
+    }
 
     Ok(())
 }

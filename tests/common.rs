@@ -135,7 +135,14 @@ impl TestApp {
 
     pub async fn spawn_with_config(config: Config) -> Self {
         let pool = get_test_pool().await;
-        let notifier = Arc::new(InMemoryNotifier::new(config.clone()));
+        let mut config = config;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        config.server.port = addr.port();
+
+        let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        let notifier = Arc::new(InMemoryNotifier::new(config.clone(), shutdown_rx));
 
         let region_provider = aws_config::Region::new(config.s3.region.clone());
         let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider);
@@ -156,8 +163,6 @@ impl TestApp {
 
         let app = app_router(pool.clone(), config.clone(), notifier, s3_client.clone());
 
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
         let server_url = format!("http://{}", addr);
         let ws_url = format!("ws://{}/v1/gateway", addr);
 

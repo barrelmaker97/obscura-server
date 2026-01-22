@@ -1,3 +1,4 @@
+pub mod account_service;
 pub mod attachment_service;
 pub mod auth;
 pub mod crypto_types;
