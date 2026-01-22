@@ -24,15 +24,23 @@ pub struct AccountService {
     config: Config,
     key_service: KeyService,
     user_repo: UserRepository,
+    refresh_repo: RefreshTokenRepository,
 }
 
 impl AccountService {
-    pub fn new(pool: DbPool, config: Config, key_service: KeyService) -> Self {
+    pub fn new(
+        pool: DbPool,
+        config: Config,
+        key_service: KeyService,
+        user_repo: UserRepository,
+        refresh_repo: RefreshTokenRepository,
+    ) -> Self {
         Self {
             pool,
             config,
             key_service,
-            user_repo: UserRepository::new(),
+            user_repo,
+            refresh_repo,
         }
     }
 
@@ -45,8 +53,6 @@ impl AccountService {
         signed_pre_key: SignedPreKey,
         one_time_pre_keys: Vec<OneTimePreKey>,
     ) -> Result<AuthResponse> {
-        let refresh_repo = RefreshTokenRepository::new(self.pool.clone());
-
         let password_hash: Result<String> = tokio::task::spawn_blocking(move || auth::hash_password(&password))
             .await
             .map_err(|_| AppError::Internal)?;
@@ -78,7 +84,7 @@ impl AccountService {
         let refresh_token = auth::generate_opaque_token();
         let refresh_hash = auth::hash_token(&refresh_token);
 
-        refresh_repo.create(&mut tx, user.id, &refresh_hash, self.config.auth.refresh_token_ttl_days).await?;
+        self.refresh_repo.create(&mut tx, user.id, &refresh_hash, self.config.auth.refresh_token_ttl_days).await?;
 
         tx.commit().await?;
 
@@ -90,8 +96,6 @@ impl AccountService {
     }
 
     pub async fn login(&self, username: String, password: String) -> Result<AuthResponse> {
-        let refresh_repo = RefreshTokenRepository::new(self.pool.clone());
-
         let user = self.user_repo
             .find_by_username(&self.pool, &username)
             .await?
@@ -114,7 +118,7 @@ impl AccountService {
         let refresh_hash = auth::hash_token(&refresh_token);
 
         let mut tx = self.pool.begin().await?;
-        refresh_repo.create(&mut tx, user.id, &refresh_hash, self.config.auth.refresh_token_ttl_days).await?;
+        self.refresh_repo.create(&mut tx, user.id, &refresh_hash, self.config.auth.refresh_token_ttl_days).await?;
         tx.commit().await?;
 
         let expires_at = (time::OffsetDateTime::now_utc()
@@ -125,15 +129,13 @@ impl AccountService {
     }
 
     pub async fn refresh(&self, refresh_token: String) -> Result<AuthResponse> {
-        let refresh_repo = RefreshTokenRepository::new(self.pool.clone());
-
         // 1. Hash the incoming token to look it up
         let hash = auth::hash_token(&refresh_token);
 
         // 2. Verify and Rotate (Atomic Transaction)
         let mut tx = self.pool.begin().await?;
 
-        let user_id = refresh_repo.verify_and_consume(&mut tx, &hash).await?.ok_or(AppError::AuthError)?;
+        let user_id = self.refresh_repo.verify_and_consume(&mut tx, &hash).await?.ok_or(AppError::AuthError)?;
 
         // 3. Generate New Pair
         let new_access_token = create_jwt(user_id, &self.config.auth.jwt_secret, self.config.auth.access_token_ttl_secs)?;
@@ -141,7 +143,7 @@ impl AccountService {
         let new_refresh_hash = auth::hash_token(&new_refresh_token);
 
         // 4. Store New Refresh Token
-        refresh_repo.create(&mut tx, user_id, &new_refresh_hash, self.config.auth.refresh_token_ttl_days).await?;
+        self.refresh_repo.create(&mut tx, user_id, &new_refresh_hash, self.config.auth.refresh_token_ttl_days).await?;
 
         tx.commit().await?;
 
@@ -153,10 +155,9 @@ impl AccountService {
     }
 
     pub async fn logout(&self, user_id: Uuid, refresh_token: String) -> Result<()> {
-        let refresh_repo = RefreshTokenRepository::new(self.pool.clone());
         let hash = auth::hash_token(&refresh_token);
 
-        refresh_repo.delete_owned(&hash, user_id).await?;
+        self.refresh_repo.delete_owned(&hash, user_id).await?;
 
         Ok(())
     }

@@ -1,11 +1,10 @@
 use crate::config::Config;
 use crate::error::{AppError, Result};
-use crate::storage::DbPool;
+use crate::storage::attachment_repo::AttachmentRepository;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::primitives::ByteStream;
 use axum::body::{Body, Bytes};
 use http_body_util::{BodyExt, LengthLimitError, Limited};
-use sqlx::Row;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
@@ -43,14 +42,14 @@ impl http_body::Body for SyncBody {
 
 #[derive(Clone)]
 pub struct AttachmentService {
-    pool: DbPool,
+    repo: AttachmentRepository,
     s3_client: Client,
     config: Config,
 }
 
 impl AttachmentService {
-    pub fn new(pool: DbPool, s3_client: Client, config: Config) -> Self {
-        Self { pool, s3_client, config }
+    pub fn new(repo: AttachmentRepository, s3_client: Client, config: Config) -> Self {
+        Self { repo, s3_client, config }
     }
 
     pub async fn upload(&self, content_len: Option<usize>, body: Body) -> Result<(Uuid, i64)> {
@@ -115,26 +114,15 @@ impl AttachmentService {
 
         // 3. Record Metadata
         let expires_at = OffsetDateTime::now_utc() + Duration::days(self.config.ttl_days);
-
-        sqlx::query("INSERT INTO attachments (id, expires_at) VALUES ($1, $2)")
-            .bind(id)
-            .bind(expires_at)
-            .execute(&self.pool)
-            .await?;
+        self.repo.create(id, expires_at).await?;
 
         Ok((id, expires_at.unix_timestamp()))
     }
 
     pub async fn download(&self, id: Uuid) -> Result<(u64, ByteStream)> {
         // 1. Check Existence & Expiry
-        let row = sqlx::query("SELECT expires_at FROM attachments WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&self.pool)
-            .await?;
-
-        match row {
-            Some(r) => {
-                let expires_at: OffsetDateTime = r.get("expires_at");
+        match self.repo.get_expires_at(id).await? {
+            Some(expires_at) => {
                 if expires_at < OffsetDateTime::now_utc() {
                     return Err(AppError::NotFound);
                 }
@@ -185,18 +173,15 @@ impl AttachmentService {
     async fn cleanup_batch(&self) -> anyhow::Result<()> {
         loop {
             // Fetch expired attachments (Limit 100 per cycle to avoid blocking)
-            let rows = sqlx::query("SELECT id FROM attachments WHERE expires_at < NOW() LIMIT 100")
-                .fetch_all(&self.pool)
-                .await?;
+            let ids = self.repo.fetch_expired(100).await?;
 
-            if rows.is_empty() {
+            if ids.is_empty() {
                 break;
             }
 
-            tracing::info!("Found {} expired attachments to delete", rows.len());
+            tracing::info!("Found {} expired attachments to delete", ids.len());
 
-            for row in rows {
-                let id: uuid::Uuid = row.get("id");
+            for id in ids {
                 let key = id.to_string();
 
                 // 1. Delete from S3
@@ -215,7 +200,7 @@ impl AttachmentService {
                 }
 
                 // 2. Delete from DB
-                sqlx::query("DELETE FROM attachments WHERE id = $1").bind(id).execute(&self.pool).await?;
+                self.repo.delete(id).await?;
             }
         }
         Ok(())

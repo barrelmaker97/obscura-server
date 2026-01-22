@@ -8,7 +8,7 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum AppError {
-    #[error("Database error")]
+    #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
     #[error("Authentication failed")]
     AuthError,

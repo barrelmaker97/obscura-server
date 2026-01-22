@@ -54,7 +54,7 @@ async fn main() -> anyhow::Result<()> {
     let s3_client = aws_sdk_s3::Client::from_conf(s3_config_builder.build());
 
     let attachment_service = obscura_server::core::attachment_service::AttachmentService::new(
-        pool.clone(),
+        obscura_server::storage::attachment_repo::AttachmentRepository::new(pool.clone()),
         s3_client.clone(),
         config.clone(),
     );

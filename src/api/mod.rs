@@ -5,7 +5,14 @@ use crate::core::attachment_service::AttachmentService;
 use crate::core::key_service::KeyService;
 use crate::core::message_service::MessageService;
 use crate::core::notification::Notifier;
-use crate::storage::{DbPool, key_repo::KeyRepository, message_repo::MessageRepository};
+use crate::storage::{
+    DbPool,
+    attachment_repo::AttachmentRepository,
+    key_repo::KeyRepository,
+    message_repo::MessageRepository,
+    refresh_token_repo::RefreshTokenRepository,
+    user_repo::UserRepository,
+};
 use axum::{
     Router,
     middleware::from_fn_with_state,
@@ -39,12 +46,17 @@ pub struct AppState {
 pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_client: aws_sdk_s3::Client) -> Router {
     let extractor = IpKeyExtractor::new(config.server.trusted_proxies.clone());
 
-    // Initialize Services
+    // Initialize Repositories
     let key_repo = KeyRepository::new(pool.clone());
     let message_repo = MessageRepository::new(pool.clone());
+    let user_repo = UserRepository::new();
+    let refresh_repo = RefreshTokenRepository::new(pool.clone());
+    let attachment_repo = AttachmentRepository::new(pool.clone());
+
+    // Initialize Services
     let key_service = KeyService::new(pool.clone(), key_repo, message_repo.clone(), notifier.clone(), config.clone());
-    let attachment_service = AttachmentService::new(pool.clone(), s3_client.clone(), config.clone());
-    let account_service = AccountService::new(pool.clone(), config.clone(), key_service.clone());
+    let attachment_service = AttachmentService::new(attachment_repo, s3_client.clone(), config.clone());
+    let account_service = AccountService::new(pool.clone(), config.clone(), key_service.clone(), user_repo, refresh_repo);
     let message_service = MessageService::new(message_repo.clone(), notifier.clone(), config.clone());
 
     // Standard Tier: For general API usage
