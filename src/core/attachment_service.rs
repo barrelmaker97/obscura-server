@@ -135,16 +135,10 @@ impl AttachmentService {
 
         // 2. Stream from S3
         let key = id.to_string();
-        let output = self.s3_client
-            .get_object()
-            .bucket(&self.config.bucket)
-            .key(&key)
-            .send()
-            .await
-            .map_err(|e| {
-                tracing::error!("S3 Download failed for {}: {:?}", key, e);
-                AppError::NotFound
-            })?;
+        let output = self.s3_client.get_object().bucket(&self.config.bucket).key(&key).send().await.map_err(|e| {
+            tracing::error!("S3 Download failed for {}: {:?}", key, e);
+            AppError::NotFound
+        })?;
 
         let content_length = output.content_length.unwrap_or(0);
         Ok((content_length as u64, output.body))

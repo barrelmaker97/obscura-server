@@ -105,7 +105,11 @@ impl KeyRepository {
         Ok(())
     }
 
-    pub async fn fetch_pre_key_bundle(&self, executor: &mut PgConnection, user_id: Uuid) -> Result<Option<PreKeyBundle>> {
+    pub async fn fetch_pre_key_bundle(
+        &self,
+        executor: &mut PgConnection,
+        user_id: Uuid,
+    ) -> Result<Option<PreKeyBundle>> {
         // Fetch identity and signed pre key
         let identity_row = sqlx::query(
             r#"
@@ -123,8 +127,7 @@ impl KeyRepository {
         let registration_id: i32 = identity_row.get("registration_id");
 
         // Convert Identity Key
-        let identity_key = PublicKey::try_from(identity_key_bytes)
-            .map_err(|_| AppError::Internal)?;
+        let identity_key = PublicKey::try_from(identity_key_bytes).map_err(|_| AppError::Internal)?;
 
         let signed_row = sqlx::query(
             r#"
@@ -145,11 +148,7 @@ impl KeyRepository {
         let pk = PublicKey::try_from(pk_bytes).map_err(|_| AppError::Internal)?;
         let sig = Signature::try_from(sig_bytes).map_err(|_| AppError::Internal)?;
 
-        let signed_pre_key = SignedPreKey {
-            key_id: signed_row.get("id"),
-            public_key: pk,
-            signature: sig,
-        };
+        let signed_pre_key = SignedPreKey { key_id: signed_row.get("id"), public_key: pk, signature: sig };
 
         // Fetch one one-time pre key and delete it
         let otpk_row = sqlx::query(
@@ -169,10 +168,7 @@ impl KeyRepository {
             Some(row) => {
                 let pk_bytes: Vec<u8> = row.get("public_key");
                 let pk = PublicKey::try_from(pk_bytes).map_err(|_| AppError::Internal)?;
-                Some(OneTimePreKey {
-                    key_id: row.get("id"),
-                    public_key: pk,
-                })
+                Some(OneTimePreKey { key_id: row.get("id"), public_key: pk })
             }
             None => None,
         };

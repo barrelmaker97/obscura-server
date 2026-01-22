@@ -13,10 +13,10 @@ use axum::{
 use futures::{SinkExt, StreamExt};
 use prost::Message as ProstMessage;
 use serde::Deserialize;
-use tokio::sync::{mpsc, broadcast};
+use std::sync::Arc;
+use tokio::sync::{broadcast, mpsc};
 use tracing::{error, warn};
 use uuid::Uuid;
-use std::sync::Arc;
 
 #[derive(Deserialize)]
 pub struct WsParams {
@@ -44,7 +44,13 @@ struct GatewaySession {
 }
 
 impl GatewaySession {
-    fn new(user_id: Uuid, state: &AppState, outbound_tx: mpsc::Sender<WsMessage>, fetch_trigger: mpsc::Sender<()>, ack_tx: mpsc::Sender<Uuid>) -> Self {
+    fn new(
+        user_id: Uuid,
+        state: &AppState,
+        outbound_tx: mpsc::Sender<WsMessage>,
+        fetch_trigger: mpsc::Sender<()>,
+        ack_tx: mpsc::Sender<Uuid>,
+    ) -> Self {
         Self {
             user_id,
             message_service: state.message_service.clone(),
@@ -104,11 +110,7 @@ impl GatewaySession {
         }
     }
 
-    async fn flush_messages(
-        &self,
-        limit: i64,
-        cursor: &mut Option<(time::OffsetDateTime, Uuid)>,
-    ) -> bool {
+    async fn flush_messages(&self, limit: i64, cursor: &mut Option<(time::OffsetDateTime, Uuid)>) -> bool {
         loop {
             match self.message_service.fetch_pending_batch(self.user_id, *cursor, limit).await {
                 Ok(messages) => {
@@ -125,10 +127,10 @@ impl GatewaySession {
                     }
 
                     for msg in messages {
-                        let timestamp = msg
-                            .created_at
-                            .map(|ts| (ts.unix_timestamp_nanos() / 1_000_000) as u64)
-                            .unwrap_or_else(|| (time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000) as u64);
+                        let timestamp =
+                            msg.created_at.map(|ts| (ts.unix_timestamp_nanos() / 1_000_000) as u64).unwrap_or_else(
+                                || (time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000) as u64,
+                            );
 
                         let envelope = Envelope {
                             id: msg.id.to_string(),
@@ -140,7 +142,9 @@ impl GatewaySession {
                         let frame = WebSocketFrame { payload: Some(Payload::Envelope(envelope)) };
 
                         let mut buf = Vec::new();
-                        if frame.encode(&mut buf).is_ok() && self.outbound_tx.send(WsMessage::Binary(buf.into())).await.is_err() {
+                        if frame.encode(&mut buf).is_ok()
+                            && self.outbound_tx.send(WsMessage::Binary(buf.into())).await.is_err()
+                        {
                             return false;
                         }
                     }
@@ -181,13 +185,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
     let (fetch_trigger, fetch_signal) = mpsc::channel(1);
     let (ack_tx, ack_rx) = mpsc::channel(state.config.websocket.ack_buffer_size);
 
-    let session = Arc::new(GatewaySession::new(
-        user_id,
-        &state,
-        outbound_tx,
-        fetch_trigger.clone(),
-        ack_tx.clone(),
-    ));
+    let session = Arc::new(GatewaySession::new(user_id, &state, outbound_tx, fetch_trigger.clone(), ack_tx.clone()));
 
     let poller_session = session.clone();
     let mut db_poller_task = tokio::spawn(async move {
@@ -245,7 +243,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
-                
+
                 // Drain any pending events
                 let mut disconnect_seen = false;
                 while let Ok(evt) = rx.try_recv() {

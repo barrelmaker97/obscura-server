@@ -18,10 +18,8 @@ pub async fn upload_attachment(
     headers: HeaderMap,
     body: Body,
 ) -> Result<impl IntoResponse> {
-    let content_len = headers
-        .get(header::CONTENT_LENGTH)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.parse::<usize>().ok());
+    let content_len =
+        headers.get(header::CONTENT_LENGTH).and_then(|v| v.to_str().ok()).and_then(|v| v.parse::<usize>().ok());
 
     let (id, expires_at) = state.attachment_service.upload(content_len, body).await?;
 

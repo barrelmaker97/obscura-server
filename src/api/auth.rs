@@ -64,18 +64,21 @@ pub async fn register(
         otpk_vec.push(OneTimePreKey { key_id: k.key_id, public_key: k.public_key });
     }
 
-    let auth_response = state.account_service.register(
-        payload.username,
-        payload.password,
-        payload.identity_key,
-        payload.registration_id,
-        SignedPreKey {
-            key_id: payload.signed_pre_key.key_id,
-            public_key: payload.signed_pre_key.public_key,
-            signature: payload.signed_pre_key.signature,
-        },
-        otpk_vec,
-    ).await?;
+    let auth_response = state
+        .account_service
+        .register(
+            payload.username,
+            payload.password,
+            payload.identity_key,
+            payload.registration_id,
+            SignedPreKey {
+                key_id: payload.signed_pre_key.key_id,
+                public_key: payload.signed_pre_key.public_key,
+                signature: payload.signed_pre_key.signature,
+            },
+            otpk_vec,
+        )
+        .await?;
 
     Ok((StatusCode::CREATED, Json(auth_response)))
 }

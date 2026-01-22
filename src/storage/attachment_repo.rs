@@ -27,10 +27,8 @@ impl AttachmentRepository {
     where
         E: Executor<'e, Database = Postgres>,
     {
-        let row = sqlx::query("SELECT expires_at FROM attachments WHERE id = $1")
-            .bind(id)
-            .fetch_optional(executor)
-            .await?;
+        let row =
+            sqlx::query("SELECT expires_at FROM attachments WHERE id = $1").bind(id).fetch_optional(executor).await?;
 
         Ok(row.map(|r| r.get("expires_at")))
     }

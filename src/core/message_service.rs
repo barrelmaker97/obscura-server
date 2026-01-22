@@ -1,9 +1,9 @@
 use crate::config::MessagingConfig;
+use crate::core::notification::{Notifier, UserEvent};
 use crate::error::{AppError, Result};
+use crate::proto::obscura::v1::EncryptedMessage;
 use crate::storage::DbPool;
 use crate::storage::message_repo::MessageRepository;
-use crate::core::notification::{Notifier, UserEvent};
-use crate::proto::obscura::v1::EncryptedMessage;
 use axum::body::Bytes;
 use prost::Message;
 use std::sync::Arc;
@@ -20,16 +20,17 @@ pub struct MessageService {
 }
 
 impl MessageService {
-    pub fn new(pool: DbPool, repo: MessageRepository, notifier: Arc<dyn Notifier>, config: MessagingConfig, ttl_days: i64) -> Self {
+    pub fn new(
+        pool: DbPool,
+        repo: MessageRepository,
+        notifier: Arc<dyn Notifier>,
+        config: MessagingConfig,
+        ttl_days: i64,
+    ) -> Self {
         Self { pool, repo, notifier, config, ttl_days }
     }
 
-    pub async fn send_message(
-        &self,
-        sender_id: Uuid,
-        recipient_id: Uuid,
-        body: Bytes,
-    ) -> Result<()> {
+    pub async fn send_message(&self, sender_id: Uuid, recipient_id: Uuid, body: Bytes) -> Result<()> {
         // 1. Decode the EncryptedMessage protobuf to get type and content
         let msg = EncryptedMessage::decode(body)
             .map_err(|_| AppError::BadRequest("Invalid EncryptedMessage protobuf".into()))?;

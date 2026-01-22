@@ -6,12 +6,8 @@ use crate::core::key_service::KeyService;
 use crate::core::message_service::MessageService;
 use crate::core::notification::Notifier;
 use crate::storage::{
-    DbPool,
-    attachment_repo::AttachmentRepository,
-    key_repo::KeyRepository,
-    message_repo::MessageRepository,
-    refresh_token_repo::RefreshTokenRepository,
-    user_repo::UserRepository,
+    DbPool, attachment_repo::AttachmentRepository, key_repo::KeyRepository, message_repo::MessageRepository,
+    refresh_token_repo::RefreshTokenRepository, user_repo::UserRepository,
 };
 use axum::{
     Router,
@@ -54,27 +50,12 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_
     let attachment_repo = AttachmentRepository::new();
 
     // Initialize Services
-    let key_service = KeyService::new(
-        pool.clone(),
-        key_repo,
-        message_repo.clone(),
-        notifier.clone(),
-        config.messaging.clone(),
-    );
-    let attachment_service = AttachmentService::new(
-        pool.clone(),
-        attachment_repo,
-        s3_client.clone(),
-        config.s3.clone(),
-        config.ttl_days,
-    );
-    let account_service = AccountService::new(
-        pool.clone(),
-        config.auth.clone(),
-        key_service.clone(),
-        user_repo,
-        refresh_repo,
-    );
+    let key_service =
+        KeyService::new(pool.clone(), key_repo, message_repo.clone(), notifier.clone(), config.messaging.clone());
+    let attachment_service =
+        AttachmentService::new(pool.clone(), attachment_repo, s3_client.clone(), config.s3.clone(), config.ttl_days);
+    let account_service =
+        AccountService::new(pool.clone(), config.auth.clone(), key_service.clone(), user_repo, refresh_repo);
     let message_service = MessageService::new(
         pool.clone(),
         message_repo.clone(),

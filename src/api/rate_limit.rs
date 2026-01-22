@@ -1,3 +1,4 @@
+use crate::api::AppState;
 use axum::body::Body;
 use axum::extract::{ConnectInfo, State};
 use axum::http::{Request, StatusCode};
@@ -8,7 +9,6 @@ use std::net::{IpAddr, SocketAddr};
 use tower_governor::GovernorError;
 use tower_governor::key_extractor::KeyExtractor;
 use tracing::warn;
-use crate::api::AppState;
 
 #[derive(Clone)]
 pub struct IpKeyExtractor {

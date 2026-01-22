@@ -93,9 +93,9 @@ impl KeyService {
             let existing_ik_bytes_opt = self.key_repo.fetch_identity_key_for_update(&mut *conn, params.user_id).await?;
 
             if let Some(existing_ik_bytes) = existing_ik_bytes_opt {
-                 // Compare bytes (new_ik.to_wire_bytes() vs existing DB bytes)
-                 let new_ik_bytes = new_ik.to_wire_bytes();
-                 if existing_ik_bytes != new_ik_bytes {
+                // Compare bytes (new_ik.to_wire_bytes() vs existing DB bytes)
+                let new_ik_bytes = new_ik.to_wire_bytes();
+                if existing_ik_bytes != new_ik_bytes {
                     is_takeover = true;
                 }
             } else {
@@ -109,17 +109,18 @@ impl KeyService {
             verify_keys(&new_ik, &params.signed_pre_key)?;
             new_ik
         } else {
-             // Must exist
-             let bytes = self.key_repo
+            // Must exist
+            let bytes = self
+                .key_repo
                 .fetch_identity_key_for_update(&mut *conn, params.user_id)
                 .await?
                 .ok_or_else(|| AppError::BadRequest("Identity key missing".into()))?;
-             
-             let ik = PublicKey::try_from(bytes).map_err(|_| AppError::Internal)?;
-             
-             // Verify signature with the stored key
-             verify_keys(&ik, &params.signed_pre_key)?;
-             ik
+
+            let ik = PublicKey::try_from(bytes).map_err(|_| AppError::Internal)?;
+
+            // Verify signature with the stored key
+            verify_keys(&ik, &params.signed_pre_key)?;
+            ik
         };
 
         // 3. Limit Check (Atomic within transaction)
@@ -129,10 +130,7 @@ impl KeyService {
         let new_keys_count = params.one_time_pre_keys.len() as i64;
 
         if current_count + new_keys_count > self.config.max_pre_keys {
-            return Err(AppError::BadRequest(format!(
-                "Too many pre-keys. Limit is {}",
-                self.config.max_pre_keys
-            )));
+            return Err(AppError::BadRequest(format!("Too many pre-keys. Limit is {}", self.config.max_pre_keys)));
         }
 
         // 4. Handle Takeover Cleanup
@@ -173,35 +171,42 @@ fn verify_keys(ik: &PublicKey, signed_pre_key: &SignedPreKey) -> Result<()> {
 
     // Verification Attempt Helper
     let try_verify = |verifier_ik: &[u8], is_montgomery: bool| -> bool {
-         // 1. Try full bytes
-         if is_montgomery {
-             if crate::core::auth::verify_signature_with_montgomery(verifier_ik, &spk_bytes_full, signature).is_ok() {
-                 return true;
-             }
-         } else if verify_signature(verifier_ik, &spk_bytes_full, signature).is_ok() {
-             return true;
-         }
+        // 1. Try full bytes
+        if is_montgomery {
+            if crate::core::auth::verify_signature_with_montgomery(verifier_ik, &spk_bytes_full, signature).is_ok() {
+                return true;
+            }
+        } else if verify_signature(verifier_ik, &spk_bytes_full, signature).is_ok() {
+            return true;
+        }
 
-         // 2. Try inner bytes (if different)
-         if spk_bytes_full.len() != spk_bytes_inner.len() {
-              if is_montgomery {
-                if crate::core::auth::verify_signature_with_montgomery(verifier_ik, &spk_bytes_inner, signature).is_ok() {
+        // 2. Try inner bytes (if different)
+        if spk_bytes_full.len() != spk_bytes_inner.len() {
+            if is_montgomery {
+                if crate::core::auth::verify_signature_with_montgomery(verifier_ik, &spk_bytes_inner, signature).is_ok()
+                {
                     return true;
                 }
-             } else if verify_signature(verifier_ik, &spk_bytes_inner, signature).is_ok() {
-                 return true;
-             }
-         }
-         false
+            } else if verify_signature(verifier_ik, &spk_bytes_inner, signature).is_ok() {
+                return true;
+            }
+        }
+        false
     };
 
     match ik {
         PublicKey::Edwards(bytes) => {
-             if try_verify(bytes, false) { return Ok(()); }
-        },
+            if try_verify(bytes, false) {
+                return Ok(());
+            }
+        }
         PublicKey::Montgomery(bytes) => {
-             if try_verify(bytes, true) { return Ok(()); }
-             if try_verify(bytes, false) { return Ok(()); }
+            if try_verify(bytes, true) {
+                return Ok(());
+            }
+            if try_verify(bytes, false) {
+                return Ok(());
+            }
         }
     }
 

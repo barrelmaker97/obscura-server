@@ -34,13 +34,7 @@ impl AccountService {
         user_repo: UserRepository,
         refresh_repo: RefreshTokenRepository,
     ) -> Self {
-        Self {
-            pool,
-            config,
-            key_service,
-            user_repo,
-            refresh_repo,
-        }
+        Self { pool, config, key_service, user_repo, refresh_repo }
     }
 
     pub async fn register(
@@ -95,16 +89,14 @@ impl AccountService {
     }
 
     pub async fn login(&self, username: String, password: String) -> Result<AuthResponse> {
-        let user = self.user_repo
-            .find_by_username(&self.pool, &username)
-            .await?
-            .ok_or(AppError::AuthError)?;
+        let user = self.user_repo.find_by_username(&self.pool, &username).await?.ok_or(AppError::AuthError)?;
 
         let password_hash = user.password_hash.clone();
 
-        let is_valid: Result<bool> = tokio::task::spawn_blocking(move || auth::verify_password(&password, &password_hash))
-            .await
-            .map_err(|_| AppError::Internal)?;
+        let is_valid: Result<bool> =
+            tokio::task::spawn_blocking(move || auth::verify_password(&password, &password_hash))
+                .await
+                .map_err(|_| AppError::Internal)?;
         let is_valid = is_valid?;
 
         if !is_valid {

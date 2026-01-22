@@ -67,11 +67,7 @@ pub fn verify_signature(public_key_bytes: &[u8], message: &[u8], signature_bytes
 }
 
 /// Verifies an Ed25519 signature using a Montgomery (Curve25519) public key by converting it.
-pub fn verify_signature_with_montgomery(
-    public_key_bytes: &[u8],
-    message: &[u8],
-    signature_bytes: &[u8],
-) -> Result<()> {
+pub fn verify_signature_with_montgomery(public_key_bytes: &[u8], message: &[u8], signature_bytes: &[u8]) -> Result<()> {
     let mont_bytes: [u8; 32] =
         public_key_bytes.try_into().map_err(|_| AppError::BadRequest("Invalid public key length".into()))?;
     let mont_point = MontgomeryPoint(mont_bytes);
@@ -79,12 +75,17 @@ pub fn verify_signature_with_montgomery(
     // XEdDSA signatures (as used by Signal) store a sign bit in the 255th bit of 's'.
     // Standard Ed25519 (and ed25519_dalek) expect 's' to be a canonical scalar < L.
     // We must clear this bit before verification if we are using an Ed25519 library.
-    let mut signature_bytes_fixed: [u8; 64] = signature_bytes.try_into().map_err(|_| AppError::BadRequest("Invalid signature length".into()))?;
+    let mut signature_bytes_fixed: [u8; 64] =
+        signature_bytes.try_into().map_err(|_| AppError::BadRequest("Invalid signature length".into()))?;
     signature_bytes_fixed[63] &= XEDDSA_SIGN_BIT_MASK;
 
     let signature = Signature::from_bytes(&signature_bytes_fixed);
 
-    tracing::debug!("verify_signature_with_montgomery: message_len={}, signature_len={}", message.len(), signature_bytes.len());
+    tracing::debug!(
+        "verify_signature_with_montgomery: message_len={}, signature_len={}",
+        message.len(),
+        signature_bytes.len()
+    );
 
     // XEd25519 conversion has a sign ambiguity. One Montgomery point corresponds to two Edwards points (P and -P).
     // Try converting with sign 0 first (standard XEd25519).

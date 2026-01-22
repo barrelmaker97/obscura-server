@@ -13,13 +13,7 @@ impl RefreshTokenRepository {
 
     /// Creates a new refresh token record.
     /// Note: We store the HASH, not the raw token.
-    pub async fn create<'e, E>(
-        &self,
-        executor: E,
-        user_id: Uuid,
-        token_hash: &str,
-        ttl_days: i64,
-    ) -> Result<()>
+    pub async fn create<'e, E>(&self, executor: E, user_id: Uuid, token_hash: &str, ttl_days: i64) -> Result<()>
     where
         E: Executor<'e, Database = Postgres>,
     {
@@ -40,11 +34,7 @@ impl RefreshTokenRepository {
     /// If valid: Returns the user_id and DELETES the token from the DB.
     /// If invalid/expired: Returns None.
     /// The caller MUST commit the transaction.
-    pub async fn verify_and_consume(
-        &self,
-        executor: &mut PgConnection,
-        token_hash: &str,
-    ) -> Result<Option<Uuid>> {
+    pub async fn verify_and_consume(&self, executor: &mut PgConnection, token_hash: &str) -> Result<Option<Uuid>> {
         #[derive(sqlx::FromRow)]
         struct TokenRecord {
             user_id: Uuid,
@@ -77,7 +67,10 @@ impl RefreshTokenRepository {
             }
 
             // 3. Delete (Consume)
-            sqlx::query("DELETE FROM refresh_tokens WHERE token_hash = $1").bind(token_hash).execute(&mut *executor).await?;
+            sqlx::query("DELETE FROM refresh_tokens WHERE token_hash = $1")
+                .bind(token_hash)
+                .execute(&mut *executor)
+                .await?;
 
             Ok(Some(record.user_id))
         } else {
