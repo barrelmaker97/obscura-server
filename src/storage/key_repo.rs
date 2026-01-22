@@ -1,6 +1,7 @@
+use crate::core::crypto_types::{PublicKey, Signature};
 use crate::core::user::{OneTimePreKey, PreKeyBundle, SignedPreKey};
-use crate::error::Result;
-use sqlx::{Executor, PgPool, Postgres, Row};
+use crate::error::{AppError, Result};
+use sqlx::{Executor, Row, PgPool, Postgres};
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -17,7 +18,7 @@ impl KeyRepository {
         &self,
         executor: E,
         user_id: Uuid,
-        identity_key: &[u8],
+        identity_key: &PublicKey,
         registration_id: i32,
     ) -> Result<()>
     where
@@ -32,7 +33,7 @@ impl KeyRepository {
             "#,
         )
         .bind(user_id)
-        .bind(identity_key)
+        .bind(identity_key.to_wire_bytes())
         .bind(registration_id)
         .execute(executor)
         .await?;
@@ -44,8 +45,8 @@ impl KeyRepository {
         executor: E,
         user_id: Uuid,
         key_id: i32,
-        public_key: &[u8],
-        signature: &[u8],
+        public_key: &PublicKey,
+        signature: &Signature,
     ) -> Result<()>
     where
         E: Executor<'e, Database = Postgres>,
@@ -60,8 +61,8 @@ impl KeyRepository {
         )
         .bind(user_id)
         .bind(key_id)
-        .bind(public_key)
-        .bind(signature)
+        .bind(public_key.to_wire_bytes())
+        .bind(signature.as_bytes())
         .execute(executor)
         .await?;
         Ok(())
@@ -71,7 +72,7 @@ impl KeyRepository {
         &self,
         executor: E,
         user_id: Uuid,
-        keys: &[(i32, Vec<u8>)],
+        keys: &[OneTimePreKey],
     ) -> Result<()>
     where
         E: Executor<'e, Database = Postgres>,
@@ -84,10 +85,10 @@ impl KeyRepository {
         let mut user_ids = Vec::with_capacity(keys.len());
         let mut pub_keys = Vec::with_capacity(keys.len());
 
-        for (id, key) in keys {
-            ids.push(*id);
+        for k in keys {
+            ids.push(k.key_id);
             user_ids.push(user_id);
-            pub_keys.push(key.clone());
+            pub_keys.push(k.public_key.to_wire_bytes());
         }
 
         sqlx::query(
@@ -120,8 +121,12 @@ impl KeyRepository {
         let Some(identity_row) = identity_row else {
             return Ok(None);
         };
-        let identity_key: Vec<u8> = identity_row.get("identity_key");
+        let identity_key_bytes: Vec<u8> = identity_row.get("identity_key");
         let registration_id: i32 = identity_row.get("registration_id");
+
+        // Convert Identity Key
+        let identity_key = PublicKey::try_from(identity_key_bytes)
+            .map_err(|_| AppError::Internal)?;
 
         let signed_row = sqlx::query(
             r#"
@@ -136,10 +141,16 @@ impl KeyRepository {
         let Some(signed_row) = signed_row else {
             return Ok(None);
         };
+        let pk_bytes: Vec<u8> = signed_row.get("public_key");
+        let sig_bytes: Vec<u8> = signed_row.get("signature");
+
+        let pk = PublicKey::try_from(pk_bytes).map_err(|_| AppError::Internal)?;
+        let sig = Signature::try_from(sig_bytes).map_err(|_| AppError::Internal)?;
+
         let signed_pre_key = SignedPreKey {
             key_id: signed_row.get("id"),
-            public_key: signed_row.get("public_key"),
-            signature: signed_row.get("signature"),
+            public_key: pk,
+            signature: sig,
         };
 
         // Fetch one one-time pre key and delete it
@@ -156,8 +167,17 @@ impl KeyRepository {
         .fetch_optional(&self.pool)
         .await?;
 
-        let one_time_pre_key =
-            otpk_row.map(|row| OneTimePreKey { key_id: row.get("id"), public_key: row.get("public_key") });
+        let one_time_pre_key = match otpk_row {
+            Some(row) => {
+                let pk_bytes: Vec<u8> = row.get("public_key");
+                let pk = PublicKey::try_from(pk_bytes).map_err(|_| AppError::Internal)?;
+                Some(OneTimePreKey {
+                    key_id: row.get("id"),
+                    public_key: pk,
+                })
+            }
+            None => None,
+        };
 
         Ok(Some(PreKeyBundle { registration_id, identity_key, signed_pre_key, one_time_pre_key }))
     }
