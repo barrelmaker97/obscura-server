@@ -96,10 +96,10 @@ impl GatewaySession {
                 }
             }
 
-            if !batch.is_empty() {
-                if let Err(e) = self.message_service.delete_batch(&batch).await {
-                    error!("Failed to process ACK batch for user {}: {}", self.user_id, e);
-                }
+            if !batch.is_empty()
+                && let Err(e) = self.message_service.delete_batch(&batch).await
+            {
+                error!("Failed to process ACK batch for user {}: {}", self.user_id, e);
             }
         }
     }
@@ -210,10 +210,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
                     Some(Ok(WsMessage::Binary(bin))) => {
                          if let Ok(frame) = WebSocketFrame::decode(bin.as_ref())
                              && let Some(Payload::Ack(ack)) = frame.payload
-                             && let Ok(msg_id) = Uuid::parse_str(&ack.message_id) {
-                                 if ack_tx.try_send(msg_id).is_err() {
-                                     warn!("Dropped ACK for message {} due to full buffer", msg_id);
-                                 }
+                             && let Ok(msg_id) = Uuid::parse_str(&ack.message_id)
+                             && ack_tx.try_send(msg_id).is_err()
+                         {
+                             warn!("Dropped ACK for message {} due to full buffer", msg_id);
                          }
                     }
                     Some(Ok(WsMessage::Close(_))) => break,

@@ -57,10 +57,10 @@ impl AttachmentService {
 
     pub async fn upload(&self, content_len: Option<usize>, body: Body) -> Result<(Uuid, i64)> {
         // 1. Check Content-Length (Early rejection)
-        if let Some(len) = content_len {
-            if len > self.config.attachment_max_size_bytes {
-                return Err(AppError::BadRequest("Attachment too large".into()));
-            }
+        if let Some(len) = content_len
+            && len > self.config.attachment_max_size_bytes
+        {
+            return Err(AppError::BadRequest("Attachment too large".into()));
         }
 
         let id = Uuid::new_v4();

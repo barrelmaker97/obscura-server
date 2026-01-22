@@ -178,10 +178,8 @@ fn verify_keys(ik: &PublicKey, signed_pre_key: &SignedPreKey) -> Result<()> {
              if crate::core::auth::verify_signature_with_montgomery(verifier_ik, &spk_bytes_full, signature).is_ok() {
                  return true;
              }
-         } else {
-             if verify_signature(verifier_ik, &spk_bytes_full, signature).is_ok() {
-                 return true;
-             }
+         } else if verify_signature(verifier_ik, &spk_bytes_full, signature).is_ok() {
+             return true;
          }
 
          // 2. Try inner bytes (if different)
@@ -190,10 +188,8 @@ fn verify_keys(ik: &PublicKey, signed_pre_key: &SignedPreKey) -> Result<()> {
                 if crate::core::auth::verify_signature_with_montgomery(verifier_ik, &spk_bytes_inner, signature).is_ok() {
                     return true;
                 }
-             } else {
-                 if verify_signature(verifier_ik, &spk_bytes_inner, signature).is_ok() {
-                     return true;
-                 }
+             } else if verify_signature(verifier_ik, &spk_bytes_inner, signature).is_ok() {
+                 return true;
              }
          }
          false

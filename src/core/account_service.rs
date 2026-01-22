@@ -134,7 +134,7 @@ impl AccountService {
         // 2. Verify and Rotate (Atomic Transaction)
         let mut tx = self.pool.begin().await?;
 
-        let user_id = self.refresh_repo.verify_and_consume(&mut *tx, &hash).await?.ok_or(AppError::AuthError)?;
+        let user_id = self.refresh_repo.verify_and_consume(&mut tx, &hash).await?.ok_or(AppError::AuthError)?;
 
         // 3. Generate New Pair
         let new_access_token = create_jwt(user_id, &self.config.jwt_secret, self.config.access_token_ttl_secs)?;

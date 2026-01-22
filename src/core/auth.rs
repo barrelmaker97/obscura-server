@@ -90,20 +90,20 @@ pub fn verify_signature_with_montgomery(
     // Try converting with sign 0 first (standard XEd25519).
     if let Some(ed_point) = mont_point.to_edwards(0) {
         let ed_bytes = ed_point.compress().to_bytes();
-        if let Ok(public_key) = VerifyingKey::from_bytes(&ed_bytes) {
-            if public_key.verify(message, &signature).is_ok() {
-                return Ok(());
-            }
+        if let Ok(public_key) = VerifyingKey::from_bytes(&ed_bytes)
+            && public_key.verify(message, &signature).is_ok()
+        {
+            return Ok(());
         }
     }
 
     // If that fails, try sign 1.
     if let Some(ed_point) = mont_point.to_edwards(1) {
         let ed_bytes = ed_point.compress().to_bytes();
-        if let Ok(public_key) = VerifyingKey::from_bytes(&ed_bytes) {
-            if public_key.verify(message, &signature).is_ok() {
-                return Ok(());
-            }
+        if let Ok(public_key) = VerifyingKey::from_bytes(&ed_bytes)
+            && public_key.verify(message, &signature).is_ok()
+        {
+            return Ok(());
         }
     }
 
