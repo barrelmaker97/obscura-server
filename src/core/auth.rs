@@ -9,6 +9,11 @@ use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use rand::{RngCore, rngs::OsRng};
 use sha2::{Digest, Sha256};
 
+/// Bitmask to clear the XEdDSA sign bit (the 255th bit of the scalar 's').
+pub const XEDDSA_SIGN_BIT_MASK: u8 = 0x7F;
+/// The XEdDSA sign bit itself.
+pub const XEDDSA_SIGN_BIT: u8 = 0x80;
+
 pub fn hash_password(password: &str) -> Result<String> {
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
@@ -51,7 +56,7 @@ pub fn verify_signature_with_montgomery(
     // Standard Ed25519 (and ed25519_dalek) expect 's' to be a canonical scalar < L.
     // We must clear this bit before verification if we are using an Ed25519 library.
     let mut signature_bytes_fixed: [u8; 64] = signature_bytes.try_into().map_err(|_| AppError::BadRequest("Invalid signature length".into()))?;
-    signature_bytes_fixed[63] &= 0x7F;
+    signature_bytes_fixed[63] &= XEDDSA_SIGN_BIT_MASK;
 
     let signature = Signature::from_bytes(&signature_bytes_fixed);
 
@@ -98,6 +103,7 @@ pub fn hash_token(token: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::crypto_types::DJB_KEY_PREFIX;
     use ed25519_dalek::{Signer, SigningKey};
 
     #[test]
@@ -119,7 +125,7 @@ mod tests {
 
         // 4. Create 33-byte versions
         let mut spk_pub_33 = spk_pub_32.clone();
-        spk_pub_33.insert(0, 0x05); // Add DJB type byte
+        spk_pub_33.insert(0, DJB_KEY_PREFIX); // Add DJB type byte
 
         // Case 1: Verify using 32-byte message -> Should Pass
         let res1 = verify_signature(&ik_pub, &spk_pub_32, &signature);
@@ -131,7 +137,7 @@ mod tests {
 
         // Case 3: Verify using 33-byte public key (verifier) -> Should FAIL (Strictness check)
         let mut ik_pub_33 = ik_pub.clone();
-        ik_pub_33.insert(0, 0x05);
+        ik_pub_33.insert(0, DJB_KEY_PREFIX);
         let res3 = verify_signature(&ik_pub_33, &spk_pub_32, &signature);
         assert!(res3.is_err(), "Case 3 failed: verify_signature should NOT accept 33-byte verifier keys implicitly");
     }
@@ -158,7 +164,7 @@ mod tests {
         let mut signature_bytes = identity_key.sign(message).to_bytes();
 
         // 4. Force non-canonical by setting high bit (simulating XEdDSA)
-        signature_bytes[63] |= 0x80;
+        signature_bytes[63] |= XEDDSA_SIGN_BIT;
 
         // 5. Verify using Montgomery path
         let res = verify_signature_with_montgomery(&ik_pub_x25519, message, &signature_bytes);

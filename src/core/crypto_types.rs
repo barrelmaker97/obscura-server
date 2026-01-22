@@ -1,5 +1,8 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+ 
+/// Prefix byte used by Signal/DJB for Montgomery (X25519) keys.
+pub const DJB_KEY_PREFIX: u8 = 0x05;
 
 /// Strong type for public keys to distinguish between Edwards (Ed25519) and Montgomery (X25519) formats.
 /// This handles parsing logic at the boundary.
@@ -30,13 +33,13 @@ impl PublicKey {
 
     /// Returns the bytes as they should be stored or transmitted (wire format).
     /// Edwards -> 32 bytes
-    /// Montgomery -> 33 bytes (0x05 prefix)
+    /// Montgomery -> 33 bytes (DJB_KEY_PREFIX prefix)
     pub fn to_wire_bytes(&self) -> Vec<u8> {
         match self {
             PublicKey::Edwards(b) => b.to_vec(),
             PublicKey::Montgomery(b) => {
                 let mut v = Vec::with_capacity(33);
-                v.push(0x05);
+                v.push(DJB_KEY_PREFIX);
                 v.extend_from_slice(b);
                 v
             }
@@ -52,8 +55,8 @@ impl PublicKey {
                 Ok(PublicKey::Edwards(arr))
             }
             33 => {
-                if bytes[0] != 0x05 {
-                    return Err("Invalid key prefix for 33-byte key (expected 0x05)".into());
+                if bytes[0] != DJB_KEY_PREFIX {
+                    return Err(format!("Invalid key prefix for 33-byte key (expected 0x{:02x})", DJB_KEY_PREFIX));
                 }
                 let mut arr = [0u8; 32];
                 arr.copy_from_slice(&bytes[1..]);
@@ -184,7 +187,7 @@ mod tests {
     #[test]
     fn test_deserialize_montgomery_33() {
         let mut bytes = [2u8; 33];
-        bytes[0] = 0x05; // Prefix
+        bytes[0] = DJB_KEY_PREFIX; // Prefix
         let inner = [2u8; 32]; // Rest
         bytes[1..].copy_from_slice(&inner);
 
