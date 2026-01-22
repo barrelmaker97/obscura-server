@@ -1,3 +1,4 @@
+use crate::core::crypto_types::{PublicKey, Signature};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -14,22 +15,22 @@ pub struct User {
 #[serde(rename_all = "camelCase")]
 pub struct SignedPreKey {
     pub key_id: i32,
-    pub public_key: Vec<u8>,
-    pub signature: Vec<u8>,
+    pub public_key: PublicKey,
+    pub signature: Signature,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OneTimePreKey {
     pub key_id: i32,
-    pub public_key: Vec<u8>,
+    pub public_key: PublicKey,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreKeyBundle {
     pub registration_id: i32,
-    pub identity_key: Vec<u8>,
+    pub identity_key: PublicKey,
     pub signed_pre_key: SignedPreKey,
     pub one_time_pre_key: Option<OneTimePreKey>,
 }

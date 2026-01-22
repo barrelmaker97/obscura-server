@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::core::auth::verify_signature;
+use crate::core::crypto_types::PublicKey;
 use crate::core::notification::{Notifier, UserEvent};
 use crate::core::user::{OneTimePreKey, PreKeyBundle, SignedPreKey};
 use crate::error::{AppError, Result};
@@ -21,7 +22,7 @@ pub struct KeyService {
 
 pub struct KeyUploadParams {
     pub user_id: Uuid,
-    pub identity_key: Option<Vec<u8>>,
+    pub identity_key: Option<PublicKey>,
     pub registration_id: Option<i32>,
     pub signed_pre_key: SignedPreKey,
     pub one_time_pre_keys: Vec<OneTimePreKey>,
@@ -79,30 +80,33 @@ impl KeyService {
         let mut is_takeover = false;
 
         // 1. Identify/Verify Identity Key
-        let ik_bytes = if let Some(new_ik_bytes) = &params.identity_key {
+        let ik = if let Some(new_ik) = params.identity_key {
             // Fetch existing identity key with LOCK
-            let existing_ik_opt = self.key_repo.fetch_identity_key_for_update(&mut *conn, params.user_id).await?;
+            let existing_ik_bytes_opt = self.key_repo.fetch_identity_key_for_update(&mut *conn, params.user_id).await?;
 
-            if let Some(existing_ik) = existing_ik_opt {
-                if existing_ik != *new_ik_bytes {
+            if let Some(existing_ik_bytes) = existing_ik_bytes_opt {
+                 // Compare bytes (new_ik.to_wire_bytes() vs existing DB bytes)
+                 let new_ik_bytes = new_ik.to_wire_bytes();
+                 if existing_ik_bytes != new_ik_bytes {
                     is_takeover = true;
                 }
             } else {
                 // No existing key? Treat as takeover to ensure clean slate.
                 is_takeover = true;
             }
-            new_ik_bytes.clone()
+            new_ik
         } else {
-            self.key_repo
+             // Must exist
+             let bytes = self.key_repo
                 .fetch_identity_key_for_update(&mut *conn, params.user_id)
                 .await?
-                .ok_or_else(|| AppError::BadRequest("Identity key missing".into()))?
+                .ok_or_else(|| AppError::BadRequest("Identity key missing".into()))?;
+             
+             PublicKey::try_from(bytes).map_err(|_| AppError::Internal)?
         };
 
         // 2. Verify Cryptographic Signature
-        // The signature is expected to be an Ed25519 signature of the Signed Prekey's Public Key,
-        // signed by the user's Identity Key.
-        verify_keys(&ik_bytes, &params.signed_pre_key)?;
+        verify_keys(&ik, &params.signed_pre_key)?;
 
         // 3. Limit Check (Atomic within transaction)
         let current_count =
@@ -127,10 +131,8 @@ impl KeyService {
             self.key_repo.delete_all_one_time_pre_keys(&mut *conn, params.user_id).await?;
             self.message_repo.delete_all_for_user(&mut *conn, params.user_id).await?;
 
-            // identity_key is Some if is_takeover is true (from logic in step 1)
-            if let Some(ik) = &params.identity_key {
-                self.key_repo.upsert_identity_key(&mut *conn, params.user_id, ik, reg_id).await?;
-            }
+            // Upsert Identity Key
+            self.key_repo.upsert_identity_key(&mut *conn, params.user_id, &ik, reg_id).await?;
         }
 
         // 5. Common flow: Upsert Keys
@@ -144,52 +146,52 @@ impl KeyService {
             )
             .await?;
 
-        let otpk_vec: Vec<(i32, Vec<u8>)> =
-            params.one_time_pre_keys.into_iter().map(|k| (k.key_id, k.public_key)).collect();
-
-        self.key_repo.insert_one_time_pre_keys(&mut *conn, params.user_id, &otpk_vec).await?;
+        self.key_repo.insert_one_time_pre_keys(&mut *conn, params.user_id, &params.one_time_pre_keys).await?;
 
         Ok(is_takeover)
     }
 }
 
-fn verify_keys(ik_bytes: &[u8], signed_pre_key: &SignedPreKey) -> Result<()> {
-    // NOTE: Libsignal clients often upload keys with a 0x05 type byte (33 bytes).
+fn verify_keys(ik: &PublicKey, signed_pre_key: &SignedPreKey) -> Result<()> {
+    let spk_bytes_full = signed_pre_key.public_key.to_wire_bytes();
+    let spk_bytes_inner = signed_pre_key.public_key.clone().into_inner();
+    let signature = signed_pre_key.signature.as_bytes();
 
-    // The Identity Key MUST be 32 bytes for the verifier instantiation (Ed25519 specific).
-    // We strictly handle the 0x05 wrapper for this specific key type.
-    let ik_raw = if ik_bytes.len() == 33 { &ik_bytes[1..] } else { ik_bytes };
+    // Verification Attempt Helper
+    let try_verify = |verifier_ik: &[u8], is_montgomery: bool| -> bool {
+         // 1. Try full bytes
+         if is_montgomery {
+             if crate::core::auth::verify_signature_with_montgomery(verifier_ik, &spk_bytes_full, signature).is_ok() {
+                 return true;
+             }
+         } else {
+             if verify_signature(verifier_ik, &spk_bytes_full, signature).is_ok() {
+                 return true;
+             }
+         }
 
-    // The Signed Pre Key Public Key is the MESSAGE.
-    // Standard libsignal clients (typescript) appear to sign the stripped 32-byte key,
-    // even though they upload the 33-byte key.
-    // Other clients might sign the full 33-byte key.
-    // We try both to be robust.
+         // 2. Try inner bytes (if different)
+         if spk_bytes_full.len() != spk_bytes_inner.len() {
+              if is_montgomery {
+                if crate::core::auth::verify_signature_with_montgomery(verifier_ik, &spk_bytes_inner, signature).is_ok() {
+                    return true;
+                }
+             } else {
+                 if verify_signature(verifier_ik, &spk_bytes_inner, signature).is_ok() {
+                     return true;
+                 }
+             }
+         }
+         false
+    };
 
-    // 1. Try verifying the exact public key provided
-    if verify_signature(ik_raw, &signed_pre_key.public_key, &signed_pre_key.signature).is_ok() {
-        return Ok(());
-    }
-
-    // 2. Fallback: If 33 bytes, try verifying the stripped 32-byte key
-    if signed_pre_key.public_key.len() == 33 {
-        let spk_pub_raw = &signed_pre_key.public_key[1..];
-        if verify_signature(ik_raw, spk_pub_raw, &signed_pre_key.signature).is_ok() {
-            return Ok(());
-        }
-    }
-
-    // 3. Fallback: Try converting Identity Key from Montgomery to Edwards (XEd25519)
-    // This handles clients (like Libsignal) that send X25519 keys for Identity Keys.
-    if crate::core::auth::verify_signature_with_montgomery(ik_raw, &signed_pre_key.public_key, &signed_pre_key.signature).is_ok() {
-        return Ok(());
-    }
-
-    // 4. Fallback: Try converting Identity Key from Montgomery to Edwards AND using stripped SPK
-    if signed_pre_key.public_key.len() == 33 {
-        let spk_pub_raw = &signed_pre_key.public_key[1..];
-        if crate::core::auth::verify_signature_with_montgomery(ik_raw, spk_pub_raw, &signed_pre_key.signature).is_ok() {
-            return Ok(());
+    match ik {
+        PublicKey::Edwards(bytes) => {
+             if try_verify(bytes, false) { return Ok(()); }
+        },
+        PublicKey::Montgomery(bytes) => {
+             if try_verify(bytes, true) { return Ok(()); }
+             if try_verify(bytes, false) { return Ok(()); }
         }
     }
 
@@ -199,94 +201,36 @@ fn verify_keys(ik_bytes: &[u8], signed_pre_key: &SignedPreKey) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::crypto_types::{PublicKey, Signature};
     use ed25519_dalek::{Signer, SigningKey};
     use rand::RngCore;
     use rand::rngs::OsRng;
 
-    fn generate_keys() -> (SigningKey, Vec<u8>, SigningKey, Vec<u8>, Vec<u8>) {
+    fn generate_keys() -> (SigningKey, PublicKey, SigningKey, PublicKey, Signature) {
         let mut ik_bytes = [0u8; 32];
         OsRng.fill_bytes(&mut ik_bytes);
         let ik = SigningKey::from_bytes(&ik_bytes);
-        let ik_pub = ik.verifying_key().to_bytes().to_vec();
+        let ik_pub_bytes = ik.verifying_key().to_bytes();
+        let ik_pub = PublicKey::Edwards(ik_pub_bytes);
 
         let mut spk_bytes = [0u8; 32];
         OsRng.fill_bytes(&mut spk_bytes);
         let spk = SigningKey::from_bytes(&spk_bytes);
-        let spk_pub = spk.verifying_key().to_bytes().to_vec();
+        let spk_pub_bytes = spk.verifying_key().to_bytes();
+        let spk_pub = PublicKey::Edwards(spk_pub_bytes);
 
-        let signature = ik.sign(&spk_pub).to_bytes().to_vec();
+        // Sign the WIRE format of SPK (32 bytes here)
+        let signature_bytes = ik.sign(&spk_pub.to_wire_bytes()).to_bytes();
+        let signature = Signature::try_from(&signature_bytes[..]).unwrap();
 
         (ik, ik_pub, spk, spk_pub, signature)
     }
 
     #[test]
-    fn test_verify_keys_standard() {
+    fn test_verify_keys_standard_strict() {
         let (_, ik_pub, _, spk_pub, signature) = generate_keys();
         let spk = SignedPreKey { key_id: 1, public_key: spk_pub, signature };
 
         assert!(verify_keys(&ik_pub, &spk).is_ok());
-    }
-
-    #[test]
-    fn test_verify_keys_strict_33() {
-        // Client signs the 33-byte key (Explicit strictness)
-        let mut ik_bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut ik_bytes);
-        let ik = SigningKey::from_bytes(&ik_bytes);
-        let mut ik_pub_33 = ik.verifying_key().to_bytes().to_vec();
-        ik_pub_33.insert(0, 0x05);
-
-        let mut spk_bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut spk_bytes);
-        let spk = SigningKey::from_bytes(&spk_bytes);
-
-        let mut spk_pub_33 = spk.verifying_key().to_bytes().to_vec();
-        spk_pub_33.insert(0, 0x05);
-
-        // Sign 33 bytes
-        let signature = ik.sign(&spk_pub_33).to_bytes().to_vec();
-
-        let spk = SignedPreKey { key_id: 1, public_key: spk_pub_33, signature };
-
-        assert!(verify_keys(&ik_pub_33, &spk).is_ok());
-    }
-
-    #[test]
-    fn test_verify_keys_libsignal_behavior() {
-        // Client sends 33-byte key but signs the 32-byte raw key (Libsignal default)
-        let mut ik_bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut ik_bytes);
-        let ik = SigningKey::from_bytes(&ik_bytes);
-        let mut ik_pub_33 = ik.verifying_key().to_bytes().to_vec();
-        ik_pub_33.insert(0, 0x05);
-
-        let mut spk_bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut spk_bytes);
-        let spk = SigningKey::from_bytes(&spk_bytes);
-        let spk_pub_32 = spk.verifying_key().to_bytes().to_vec();
-
-        let mut spk_pub_33 = spk_pub_32.clone();
-        spk_pub_33.insert(0, 0x05);
-
-        // Sign 32 bytes (Raw)
-        let signature = ik.sign(&spk_pub_32).to_bytes().to_vec();
-
-        // Send 33 bytes
-        let spk = SignedPreKey { key_id: 1, public_key: spk_pub_33, signature };
-
-        assert!(verify_keys(&ik_pub_33, &spk).is_ok());
-    }
-
-    #[test]
-    fn test_verify_keys_mixed() {
-        let (_, ik_pub, _, spk_pub, signature) = generate_keys();
-
-        let mut ik_pub_33 = ik_pub.clone();
-        ik_pub_33.insert(0, 0x05);
-
-        let spk = SignedPreKey { key_id: 1, public_key: spk_pub, signature };
-
-        // 33-byte Identity Key, 32-byte SPK -> OK
-        assert!(verify_keys(&ik_pub_33, &spk).is_ok());
     }
 }

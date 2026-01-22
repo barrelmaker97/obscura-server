@@ -1,13 +1,13 @@
 use crate::api::AppState;
 use crate::api::middleware::{AuthUser, create_jwt};
 use crate::core::auth;
+use crate::core::crypto_types::{PublicKey, Signature};
 use crate::core::key_service::KeyUploadParams;
 use crate::core::user::{OneTimePreKey, SignedPreKey};
 use crate::error::{AppError, Result};
 use crate::storage::refresh_token_repo::RefreshTokenRepository;
 use crate::storage::user_repo::UserRepository;
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
-use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 pub struct RegistrationRequest {
     pub username: String,
     pub password: String,
-    pub identity_key: String, // Base64
+    pub identity_key: PublicKey,
     pub registration_id: i32,
     pub signed_pre_key: SignedPreKeyDto,
     pub one_time_pre_keys: Vec<OneTimePreKeyDto>,
@@ -43,15 +43,15 @@ pub struct LogoutRequest {
 #[serde(rename_all = "camelCase")]
 pub struct SignedPreKeyDto {
     pub key_id: i32,
-    pub public_key: String,
-    pub signature: String,
+    pub public_key: PublicKey,
+    pub signature: Signature,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OneTimePreKeyDto {
     pub key_id: i32,
-    pub public_key: String,
+    pub public_key: PublicKey,
 }
 
 #[derive(Serialize)]
@@ -119,29 +119,22 @@ pub async fn register(
         e
     })?;
 
-    let identity_key_bytes = STANDARD
-        .decode(&payload.identity_key)
-        .map_err(|_| AppError::BadRequest("Invalid base64 identityKey".into()))?;
-
-    let spk_pub = STANDARD
-        .decode(&payload.signed_pre_key.public_key)
-        .map_err(|_| AppError::BadRequest("Invalid base64 signedPreKey public key".into()))?;
-    let spk_sig = STANDARD
-        .decode(&payload.signed_pre_key.signature)
-        .map_err(|_| AppError::BadRequest("Invalid base64 signedPreKey signature".into()))?;
+    let identity_key = payload.identity_key;
 
     let mut otpk_vec = Vec::new();
     for k in payload.one_time_pre_keys {
-        let pub_key =
-            STANDARD.decode(&k.public_key).map_err(|_| AppError::BadRequest("Invalid base64 oneTimePreKey".into()))?;
-        otpk_vec.push(OneTimePreKey { key_id: k.key_id, public_key: pub_key });
+        otpk_vec.push(OneTimePreKey { key_id: k.key_id, public_key: k.public_key });
     }
 
     let key_params = KeyUploadParams {
         user_id: user.id,
-        identity_key: Some(identity_key_bytes),
+        identity_key: Some(identity_key),
         registration_id: Some(payload.registration_id),
-        signed_pre_key: SignedPreKey { key_id: payload.signed_pre_key.key_id, public_key: spk_pub, signature: spk_sig },
+        signed_pre_key: SignedPreKey { 
+            key_id: payload.signed_pre_key.key_id, 
+            public_key: payload.signed_pre_key.public_key, 
+            signature: payload.signed_pre_key.signature,
+        },
         one_time_pre_keys: otpk_vec,
     };
 

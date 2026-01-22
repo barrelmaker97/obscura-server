@@ -62,7 +62,8 @@ async fn test_device_takeover_success() {
     let key_repo = KeyRepository::new(app.pool.clone());
     let bundle = key_repo.fetch_pre_key_bundle(user.user_id).await.unwrap().unwrap();
 
-    assert_eq!(bundle.identity_key, new_ik_pub);
+    use obscura_server::core::crypto_types::PublicKey;
+    assert_eq!(bundle.identity_key, PublicKey::Edwards(new_ik_pub));
     assert_eq!(bundle.signed_pre_key.key_id, 2);
     assert_eq!(bundle.one_time_pre_key.unwrap().key_id, 10);
 }
