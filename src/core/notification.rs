@@ -1,5 +1,4 @@
 use crate::config::Config;
-use async_trait::async_trait;
 use dashmap::DashMap;
 use tokio::sync::broadcast;
 use uuid::Uuid;
@@ -10,7 +9,6 @@ pub enum UserEvent {
     Disconnect,
 }
 
-#[async_trait]
 pub trait Notifier: Send + Sync {
     // Returns a receiver that will get a value when a notification arrives.
     fn subscribe(&self, user_id: Uuid) -> broadcast::Receiver<UserEvent>;
@@ -53,7 +51,6 @@ impl InMemoryNotifier {
     }
 }
 
-#[async_trait]
 impl Notifier for InMemoryNotifier {
     fn subscribe(&self, user_id: Uuid) -> broadcast::Receiver<UserEvent> {
         // Get existing channel or create new one

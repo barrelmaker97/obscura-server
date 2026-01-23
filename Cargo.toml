@@ -14,14 +14,12 @@ strip = "symbols"
 [dependencies]
 anyhow = "1.0.100"
 argon2 = "0.5.3"
-async-trait = "0.1.89"
 aws-config = "1.8.12"
 aws-credential-types = "1.2.11"
 aws-sdk-s3 = { version = "1.120.0", features = ["http-1x"] }
 axum = { version = "0.8.8", features = ["ws"] }
 base64 = "0.22.1"
 clap = { version = "4.5.54", features = ["derive", "env"] }
-curve25519-dalek = "4.1"
 dashmap = "6.1.0"
 futures = "0.3.31"
 xeddsa = "1.0.2"
@@ -49,6 +47,6 @@ uuid = { version = "1.19.0", features = ["v4", "serde"] }
 prost-build = "0.14.1"
 
 [dev-dependencies]
+curve25519-dalek = "4.1"
 reqwest = { version = "0.13.1", features = ["json", "stream"] }
 tokio-tungstenite = "0.28.0"
-tower = "0.5.2"

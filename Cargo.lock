@@ -2230,7 +2230,6 @@ version = "0.3.6"
 dependencies = [
  "anyhow",
  "argon2",
- "async-trait",
  "aws-config",
  "aws-credential-types",
  "aws-sdk-s3",
@@ -2258,7 +2257,6 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "tokio-util",
- "tower",
  "tower_governor",
  "tracing",
  "tracing-subscriber",
