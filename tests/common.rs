@@ -113,14 +113,58 @@ pub fn generate_signed_pre_key(identity_key_bytes: &[u8; 32]) -> (Vec<u8>, Vec<u
     let (_, spk_pub_ed) = spk_priv.calculate_key_pair(0);
     // Convert to Montgomery and add prefix
     let spk_pub_mont = curve25519_dalek::edwards::CompressedEdwardsY(spk_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
-    let mut spk_pub_vec = spk_pub_mont.to_vec();
-    spk_pub_vec.insert(0, 0x05);
+    let mut spk_pub_wire = [0u8; 33];
+    spk_pub_wire[0] = 0x05;
+    spk_pub_wire[1..].copy_from_slice(&spk_pub_mont);
 
     // Sign SPK pub key (33-byte wire format) with Identity Key
     let ik_priv = PrivateKey(*identity_key_bytes);
-    let signature: [u8; 64] = ik_priv.sign(&spk_pub_vec, OsRng);
+    let signature: [u8; 64] = ik_priv.sign(&spk_pub_wire, OsRng);
 
-    (spk_pub_vec, signature.to_vec())
+    (spk_pub_wire.to_vec(), signature.to_vec())
+}
+
+pub fn generate_registration_payload(username: &str, password: &str, reg_id: u32, otpk_count: usize) -> (serde_json::Value, [u8; 32]) {
+    let identity_key = generate_signing_key();
+    let ik_priv = PrivateKey(identity_key);
+    let (_, ik_pub_ed) = ik_priv.calculate_key_pair(0);
+    let ik_pub_mont = curve25519_dalek::edwards::CompressedEdwardsY(ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
+    let mut ik_pub_wire = [0u8; 33];
+    ik_pub_wire[0] = 0x05;
+    ik_pub_wire[1..].copy_from_slice(&ik_pub_mont);
+    
+    let (spk_pub, spk_sig) = generate_signed_pre_key(&identity_key);
+
+    let mut otpk = Vec::new();
+    for i in 0..otpk_count {
+        let key_bytes = generate_signing_key();
+        let key_priv = PrivateKey(key_bytes);
+        let (_, key_pub_ed) = key_priv.calculate_key_pair(0);
+        let key_pub_mont = curve25519_dalek::edwards::CompressedEdwardsY(key_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
+        let mut key_pub_wire = [0u8; 33];
+        key_pub_wire[0] = 0x05;
+        key_pub_wire[1..].copy_from_slice(&key_pub_mont);
+        
+        otpk.push(json!({
+            "keyId": i,
+            "publicKey": STANDARD.encode(key_pub_wire)
+        }));
+    }
+
+    let payload = json!({
+        "username": username,
+        "password": password,
+        "registrationId": reg_id,
+        "identityKey": STANDARD.encode(ik_pub_wire),
+        "signedPreKey": {
+            "keyId": 1,
+            "publicKey": STANDARD.encode(&spk_pub),
+            "signature": STANDARD.encode(&spk_sig)
+        },
+        "oneTimePreKeys": otpk
+    });
+
+    (payload, identity_key)
 }
 
 pub struct TestUser {
@@ -189,46 +233,11 @@ impl TestApp {
     }
 
     pub async fn register_user_with_keys(&self, username: &str, reg_id: u32, otpk_count: usize) -> TestUser {
-        let identity_key = generate_signing_key();
-        let ik_priv = PrivateKey(identity_key);
-        let (_, ik_pub_ed) = ik_priv.calculate_key_pair(0);
-        let ik_pub_mont = curve25519_dalek::edwards::CompressedEdwardsY(ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
-        let mut ik_pub_vec = ik_pub_mont.to_vec();
-        ik_pub_vec.insert(0, 0x05);
-        
-        let (spk_pub, spk_sig) = generate_signed_pre_key(&identity_key);
-
-        let mut otpk = Vec::new();
-        for i in 0..otpk_count {
-            let key_bytes = generate_signing_key();
-            let key_priv = PrivateKey(key_bytes);
-            let (_, key_pub_ed) = key_priv.calculate_key_pair(0);
-            let key_pub_mont = curve25519_dalek::edwards::CompressedEdwardsY(key_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
-            let mut key_pub_vec = key_pub_mont.to_vec();
-            key_pub_vec.insert(0, 0x05);
-            
-            otpk.push(json!({
-                "keyId": i,
-                "publicKey": STANDARD.encode(key_pub_vec)
-            }));
-        }
-
-        let reg_payload = json!({
-            "username": username,
-            "password": "password",
-            "registrationId": reg_id,
-            "identityKey": STANDARD.encode(&ik_pub_vec),
-            "signedPreKey": {
-                "keyId": 1,
-                "publicKey": STANDARD.encode(&spk_pub),
-                "signature": STANDARD.encode(&spk_sig)
-            },
-            "oneTimePreKeys": otpk
-        });
+        let (reg_payload, identity_key) = generate_registration_payload(username, "password", reg_id, otpk_count);
 
         let resp = self.client.post(format!("{}/v1/users", self.server_url)).json(&reg_payload).send().await.unwrap();
 
-        assert_eq!(resp.status(), 201, "User registration failed");
+        assert_eq!(resp.status(), 201, "User registration failed: {}", resp.text().await.unwrap());
         let body = resp.json::<serde_json::Value>().await.unwrap();
         let token = body["token"].as_str().unwrap().to_string();
         let refresh_token = body["refreshToken"].as_str().unwrap_or_default().to_string();

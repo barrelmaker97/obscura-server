@@ -44,7 +44,7 @@ impl KeyService {
         self.key_repo.fetch_pre_key_bundle(&mut conn, user_id).await
     }
 
-    pub async fn fetch_identity_key(&self, user_id: Uuid) -> Result<Option<Vec<u8>>> {
+    pub async fn fetch_identity_key(&self, user_id: Uuid) -> Result<Option<PublicKey>> {
         self.key_repo.fetch_identity_key(&self.pool, user_id).await
     }
 
@@ -89,11 +89,10 @@ impl KeyService {
         // 1. Identify/Verify Identity Key
         let ik = if let Some(new_ik) = params.identity_key {
             // Fetch existing identity key with LOCK
-            let existing_ik_bytes_opt = self.key_repo.fetch_identity_key_for_update(&mut *conn, params.user_id).await?;
+            let existing_ik_opt = self.key_repo.fetch_identity_key_for_update(&mut *conn, params.user_id).await?;
 
-            if let Some(existing_ik_bytes) = existing_ik_bytes_opt {
-                let new_ik_bytes = new_ik.to_wire_bytes();
-                if existing_ik_bytes != new_ik_bytes {
+            if let Some(existing_ik) = existing_ik_opt {
+                if existing_ik != new_ik {
                     is_takeover = true;
                 }
             } else {
@@ -104,13 +103,11 @@ impl KeyService {
             new_ik
         } else {
             // Must exist
-            let bytes = self
+            let ik = self
                 .key_repo
                 .fetch_identity_key_for_update(&mut *conn, params.user_id)
                 .await?
                 .ok_or_else(|| AppError::BadRequest("Identity key missing".into()))?;
-
-            let ik = PublicKey::try_from(bytes).map_err(|_| AppError::Internal)?;
 
             // Verify signature with the stored key
             verify_keys(&ik, &params.signed_pre_key)?;
@@ -161,11 +158,10 @@ impl KeyService {
 fn verify_keys(ik: &PublicKey, signed_pre_key: &SignedPreKey) -> Result<()> {
     // Standard Signal Protocol behavior:
     // Verify signature over the 33-byte wire format of the SignedPreKey (0x05 prefix + 32-byte key)
-    let spk_bytes = signed_pre_key.public_key.to_wire_bytes();
+    let spk_bytes = signed_pre_key.public_key.as_bytes();
     let signature = &signed_pre_key.signature;
-    let ik_bytes = ik.as_bytes(); // Use the 32-byte inner identity key for verification
 
-    verify_signature(ik_bytes, &spk_bytes, signature)
+    verify_signature(ik, spk_bytes, signature)
 }
 
 #[cfg(test)]
@@ -186,7 +182,10 @@ mod tests {
         let (_, ik_pub_ed) = ik.calculate_key_pair(0);
         let ik_pub_mont = CompressedEdwardsY(ik_pub_ed)
             .decompress().unwrap().to_montgomery().to_bytes();
-        let ik_pub = PublicKey::new(ik_pub_mont);
+        let mut ik_pub_wire = [0u8; 33];
+        ik_pub_wire[0] = 0x05;
+        ik_pub_wire[1..].copy_from_slice(&ik_pub_mont);
+        let ik_pub = PublicKey::new(ik_pub_wire);
 
         let mut spk_bytes = [0u8; 32];
         OsRng.fill_bytes(&mut spk_bytes);
@@ -194,10 +193,13 @@ mod tests {
         let (_, spk_pub_ed) = spk.calculate_key_pair(0);
         let spk_pub_mont = CompressedEdwardsY(spk_pub_ed)
             .decompress().unwrap().to_montgomery().to_bytes();
-        let spk_pub = PublicKey::new(spk_pub_mont);
+        let mut spk_pub_wire = [0u8; 33];
+        spk_pub_wire[0] = 0x05;
+        spk_pub_wire[1..].copy_from_slice(&spk_pub_mont);
+        let spk_pub = PublicKey::new(spk_pub_wire);
 
         // Sign the WIRE format of SPK (33 bytes: prefix + raw X25519)
-        let signature_bytes: [u8; 64] = ik.sign(&spk_pub.to_wire_bytes(), OsRng);
+        let signature_bytes: [u8; 64] = ik.sign(spk_pub.as_bytes(), OsRng);
         let signature = Signature::new(signature_bytes);
 
         (ik, ik_pub, spk, spk_pub, signature)

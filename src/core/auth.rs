@@ -46,15 +46,8 @@ pub fn verify_password(password: &str, password_hash: &str) -> Result<bool> {
 }
 
 /// Verifies a signature using XEdDSA.
-/// public_key can be 32 bytes (raw) or 33 bytes (prefixed with 0x05).
-pub fn verify_signature(public_key: &[u8], message: &[u8], signature: &Signature) -> Result<()> {
-    let pk_bytes: [u8; 32] = match public_key.len() {
-        32 => public_key.try_into().unwrap(),
-        33 if public_key[0] == 0x05 => public_key[1..].try_into().unwrap(),
-        _ => return Err(AppError::BadRequest("Invalid public key length or prefix".into())),
-    };
-
-    let pk = xeddsa::xed25519::PublicKey(pk_bytes);
+pub fn verify_signature(verifier_key: &crate::core::crypto_types::PublicKey, message: &[u8], signature: &Signature) -> Result<()> {
+    let pk = xeddsa::xed25519::PublicKey(*verifier_key.as_crypto_bytes());
     // Use XEdDSA verification
     pk.verify(message, signature.as_bytes())
         .map_err(|_| AppError::BadRequest("Invalid signature".into()))?;
@@ -84,6 +77,8 @@ mod tests {
 
     #[test]
     fn test_verify_signature_simple() {
+        use crate::core::crypto_types::PublicKey;
+
         // 1. Generate Identity Key (Verifier) using XEdDSA
         let mut ik_bytes = [0u8; 32];
         OsRng.fill_bytes(&mut ik_bytes);
@@ -93,6 +88,10 @@ mod tests {
         let (_, ik_pub_ed) = private_key.calculate_key_pair(0);
         // Convert to Montgomery for verification
         let ik_pub_mont = CompressedEdwardsY(ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
+        let mut ik_pub_wire = [0u8; 33];
+        ik_pub_wire[0] = 0x05;
+        ik_pub_wire[1..].copy_from_slice(&ik_pub_mont);
+        let ik_pub = PublicKey::new(ik_pub_wire);
         
         // 2. Message
         let message = b"hello world";
@@ -101,14 +100,8 @@ mod tests {
         let signature_bytes: [u8; 64] = private_key.sign(message, OsRng);
         let signature = Signature::new(signature_bytes);
 
-        // Verify with 32 bytes
-        let res = verify_signature(&ik_pub_mont, message, &signature);
-        assert!(res.is_ok());
-
-        // Verify with 33 bytes
-        let mut ik_pub_33 = vec![0x05];
-        ik_pub_33.extend_from_slice(&ik_pub_mont);
-        let res = verify_signature(&ik_pub_33, message, &signature);
+        // Verify with PublicKey object
+        let res = verify_signature(&ik_pub, message, &signature);
         assert!(res.is_ok());
     }
 }
