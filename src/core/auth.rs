@@ -54,23 +54,28 @@ pub fn verify_password(password: &str, password_hash: &str) -> Result<bool> {
 pub fn verify_signature(verifier_key: &crate::core::crypto_types::PublicKey, message: &[u8], signature: &Signature) -> Result<()> {
     let pk = xeddsa::xed25519::PublicKey(*verifier_key.as_crypto_bytes());
 
-    // 1. Try default verification (typically sign bit 0)
-    if pk.verify(message, signature.as_bytes()).is_ok() {
-        return Ok(());
+    use xeddsa::ConvertMont;
+    let sig_bytes = signature.as_bytes();
+    
+    // We must clear the 255th bit of 's' for standard Ed25519 libraries.
+    // XEdDSA uses this bit to represent the sign of the recovered point.
+    let mut sig_canonical = *sig_bytes;
+    sig_canonical[63] &= 0x7F;
+    let sig_obj = ed25519_dalek::Signature::from_bytes(&sig_canonical);
+
+    // Try both possible Edwards points for the Montgomery public key.
+    // Some client environments (like JS polyfills) may choose the alternative point.
+    for sign_bit in [0, 1] {
+        if let Ok(ed_pk_bytes) = pk.convert_mont(sign_bit) {
+            if let Ok(ed_pk) = ed25519_dalek::VerifyingKey::from_bytes(&ed_pk_bytes) {
+                if ed_pk.verify(message, &sig_obj).is_ok() {
+                    return Ok(());
+                }
+            }
+        }
     }
 
-    // 2. Try sign bit 1
-    // This handles cases where the client environment (e.g. JS polyfills) or specific key 
-    // generation chooses the alternative Edwards point.
-    use xeddsa::ConvertMont;
-    let edwards_pk_bytes = pk.convert_mont(1).map_err(|_| AppError::BadRequest("Invalid public key".into()))?;
-    let edwards_pk = ed25519_dalek::VerifyingKey::from_bytes(&edwards_pk_bytes)
-        .map_err(|_| AppError::BadRequest("Invalid public key".into()))?;
-    
-    let sig_obj = ed25519_dalek::Signature::from_bytes(signature.as_bytes());
-    
-    edwards_pk.verify(message, &sig_obj)
-        .map_err(|_| AppError::BadRequest("Invalid signature".into()))
+    Err(AppError::BadRequest("Invalid signature".into()))
 }
 
 /// Generates a cryptographically secure random string (32 bytes -> Base64).
