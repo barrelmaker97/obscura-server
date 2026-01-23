@@ -15,16 +15,27 @@ impl FromRequestParts<AppState> for AuthUser {
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
-        let auth_header = parts.headers.get(header::AUTHORIZATION).ok_or(AppError::AuthError)?;
+        let auth_header = parts.headers.get(header::AUTHORIZATION).ok_or_else(|| {
+            tracing::warn!("Missing Authorization header");
+            AppError::AuthError
+        })?;
 
-        let auth_str = auth_header.to_str().map_err(|_| AppError::AuthError)?;
+        let auth_str = auth_header.to_str().map_err(|_| {
+            tracing::warn!("Invalid Authorization header encoding");
+            AppError::AuthError
+        })?;
+
         if !auth_str.starts_with("Bearer ") {
+            tracing::warn!("Authorization header does not start with 'Bearer '");
             return Err(AppError::AuthError);
         }
 
         let token = &auth_str[7..];
 
-        let claims = verify_jwt(token, &state.config.auth.jwt_secret)?;
+        let claims = verify_jwt(token, &state.config.auth.jwt_secret).map_err(|e| {
+            tracing::debug!("JWT verification failed: {:?}", e);
+            e
+        })?;
 
         Ok(AuthUser { user_id: claims.sub })
     }

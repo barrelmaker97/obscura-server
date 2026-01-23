@@ -86,6 +86,14 @@ impl KeyService {
     pub(crate) async fn upload_keys_internal(&self, conn: &mut PgConnection, params: KeyUploadParams) -> Result<bool> {
         let mut is_takeover = false;
 
+        // 0. Uniqueness check
+        let mut unique_ids = std::collections::HashSet::new();
+        for pk in &params.one_time_pre_keys {
+            if !unique_ids.insert(pk.key_id) {
+                return Err(AppError::BadRequest(format!("Duplicate prekey ID: {}", pk.key_id)));
+            }
+        }
+
         // 1. Identify/Verify Identity Key
         let ik = if let Some(new_ik) = params.identity_key {
             // Fetch existing identity key with LOCK
@@ -120,8 +128,8 @@ impl KeyService {
 
         let new_keys_count = params.one_time_pre_keys.len() as i64;
 
-        if current_count + new_keys_count > self.config.max_pre_keys {
-            return Err(AppError::BadRequest(format!("Too many pre-keys. Limit is {}", self.config.max_pre_keys)));
+        if new_keys_count > self.config.max_pre_keys {
+            return Err(AppError::BadRequest(format!("Batch too large. Limit is {}", self.config.max_pre_keys)));
         }
 
         // 4. Handle Takeover Cleanup
@@ -136,6 +144,12 @@ impl KeyService {
 
             // Upsert Identity Key
             self.key_repo.upsert_identity_key(&mut *conn, params.user_id, &ik, reg_id).await?;
+        } else {
+            // If not a takeover, we might need to prune old keys to make room for new ones
+            if current_count + new_keys_count > self.config.max_pre_keys {
+                let to_delete = (current_count + new_keys_count) - self.config.max_pre_keys;
+                self.key_repo.delete_oldest_one_time_pre_keys(&mut *conn, params.user_id, to_delete).await?;
+            }
         }
 
         // 5. Common flow: Upsert Keys
@@ -156,12 +170,18 @@ impl KeyService {
 }
 
 fn verify_keys(ik: &PublicKey, signed_pre_key: &SignedPreKey) -> Result<()> {
-    // Standard Signal Protocol behavior:
-    // Verify signature over the 33-byte wire format of the SignedPreKey (0x05 prefix + 32-byte key)
-    let spk_bytes = signed_pre_key.public_key.as_bytes();
-    let signature = &signed_pre_key.signature;
+    let raw_32 = signed_pre_key.public_key.as_crypto_bytes();
+    let wire_33 = signed_pre_key.public_key.as_bytes();
 
-    verify_signature(ik, spk_bytes, signature)
+    // libsignal-protocol-typescript's generateSignedPreKey signs the 33-byte publicKey ArrayBuffer.
+    // However, some versions or test polyfills might sign the 32-byte raw key.
+    // We try both to be absolutely robust.
+
+    if verify_signature(ik, wire_33, &signed_pre_key.signature).is_ok() {
+        return Ok(());
+    }
+
+    verify_signature(ik, raw_32, &signed_pre_key.signature)
 }
 
 #[cfg(test)]
@@ -198,7 +218,7 @@ mod tests {
         spk_pub_wire[1..].copy_from_slice(&spk_pub_mont);
         let spk_pub = PublicKey::new(spk_pub_wire);
 
-        // Sign the WIRE format of SPK (33 bytes: prefix + raw X25519)
+        // Sign the 33-byte wire format (prefix + raw X25519)
         let signature_bytes: [u8; 64] = ik.sign(spk_pub.as_bytes(), OsRng);
         let signature = Signature::new(signature_bytes);
 

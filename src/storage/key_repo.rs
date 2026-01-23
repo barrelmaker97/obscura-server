@@ -240,4 +240,26 @@ impl KeyRepository {
             .await?;
         Ok(count)
     }
+
+    pub async fn delete_oldest_one_time_pre_keys<'e, E>(&self, executor: E, user_id: Uuid, limit: i64) -> Result<()>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
+        sqlx::query(
+            r#"
+            DELETE FROM one_time_pre_keys
+            WHERE user_id = $1 AND id IN (
+                SELECT id FROM one_time_pre_keys
+                WHERE user_id = $1
+                ORDER BY created_at ASC
+                LIMIT $2
+            )
+            "#,
+        )
+        .bind(user_id)
+        .bind(limit)
+        .execute(executor)
+        .await?;
+        Ok(())
+    }
 }

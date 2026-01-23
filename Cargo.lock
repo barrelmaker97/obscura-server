@@ -2238,6 +2238,7 @@ dependencies = [
  "clap",
  "curve25519-dalek",
  "dashmap",
+ "ed25519-dalek",
  "futures",
  "hex",
  "http-body 1.0.1",

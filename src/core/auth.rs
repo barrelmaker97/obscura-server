@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 use xeddsa::Verify;
+use ed25519_dalek::Verifier;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
@@ -45,13 +46,31 @@ pub fn verify_password(password: &str, password_hash: &str) -> Result<bool> {
     Ok(Argon2::default().verify_password(password.as_bytes(), &parsed_hash).is_ok())
 }
 
-/// Verifies a signature using XEdDSA.
+/// Verifies an XEdDSA signature.
+///
+/// XEdDSA is used to verify Ed25519 signatures against Curve25519 (Montgomery) public keys.
+/// Because a Montgomery X-coordinate corresponds to two Edwards points (sign bit 0 and 1),
+/// we try both to ensure compatibility with various client implementations and environments.
 pub fn verify_signature(verifier_key: &crate::core::crypto_types::PublicKey, message: &[u8], signature: &Signature) -> Result<()> {
     let pk = xeddsa::xed25519::PublicKey(*verifier_key.as_crypto_bytes());
-    // Use XEdDSA verification
-    pk.verify(message, signature.as_bytes())
-        .map_err(|_| AppError::BadRequest("Invalid signature".into()))?;
-    Ok(())
+
+    // 1. Try default verification (typically sign bit 0)
+    if pk.verify(message, signature.as_bytes()).is_ok() {
+        return Ok(());
+    }
+
+    // 2. Try sign bit 1
+    // This handles cases where the client environment (e.g. JS polyfills) or specific key 
+    // generation chooses the alternative Edwards point.
+    use xeddsa::ConvertMont;
+    let edwards_pk_bytes = pk.convert_mont(1).map_err(|_| AppError::BadRequest("Invalid public key".into()))?;
+    let edwards_pk = ed25519_dalek::VerifyingKey::from_bytes(&edwards_pk_bytes)
+        .map_err(|_| AppError::BadRequest("Invalid public key".into()))?;
+    
+    let sig_obj = ed25519_dalek::Signature::from_bytes(signature.as_bytes());
+    
+    edwards_pk.verify(message, &sig_obj)
+        .map_err(|_| AppError::BadRequest("Invalid signature".into()))
 }
 
 /// Generates a cryptographically secure random string (32 bytes -> Base64).

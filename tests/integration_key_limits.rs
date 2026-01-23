@@ -50,7 +50,7 @@ async fn test_key_limit_enforced() {
     assert_eq!(resp.status(), 201);
     let token = resp.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
 
-    // 2. Refill with 20 keys (Total 60 > 50) -> Should Fail
+    // 2. Refill with 20 keys (Total 60 > 50) -> Should succeed and PRUNE oldest
     let mut refill_keys = Vec::new();
     for i in 40..60 {
         refill_keys.push(json!({
@@ -82,7 +82,15 @@ async fn test_key_limit_enforced() {
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), 400);
+    assert_eq!(resp.status(), 200, "Refill should succeed with pruning");
+
+    // 3. Verify total is capped at 50
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM one_time_pre_keys WHERE user_id IN (SELECT id FROM users WHERE username = $1)")
+        .bind(&username)
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 50, "Total keys should be capped at max_pre_keys (50)");
 }
 
 #[tokio::test]
