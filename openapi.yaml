@@ -413,6 +413,7 @@ components:
           description: Required if identityKey is provided.
         signedPreKey:
           $ref: '#/components/schemas/SignedPreKeyDto'
+          description: Signed Pre-Key. ID must be strictly greater than the current stored ID.
         oneTimePreKeys:
           type: array
           items:

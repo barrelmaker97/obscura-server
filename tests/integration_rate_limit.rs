@@ -16,7 +16,6 @@ async fn test_rate_limit_isolation() {
     let user_a = "1.1.1.1";
     let user_b = "2.2.2.2";
 
-    println!("Exhausting User A's bucket...");
     for i in 1..=2 {
         let resp = app
             .client
@@ -37,7 +36,6 @@ async fn test_rate_limit_isolation() {
         .unwrap();
     assert_eq!(resp_a.status(), StatusCode::TOO_MANY_REQUESTS, "User A should now be blocked");
 
-    println!("Verifying User B is unaffected...");
     let resp_b = app
         .client
         .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
@@ -57,7 +55,6 @@ async fn test_rate_limit_proxy_chain() {
 
     let chain = "9.9.9.9, 1.1.1.1, 2.2.2.2";
 
-    println!("Testing proxy chain header parsing...");
     for _ in 0..2 {
         let resp = app
             .client
@@ -86,7 +83,6 @@ async fn test_rate_limit_concurrency() {
     config.rate_limit.burst = 2;
     let app = common::TestApp::spawn_with_config(config).await;
 
-    println!("Firing 20 concurrent requests from unique IPs...");
     let mut tasks = vec![];
     let client = Client::new();
 
@@ -112,7 +108,6 @@ async fn test_rate_limit_fallback_to_peer_ip() {
     config.rate_limit.burst = 2;
     let app = common::TestApp::spawn_with_config(config).await;
 
-    println!("Testing fallback to peer IP when header is missing...");
     for _ in 0..2 {
         let resp = app.client.get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4())).send().await.unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
@@ -130,8 +125,6 @@ async fn test_rate_limit_spoofing_protection() {
 
     let spoofed_ip = "1.2.3.4";
     let real_attacker_ip = "5.6.7.8";
-
-    println!("Sending spoofed header X-Forwarded-For: {}, {}", spoofed_ip, real_attacker_ip);
 
     let _ = app
         .client
@@ -176,18 +169,16 @@ async fn test_rate_limit_tiers() {
 
     let ip = "1.2.3.4";
 
-    println!("Testing Auth Tier (Registration)...");
     let (reg_payload, _) = common::generate_registration_payload("tier_test", "password", 123, 0);
 
     for _ in 0..2 {
         let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&reg_payload).send().await.unwrap();
         if resp.status() == StatusCode::TOO_MANY_REQUESTS {
-            println!("Auth tier limited as expected");
+            // Limited as expected
         }
     }
 
 
-    println!("Testing Standard Tier (Keys) from same IP...");
     for _ in 0..5 {
         let resp = app
             .client
@@ -213,7 +204,6 @@ async fn test_rate_limit_recovery() {
 
     let ip = "5.5.5.5";
 
-    println!("Testing rate limit recovery (refill)...");
     let _ = app
         .client
         .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
