@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
-use xeddsa::Verify;
 use ed25519_dalek::Verifier;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -100,32 +99,45 @@ mod tests {
     use xeddsa::{CalculateKeyPair, Sign};
 
     #[test]
-    fn test_verify_signature_simple() {
+    fn test_verify_signature_exhaustive_robustness() {
         use crate::core::crypto_types::PublicKey;
 
-        // 1. Generate Identity Key (Verifier) using XEdDSA
-        let mut ik_bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut ik_bytes);
-        let private_key = PrivateKey(ik_bytes);
-        
-        // Calculate public key (using sign bit 0) - returns Edwards key
-        let (_, ik_pub_ed) = private_key.calculate_key_pair(0);
-        // Convert to Montgomery for verification
-        let ik_pub_mont = CompressedEdwardsY(ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
-        let mut ik_pub_wire = [0u8; 33];
-        ik_pub_wire[0] = 0x05;
-        ik_pub_wire[1..].copy_from_slice(&ik_pub_mont);
-        let ik_pub = PublicKey::new(ik_pub_wire);
-        
-        // 2. Message
-        let message = b"hello world";
+        let mut seed = [0u8; 32];
+        OsRng.fill_bytes(&mut seed);
+        let xed_priv = PrivateKey(seed);
 
-        // 3. Sign
-        let signature_bytes: [u8; 64] = private_key.sign(message, OsRng);
-        let signature = Signature::new(signature_bytes);
+        // We test both sign bits for the identity key creation
+        for ik_sign in [0, 1] {
+            // 1. Calculate public key with specific sign bit
+            let (_, ed_pub) = xed_priv.calculate_key_pair(ik_sign);
+            let mont_pub = CompressedEdwardsY(ed_pub).decompress().unwrap().to_montgomery().to_bytes();
+            
+            let mut ik_wire = [0u8; 33];
+            ik_wire[0] = 0x05;
+            ik_wire[1..].copy_from_slice(&mont_pub);
+            let ik_pub = PublicKey::new(ik_wire);
 
-        // Verify with PublicKey object
-        let res = verify_signature(&ik_pub, message, &signature);
-        assert!(res.is_ok());
+            // 2. Create both 32-byte and 33-byte messages
+            let msg_32 = [0x42u8; 32];
+            let mut msg_33 = [0x00u8; 33];
+            msg_33[0] = 0x05;
+            msg_33[1..].copy_from_slice(&msg_32);
+
+            // 3. Sign using XEdDSA (which uses the private key math)
+            // Note: XEdDSA signing math is consistent with its verification math.
+            let sig_32 = Signature::new(xed_priv.sign(&msg_32, OsRng));
+            let sig_33 = Signature::new(xed_priv.sign(&msg_33, OsRng));
+
+            assert!(
+                verify_signature(&ik_pub, &msg_32, &sig_32).is_ok(),
+                "Failed 32-byte msg for ik_sign={}",
+                ik_sign
+            );
+            assert!(
+                verify_signature(&ik_pub, &msg_33, &sig_33).is_ok(),
+                "Failed 33-byte msg for ik_sign={}",
+                ik_sign
+            );
+        }
     }
 }
