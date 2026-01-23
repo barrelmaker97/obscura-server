@@ -13,6 +13,14 @@ jobs:
   test:
     name: Test & Check
     runs-on: ubuntu-latest
+    env:
+      OBSCURA_DATABASE_URL: postgres://user:password@localhost:5432/signal_server
+      OBSCURA_JWT_SECRET: test_secret
+      OBSCURA_S3_BUCKET: test-bucket
+      OBSCURA_S3_ENDPOINT: http://localhost:9000
+      OBSCURA_S3_ACCESS_KEY: minioadmin
+      OBSCURA_S3_SECRET_KEY: minioadmin
+      OBSCURA_S3_FORCE_PATH_STYLE: "true"
 
     steps:
       - uses: actions/checkout@v6
@@ -56,13 +64,8 @@ jobs:
       - name: Cache dependencies
         uses: swatinem/rust-cache@v2
 
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+
       - name: Run tests
-        env:
-          OBSCURA_DATABASE_URL: postgres://user:password@localhost:5432/signal_server
-          OBSCURA_JWT_SECRET: test_secret
-          OBSCURA_S3_BUCKET: test-bucket
-          OBSCURA_S3_ENDPOINT: http://localhost:9000
-          OBSCURA_S3_ACCESS_KEY: minioadmin
-          OBSCURA_S3_SECRET_KEY: minioadmin
-          OBSCURA_S3_FORCE_PATH_STYLE: "true"
         run: cargo test

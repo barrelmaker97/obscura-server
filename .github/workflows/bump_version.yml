@@ -30,40 +30,24 @@ jobs:
       - name: Set up Rust toolchain
         run: rustup show
 
+      - name: Install cargo-edit
+        uses: taiki-e/install-action@cargo-edit
+
       - name: Configure Git User
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Calculate and Update Version
+      - name: Update Version
         id: version
         run: |
-          BUMP_TYPE="${{ inputs.bump_type }}"
-          CURRENT_VER=$(grep "^version" Cargo.toml | head -n 1 | cut -d '"' -f 2)
-          echo "Current version: $CURRENT_VER"
-
-          # Parse semantic version (assumes X.Y.Z format)
-          IFS='.' read -r major minor patch <<< "$CURRENT_VER"
-
-          if [[ "$BUMP_TYPE" == "patch" ]]; then
-            NEW_VER="$major.$minor.$((patch + 1))"
-          elif [[ "$BUMP_TYPE" == "minor" ]]; then
-            NEW_VER="$major.$((minor + 1)).0"
-          elif [[ "$BUMP_TYPE" == "major" ]]; then
-            NEW_VER="$((major + 1)).0.0"
-          else
-            echo "::error::Invalid bump type: $BUMP_TYPE"
-            exit 1
-          fi
-
-          echo "Bumping to version: $NEW_VER"
+          cargo set-version --bump ${{ inputs.bump_type }}
+          # Extract the new version and update Cargo.lock
+          NEW_VER=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "obscura-server") | .version')
           echo "new_version=$NEW_VER" >> $GITHUB_OUTPUT
-
-          # Update Cargo.toml
-          perl -i -pe "s/^version = \"$CURRENT_VER\"/version = \"$NEW_VER\"/" Cargo.toml
-
-          # Update Cargo.lock
-          cargo check > /dev/null 2>&1
+          
+          # Ensure Cargo.lock is updated
+          cargo check --locked > /dev/null 2>&1 || cargo check > /dev/null 2>&1
 
       - name: Commit and Push Tag
         run: |
