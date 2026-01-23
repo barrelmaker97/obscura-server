@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use ed25519_dalek::{Signer, SigningKey};
 use futures::{SinkExt, StreamExt};
 use obscura_server::{
     api::app_router,
@@ -22,6 +21,8 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio_tungstenite::{WebSocketStream, connect_async, tungstenite::protocol::Message};
 use uuid::Uuid;
+use xeddsa::xed25519::PrivateKey;
+use xeddsa::{CalculateKeyPair, Sign};
 
 static INIT: Once = Once::new();
 
@@ -99,24 +100,34 @@ pub fn get_test_config() -> Config {
     }
 }
 
-pub fn generate_signing_key() -> SigningKey {
+pub fn generate_signing_key() -> [u8; 32] {
     let mut bytes = [0u8; 32];
     OsRng.fill_bytes(&mut bytes);
-    SigningKey::from_bytes(&bytes)
+    bytes
 }
 
-pub fn generate_signed_pre_key(identity_key: &SigningKey) -> (Vec<u8>, Vec<u8>) {
-    let spk_key = generate_signing_key();
-    let spk_pub = spk_key.verifying_key().to_bytes().to_vec();
-    let signature = identity_key.sign(&spk_pub).to_bytes().to_vec();
-    (spk_pub, signature)
+pub fn generate_signed_pre_key(identity_key_bytes: &[u8; 32]) -> (Vec<u8>, Vec<u8>) {
+    // Generate SPK
+    let spk_bytes = generate_signing_key();
+    let spk_priv = PrivateKey(spk_bytes);
+    let (_, spk_pub_ed) = spk_priv.calculate_key_pair(0);
+    // Convert to Montgomery and add prefix
+    let spk_pub_mont = curve25519_dalek::edwards::CompressedEdwardsY(spk_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
+    let mut spk_pub_vec = spk_pub_mont.to_vec();
+    spk_pub_vec.insert(0, 0x05);
+
+    // Sign SPK pub key (33-byte wire format) with Identity Key
+    let ik_priv = PrivateKey(*identity_key_bytes);
+    let signature: [u8; 64] = ik_priv.sign(&spk_pub_vec, OsRng);
+
+    (spk_pub_vec, signature.to_vec())
 }
 
 pub struct TestUser {
     pub user_id: Uuid,
     pub token: String,
     pub refresh_token: String,
-    pub identity_key: SigningKey,
+    pub identity_key: [u8; 32],
 }
 
 pub struct TestApp {
@@ -179,14 +190,26 @@ impl TestApp {
 
     pub async fn register_user_with_keys(&self, username: &str, reg_id: u32, otpk_count: usize) -> TestUser {
         let identity_key = generate_signing_key();
-        let ik_pub = identity_key.verifying_key().to_bytes().to_vec();
+        let ik_priv = PrivateKey(identity_key);
+        let (_, ik_pub_ed) = ik_priv.calculate_key_pair(0);
+        let ik_pub_mont = curve25519_dalek::edwards::CompressedEdwardsY(ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
+        let mut ik_pub_vec = ik_pub_mont.to_vec();
+        ik_pub_vec.insert(0, 0x05);
+        
         let (spk_pub, spk_sig) = generate_signed_pre_key(&identity_key);
 
         let mut otpk = Vec::new();
         for i in 0..otpk_count {
+            let key_bytes = generate_signing_key();
+            let key_priv = PrivateKey(key_bytes);
+            let (_, key_pub_ed) = key_priv.calculate_key_pair(0);
+            let key_pub_mont = curve25519_dalek::edwards::CompressedEdwardsY(key_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
+            let mut key_pub_vec = key_pub_mont.to_vec();
+            key_pub_vec.insert(0, 0x05);
+            
             otpk.push(json!({
                 "keyId": i,
-                "publicKey": STANDARD.encode(generate_signing_key().verifying_key().to_bytes())
+                "publicKey": STANDARD.encode(key_pub_vec)
             }));
         }
 
@@ -194,7 +217,7 @@ impl TestApp {
             "username": username,
             "password": "password",
             "registrationId": reg_id,
-            "identityKey": STANDARD.encode(&ik_pub),
+            "identityKey": STANDARD.encode(&ik_pub_vec),
             "signedPreKey": {
                 "keyId": 1,
                 "publicKey": STANDARD.encode(&spk_pub),

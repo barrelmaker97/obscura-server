@@ -65,7 +65,6 @@ impl KeyService {
         let user_id = params.user_id;
 
         // If identity key is provided, we can verify the signature BEFORE starting a transaction.
-        // This avoids holding a DB lock during CPU-intensive crypto verification.
         if let Some(ref ik) = params.identity_key {
             verify_keys(ik, &params.signed_pre_key)?;
         }
@@ -93,19 +92,14 @@ impl KeyService {
             let existing_ik_bytes_opt = self.key_repo.fetch_identity_key_for_update(&mut *conn, params.user_id).await?;
 
             if let Some(existing_ik_bytes) = existing_ik_bytes_opt {
-                // Compare bytes (new_ik.to_wire_bytes() vs existing DB bytes)
                 let new_ik_bytes = new_ik.to_wire_bytes();
                 if existing_ik_bytes != new_ik_bytes {
                     is_takeover = true;
                 }
             } else {
-                // No existing key? Treat as takeover to ensure clean slate.
                 is_takeover = true;
             }
 
-            // Note: Verification was likely already done in the public wrapper,
-            // but we keep it here for safety (in case it's called internally).
-            // This is fast if already verified because the math is the same.
             verify_keys(&new_ik, &params.signed_pre_key)?;
             new_ik
         } else {
@@ -165,84 +159,52 @@ impl KeyService {
 }
 
 fn verify_keys(ik: &PublicKey, signed_pre_key: &SignedPreKey) -> Result<()> {
-    let spk_bytes_full = signed_pre_key.public_key.to_wire_bytes();
-    let spk_bytes_inner = signed_pre_key.public_key.clone().into_inner();
-    let signature = signed_pre_key.signature.as_bytes();
+    // Standard Signal Protocol behavior:
+    // Verify signature over the 33-byte wire format of the SignedPreKey (0x05 prefix + 32-byte key)
+    let spk_bytes = signed_pre_key.public_key.to_wire_bytes();
+    let signature = &signed_pre_key.signature;
+    let ik_bytes = ik.as_bytes(); // Use the 32-byte inner identity key for verification
 
-    // Verification Attempt Helper
-    let try_verify = |verifier_ik: &[u8], is_montgomery: bool| -> bool {
-        // 1. Try full bytes
-        if is_montgomery {
-            if crate::core::auth::verify_signature_with_montgomery(verifier_ik, &spk_bytes_full, signature).is_ok() {
-                return true;
-            }
-        } else if verify_signature(verifier_ik, &spk_bytes_full, signature).is_ok() {
-            return true;
-        }
-
-        // 2. Try inner bytes (if different)
-        if spk_bytes_full.len() != spk_bytes_inner.len() {
-            if is_montgomery {
-                if crate::core::auth::verify_signature_with_montgomery(verifier_ik, &spk_bytes_inner, signature).is_ok()
-                {
-                    return true;
-                }
-            } else if verify_signature(verifier_ik, &spk_bytes_inner, signature).is_ok() {
-                return true;
-            }
-        }
-        false
-    };
-
-    match ik {
-        PublicKey::Edwards(bytes) => {
-            if try_verify(bytes, false) {
-                return Ok(());
-            }
-        }
-        PublicKey::Montgomery(bytes) => {
-            if try_verify(bytes, true) {
-                return Ok(());
-            }
-            if try_verify(bytes, false) {
-                return Ok(());
-            }
-        }
-    }
-
-    Err(AppError::BadRequest("Invalid signature".into()))
+    verify_signature(ik_bytes, &spk_bytes, signature)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::core::crypto_types::{PublicKey, Signature};
-    use ed25519_dalek::{Signer, SigningKey};
+    use curve25519_dalek::edwards::CompressedEdwardsY;
+    use xeddsa::xed25519::PrivateKey;
+    use xeddsa::{CalculateKeyPair, Sign};
     use rand::RngCore;
     use rand::rngs::OsRng;
 
-    fn generate_keys() -> (SigningKey, PublicKey, SigningKey, PublicKey, Signature) {
+    fn generate_keys() -> (PrivateKey, PublicKey, PrivateKey, PublicKey, Signature) {
         let mut ik_bytes = [0u8; 32];
         OsRng.fill_bytes(&mut ik_bytes);
-        let ik = SigningKey::from_bytes(&ik_bytes);
-        let ik_pub_bytes = ik.verifying_key().to_bytes();
-        let ik_pub = PublicKey::Edwards(ik_pub_bytes);
+        let ik = PrivateKey(ik_bytes);
+        
+        let (_, ik_pub_ed) = ik.calculate_key_pair(0);
+        let ik_pub_mont = CompressedEdwardsY(ik_pub_ed)
+            .decompress().unwrap().to_montgomery().to_bytes();
+        let ik_pub = PublicKey::new(ik_pub_mont);
 
         let mut spk_bytes = [0u8; 32];
         OsRng.fill_bytes(&mut spk_bytes);
-        let spk = SigningKey::from_bytes(&spk_bytes);
-        let spk_pub_bytes = spk.verifying_key().to_bytes();
-        let spk_pub = PublicKey::Edwards(spk_pub_bytes);
+        let spk = PrivateKey(spk_bytes);
+        let (_, spk_pub_ed) = spk.calculate_key_pair(0);
+        let spk_pub_mont = CompressedEdwardsY(spk_pub_ed)
+            .decompress().unwrap().to_montgomery().to_bytes();
+        let spk_pub = PublicKey::new(spk_pub_mont);
 
-        // Sign the WIRE format of SPK (32 bytes here)
-        let signature_bytes = ik.sign(&spk_pub.to_wire_bytes()).to_bytes();
-        let signature = Signature::try_from(&signature_bytes[..]).unwrap();
+        // Sign the WIRE format of SPK (33 bytes: prefix + raw X25519)
+        let signature_bytes: [u8; 64] = ik.sign(&spk_pub.to_wire_bytes(), OsRng);
+        let signature = Signature::new(signature_bytes);
 
         (ik, ik_pub, spk, spk_pub, signature)
     }
 
     #[test]
-    fn test_verify_keys_standard_strict() {
+    fn test_verify_keys_client_format() {
         let (_, ik_pub, _, spk_pub, signature) = generate_keys();
         let spk = SignedPreKey { key_id: 1, public_key: spk_pub, signature };
 

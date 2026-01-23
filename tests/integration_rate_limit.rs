@@ -3,6 +3,8 @@ use futures::future::join_all;
 use reqwest::{Client, StatusCode};
 use std::time::Duration;
 use uuid::Uuid;
+use xeddsa::xed25519::PrivateKey;
+use xeddsa::CalculateKeyPair;
 
 mod common;
 
@@ -178,13 +180,19 @@ async fn test_rate_limit_tiers() {
 
     println!("Testing Auth Tier (Registration)...");
     let identity_key = common::generate_signing_key();
+    let ik_priv = PrivateKey(identity_key);
+    let (_, ik_pub_ed) = ik_priv.calculate_key_pair(0);
+    let ik_pub_mont = curve25519_dalek::edwards::CompressedEdwardsY(ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
+    let mut ik_pub_wire = ik_pub_mont.to_vec();
+    ik_pub_wire.insert(0, 0x05);
+    
     let (spk_pub, spk_sig) = common::generate_signed_pre_key(&identity_key);
 
     let reg_payload = serde_json::json!({
         "username": "tier_test",
         "password": "password",
         "registrationId": 123,
-        "identityKey": base64::engine::general_purpose::STANDARD.encode(identity_key.verifying_key().to_bytes()),
+        "identityKey": base64::engine::general_purpose::STANDARD.encode(ik_pub_wire),
         "signedPreKey": {
             "keyId": 1,
             "publicKey": base64::engine::general_purpose::STANDARD.encode(&spk_pub),

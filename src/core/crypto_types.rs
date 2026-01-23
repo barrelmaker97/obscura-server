@@ -4,65 +4,46 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// Prefix byte used by Signal/DJB for Montgomery (X25519) keys.
 pub const DJB_KEY_PREFIX: u8 = 0x05;
 
-/// Strong type for public keys to distinguish between Edwards (Ed25519) and Montgomery (X25519) formats.
-/// This handles parsing logic at the boundary.
+/// Strong type for public keys. 
+/// We store the inner 32 bytes (Montgomery/X25519) but enforce 33-byte wire format.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PublicKey {
-    /// Standard 32-byte Ed25519 public key (or raw X25519 if no prefix provided)
-    Edwards([u8; 32]),
-    /// X25519 public key (derived from 33-byte 0x05-prefixed input)
-    /// We store the inner 32 bytes.
-    Montgomery([u8; 32]),
-}
+pub struct PublicKey([u8; 32]);
 
 impl PublicKey {
+    pub fn new(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
     /// Returns the inner 32 bytes
     pub fn into_inner(self) -> [u8; 32] {
-        match self {
-            PublicKey::Edwards(b) => b,
-            PublicKey::Montgomery(b) => b,
-        }
+        self.0
     }
 
     pub fn as_bytes(&self) -> &[u8; 32] {
-        match self {
-            PublicKey::Edwards(b) => b,
-            PublicKey::Montgomery(b) => b,
-        }
+        &self.0
     }
 
     /// Returns the bytes as they should be stored or transmitted (wire format).
-    /// Edwards -> 32 bytes
     /// Montgomery -> 33 bytes (DJB_KEY_PREFIX prefix)
     pub fn to_wire_bytes(&self) -> Vec<u8> {
-        match self {
-            PublicKey::Edwards(b) => b.to_vec(),
-            PublicKey::Montgomery(b) => {
-                let mut v = Vec::with_capacity(33);
-                v.push(DJB_KEY_PREFIX);
-                v.extend_from_slice(b);
-                v
-            }
-        }
+        let mut v = Vec::with_capacity(33);
+        v.push(DJB_KEY_PREFIX);
+        v.extend_from_slice(&self.0);
+        v
     }
 
-    /// Tries to create a PublicKey from wire bytes (32 or 33 bytes).
+    /// Tries to create a PublicKey from wire bytes (33 bytes mandatory with 0x05 prefix).
     pub fn try_from_bytes(bytes: &[u8]) -> Result<Self, String> {
         match bytes.len() {
-            32 => {
-                let mut arr = [0u8; 32];
-                arr.copy_from_slice(bytes);
-                Ok(PublicKey::Edwards(arr))
-            }
             33 => {
                 if bytes[0] != DJB_KEY_PREFIX {
                     return Err(format!("Invalid key prefix for 33-byte key (expected 0x{:02x})", DJB_KEY_PREFIX));
                 }
                 let mut arr = [0u8; 32];
                 arr.copy_from_slice(&bytes[1..]);
-                Ok(PublicKey::Montgomery(arr))
+                Ok(PublicKey(arr))
             }
-            _ => Err(format!("Invalid key length: {}", bytes.len())),
+            _ => Err(format!("Invalid key length: {} (expected 33 bytes with 0x05 prefix)", bytes.len()))
         }
     }
 }
@@ -115,6 +96,10 @@ impl<'de> Deserialize<'de> for PublicKey {
 pub struct Signature([u8; 64]);
 
 impl Signature {
+    pub fn new(bytes: [u8; 64]) -> Self {
+        Self(bytes)
+    }
+
     pub fn as_bytes(&self) -> &[u8; 64] {
         &self.0
     }
@@ -177,14 +162,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_deserialize_edwards_32() {
-        let bytes = [1u8; 32];
-        let b64 = STANDARD.encode(bytes);
-        let key: PublicKey = serde_json::from_str(&format!("\"{}\"", b64)).unwrap();
-        assert_eq!(key, PublicKey::Edwards(bytes));
-    }
-
-    #[test]
     fn test_deserialize_montgomery_33() {
         let mut bytes = [2u8; 33];
         bytes[0] = DJB_KEY_PREFIX; // Prefix
@@ -193,7 +170,7 @@ mod tests {
 
         let b64 = STANDARD.encode(bytes);
         let key: PublicKey = serde_json::from_str(&format!("\"{}\"", b64)).unwrap();
-        assert_eq!(key, PublicKey::Montgomery(inner));
+        assert_eq!(key, PublicKey(inner));
     }
 
     #[test]
@@ -206,7 +183,7 @@ mod tests {
 
     #[test]
     fn test_serialize_roundtrip() {
-        let key = PublicKey::Montgomery([7u8; 32]);
+        let key = PublicKey([7u8; 32]);
         let json = serde_json::to_string(&key).unwrap();
         let back: PublicKey = serde_json::from_str(&json).unwrap();
         assert_eq!(key, back);
@@ -215,7 +192,7 @@ mod tests {
     #[test]
     fn test_signature_roundtrip() {
         let bytes = [9u8; 64];
-        let sig = Signature::try_from(&bytes[..]).unwrap();
+        let sig = Signature(bytes);
         let json = serde_json::to_string(&sig).unwrap();
         let back: Signature = serde_json::from_str(&json).unwrap();
         assert_eq!(sig, back);

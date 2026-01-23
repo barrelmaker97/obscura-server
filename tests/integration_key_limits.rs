@@ -1,6 +1,8 @@
 use base64::Engine;
 use serde_json::json;
 use uuid::Uuid;
+use xeddsa::xed25519::PrivateKey;
+use xeddsa::CalculateKeyPair;
 
 mod common;
 
@@ -14,7 +16,12 @@ async fn test_key_limit_enforced() {
     let username = format!("limit_user_{}", run_id);
 
     let identity_key = common::generate_signing_key();
-    let ik_pub = identity_key.verifying_key().to_bytes();
+    let ik_priv = PrivateKey(identity_key);
+    let (_, ik_pub_ed) = ik_priv.calculate_key_pair(0);
+    let ik_pub_mont = curve25519_dalek::edwards::CompressedEdwardsY(ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
+    let mut ik_pub_wire = ik_pub_mont.to_vec();
+    ik_pub_wire.insert(0, 0x05);
+    
     let (spk_pub, spk_sig) = common::generate_signed_pre_key(&identity_key);
 
     // 1. Register with 40 keys (Under limit)
@@ -22,7 +29,7 @@ async fn test_key_limit_enforced() {
     for i in 0..40 {
         keys.push(json!({
             "keyId": i,
-            "publicKey": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
+            "publicKey": "BQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB" // 0x05 + 32x 0x01
         }));
     }
 
@@ -30,7 +37,7 @@ async fn test_key_limit_enforced() {
         "username": username,
         "password": "password",
         "registrationId": 123,
-        "identityKey": base64::engine::general_purpose::STANDARD.encode(ik_pub),
+        "identityKey": base64::engine::general_purpose::STANDARD.encode(&ik_pub_wire),
         "signedPreKey": {
             "keyId": 1,
             "publicKey": base64::engine::general_purpose::STANDARD.encode(&spk_pub),
@@ -48,7 +55,7 @@ async fn test_key_limit_enforced() {
     for i in 40..60 {
         refill_keys.push(json!({
             "keyId": i,
-            "publicKey": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
+            "publicKey": "BQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB"
         }));
     }
 
@@ -56,7 +63,7 @@ async fn test_key_limit_enforced() {
 
     let refill_payload = json!({
         // Same Identity Key = Refill
-        "identityKey": base64::engine::general_purpose::STANDARD.encode(ik_pub),
+        "identityKey": base64::engine::general_purpose::STANDARD.encode(&ik_pub_wire),
         "registrationId": 123,
         "signedPreKey": {
             "keyId": 2,
@@ -92,18 +99,24 @@ async fn test_key_limit_enforced_on_takeover() {
 
     // 2. Takeover with 20 keys (More than limit of 10)
     let new_identity_key = common::generate_signing_key();
+    let new_priv = PrivateKey(new_identity_key);
+    let (_, new_ik_pub_ed) = new_priv.calculate_key_pair(0);
+    let new_ik_pub_mont = curve25519_dalek::edwards::CompressedEdwardsY(new_ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
+    let mut new_ik_pub_wire = new_ik_pub_mont.to_vec();
+    new_ik_pub_wire.insert(0, 0x05);
+    
     let (spk_pub, spk_sig) = common::generate_signed_pre_key(&new_identity_key);
 
     let mut keys = Vec::new();
     for i in 0..20 {
         keys.push(json!({
             "keyId": i,
-            "publicKey": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
+            "publicKey": "BQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB"
         }));
     }
 
     let takeover_payload = json!({
-        "identityKey": base64::engine::general_purpose::STANDARD.encode(new_identity_key.verifying_key().to_bytes()),
+        "identityKey": base64::engine::general_purpose::STANDARD.encode(&new_ik_pub_wire),
         "registrationId": 456,
         "signedPreKey": {
             "keyId": 2,
