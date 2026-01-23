@@ -122,6 +122,19 @@ impl KeyService {
             ik
         };
 
+        // 2. Monotonic ID Check (Prevent Replay / Rollback)
+        if !is_takeover {
+            let max_id = self.key_repo.get_max_signed_pre_key_id(&mut *conn, params.user_id).await?;
+            if let Some(current_max) = max_id {
+                if params.signed_pre_key.key_id <= current_max {
+                    return Err(AppError::BadRequest(format!(
+                        "Signed Pre-Key ID {} must be greater than current ID {}",
+                        params.signed_pre_key.key_id, current_max
+                    )));
+                }
+            }
+        }
+
         // 3. Limit Check (Atomic within transaction)
         let current_count =
             if is_takeover { 0 } else { self.key_repo.count_one_time_pre_keys(&mut *conn, params.user_id).await? };
@@ -162,6 +175,13 @@ impl KeyService {
                 &params.signed_pre_key.signature,
             )
             .await?;
+
+        // 6. Cleanup old Signed Pre-Keys
+        if !is_takeover {
+            self.key_repo
+                .delete_signed_pre_keys_older_than(&mut *conn, params.user_id, params.signed_pre_key.key_id)
+                .await?;
+        }
 
         self.key_repo.insert_one_time_pre_keys(&mut *conn, params.user_id, &params.one_time_pre_keys).await?;
 

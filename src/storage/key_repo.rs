@@ -241,6 +241,34 @@ impl KeyRepository {
         Ok(count)
     }
 
+    pub async fn get_max_signed_pre_key_id<'e, E>(&self, executor: E, user_id: Uuid) -> Result<Option<i32>>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
+        let max_id: Option<i32> = sqlx::query_scalar("SELECT MAX(id) FROM signed_pre_keys WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(executor)
+            .await?;
+        Ok(max_id)
+    }
+
+    pub async fn delete_signed_pre_keys_older_than<'e, E>(
+        &self,
+        executor: E,
+        user_id: Uuid,
+        threshold_id: i32,
+    ) -> Result<()>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
+        sqlx::query("DELETE FROM signed_pre_keys WHERE user_id = $1 AND id < $2")
+            .bind(user_id)
+            .bind(threshold_id)
+            .execute(executor)
+            .await?;
+        Ok(())
+    }
+
     pub async fn delete_oldest_one_time_pre_keys<'e, E>(&self, executor: E, user_id: Uuid, limit: i64) -> Result<()>
     where
         E: Executor<'e, Database = Postgres>,
