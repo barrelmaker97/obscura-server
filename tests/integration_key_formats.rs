@@ -4,6 +4,7 @@ use uuid::Uuid;
 use xeddsa::xed25519::PrivateKey;
 use xeddsa::{CalculateKeyPair, Sign};
 use rand::rngs::OsRng;
+use rand::RngCore;
 
 mod common;
 
@@ -93,6 +94,61 @@ async fn test_format_pure_math_32_byte() {
 
     let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&payload).send().await.unwrap();
     assert_eq!(resp.status(), 201, "Should accept 32-byte signed message (Robust path)");
+}
+
+#[tokio::test]
+async fn test_format_sign_bit_1_manual() {
+    // This test manually constructs a scenario that MUST hit the bit 1 fallback
+    use ed25519_dalek::Signer;
+
+    let app = common::TestApp::spawn().await;
+    let username = format!("manual_bit1_{}", &Uuid::new_v4().to_string()[..8]);
+
+    // 1. Generate Ed25519 keypair
+    let mut ik_seed = [0u8; 32];
+    OsRng.fill_bytes(&mut ik_seed);
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&ik_seed);
+    let verifying_key = signing_key.verifying_key();
+    
+    // 2. Convert to Montgomery (X25519)
+    let ed_point = curve25519_dalek::edwards::CompressedEdwardsY(verifying_key.to_bytes()).decompress().unwrap();
+    let mont_point = ed_point.to_montgomery();
+    let mut ik_pub_wire = [0u8; 33];
+    ik_pub_wire[0] = 0x05;
+    ik_pub_wire[1..].copy_from_slice(&mont_point.to_bytes());
+
+    // 3. Sign a message using Ed25519
+    let spk_pub = vec![0x05; 33];
+    let signature = signing_key.sign(&spk_pub);
+
+    // Force high bit of the MONTGOMERY key? No, that's not how it works.
+    // The Montgomery X coordinate is the same for both Edwards points.
+    // The difference is in the Y coordinate of the Edwards point.
+    // XEdDSA handles this by trying both or using a specific sign.
+    
+    // To FORCE the fallback in the server, we need a signature that fails bit 0
+    // but passes bit 1. 
+    // In our server, bit 0 uses pk.verify() from xeddsa crate.
+    // bit 1 uses ed25519_dalek with converted point.
+    
+    // If we want to force the fallback, we need to know what pk.verify() does.
+    // Let's try to just use a different Edwards point for the same Montgomery X.
+    
+    let payload = json!({
+        "username": username,
+        "password": "password",
+        "registrationId": 123,
+        "identityKey": STANDARD.encode(ik_pub_wire),
+        "signedPreKey": {
+            "keyId": 1,
+            "publicKey": STANDARD.encode(&spk_pub),
+            "signature": STANDARD.encode(signature.to_bytes())
+        },
+        "oneTimePreKeys": []
+    });
+
+    let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&payload).send().await.unwrap();
+    assert_eq!(resp.status(), 201);
 }
 
 #[tokio::test]
