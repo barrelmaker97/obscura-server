@@ -31,7 +31,7 @@ jobs:
         run: rustup show
 
       - name: Install cargo-edit
-        uses: taiki-e/install-action@cargo-edit
+        run: cargo install cargo-edit
 
       - name: Configure Git User
         run: |
@@ -45,7 +45,7 @@ jobs:
           # Extract the new version and update Cargo.lock
           NEW_VER=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "obscura-server") | .version')
           echo "new_version=$NEW_VER" >> $GITHUB_OUTPUT
-          
+
           # Ensure Cargo.lock is updated
           cargo check --locked > /dev/null 2>&1 || cargo check > /dev/null 2>&1
 
