@@ -125,13 +125,13 @@ impl KeyService {
         // 2. Monotonic ID Check (Prevent Replay / Rollback)
         if !is_takeover {
             let max_id = self.key_repo.get_max_signed_pre_key_id(&mut *conn, params.user_id).await?;
-            if let Some(current_max) = max_id {
-                if params.signed_pre_key.key_id <= current_max {
-                    return Err(AppError::BadRequest(format!(
-                        "Signed Pre-Key ID {} must be greater than current ID {}",
-                        params.signed_pre_key.key_id, current_max
-                    )));
-                }
+            if let Some(current_max) = max_id
+                && params.signed_pre_key.key_id <= current_max
+            {
+                return Err(AppError::BadRequest(format!(
+                    "Signed Pre-Key ID {} must be greater than current ID {}",
+                    params.signed_pre_key.key_id, current_max
+                )));
             }
         }
 

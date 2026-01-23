@@ -65,12 +65,11 @@ pub fn verify_signature(verifier_key: &crate::core::crypto_types::PublicKey, mes
     // Try both possible Edwards points for the Montgomery public key.
     // Some client environments (like JS polyfills) may choose the alternative point.
     for sign_bit in [0, 1] {
-        if let Ok(ed_pk_bytes) = pk.convert_mont(sign_bit) {
-            if let Ok(ed_pk) = ed25519_dalek::VerifyingKey::from_bytes(&ed_pk_bytes) {
-                if ed_pk.verify(message, &sig_obj).is_ok() {
-                    return Ok(());
-                }
-            }
+        if let Ok(ed_pk_bytes) = pk.convert_mont(sign_bit)
+            && let Ok(ed_pk) = ed25519_dalek::VerifyingKey::from_bytes(&ed_pk_bytes)
+            && ed_pk.verify(message, &sig_obj).is_ok()
+        {
+            return Ok(());
         }
     }
 
