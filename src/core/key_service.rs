@@ -39,6 +39,16 @@ impl KeyService {
         Self { pool, key_repo, message_repo, notifier, config }
     }
 
+    pub fn validate_otpk_uniqueness(keys: &[OneTimePreKey]) -> Result<()> {
+        let mut unique_ids = std::collections::HashSet::with_capacity(keys.len());
+        for pk in keys {
+            if !unique_ids.insert(pk.key_id) {
+                return Err(AppError::BadRequest(format!("Duplicate prekey ID: {}", pk.key_id)));
+            }
+        }
+        Ok(())
+    }
+
     pub async fn get_pre_key_bundle(&self, user_id: Uuid) -> Result<Option<PreKeyBundle>> {
         let mut conn = self.pool.acquire().await?;
         self.key_repo.fetch_pre_key_bundle(&mut conn, user_id).await
@@ -64,10 +74,8 @@ impl KeyService {
     pub async fn upload_keys(&self, params: KeyUploadParams) -> Result<()> {
         let user_id = params.user_id;
 
-        // If identity key is provided, we can verify the signature BEFORE starting a transaction.
-        if let Some(ref ik) = params.identity_key {
-            verify_keys(ik, &params.signed_pre_key)?;
-        }
+        // 0. Uniqueness check (CPU only, outside transaction)
+        Self::validate_otpk_uniqueness(&params.one_time_pre_keys)?;
 
         let mut tx = self.pool.begin().await?;
 
@@ -85,14 +93,6 @@ impl KeyService {
     /// Internal implementation that accepts a mutable connection.
     pub(crate) async fn upload_keys_internal(&self, conn: &mut PgConnection, params: KeyUploadParams) -> Result<bool> {
         let mut is_takeover = false;
-
-        // 0. Uniqueness check
-        let mut unique_ids = std::collections::HashSet::new();
-        for pk in &params.one_time_pre_keys {
-            if !unique_ids.insert(pk.key_id) {
-                return Err(AppError::BadRequest(format!("Duplicate prekey ID: {}", pk.key_id)));
-            }
-        }
 
         // 1. Identify/Verify Identity Key
         let ik = if let Some(new_ik) = params.identity_key {

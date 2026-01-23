@@ -46,6 +46,9 @@ impl AccountService {
         signed_pre_key: SignedPreKey,
         one_time_pre_keys: Vec<OneTimePreKey>,
     ) -> Result<AuthResponse> {
+        // 0. Uniqueness check (CPU only, outside transaction)
+        KeyService::validate_otpk_uniqueness(&one_time_pre_keys)?;
+
         let password_hash: Result<String> = tokio::task::spawn_blocking(move || auth::hash_password(&password))
             .await
             .map_err(|_| AppError::Internal)?;
