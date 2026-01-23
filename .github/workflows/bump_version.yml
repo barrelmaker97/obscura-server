@@ -31,7 +31,9 @@ jobs:
         run: rustup show
 
       - name: Install cargo-edit
-        uses: taiki-e/install-action@cargo-edit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-edit
 
       - name: Configure Git User
         run: |
