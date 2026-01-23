@@ -31,7 +31,7 @@ impl KeyRepository {
             "#,
         )
         .bind(user_id)
-        .bind(identity_key.to_wire_bytes())
+        .bind(identity_key.as_bytes())
         .bind(registration_id)
         .execute(executor)
         .await?;
@@ -59,7 +59,7 @@ impl KeyRepository {
         )
         .bind(user_id)
         .bind(key_id)
-        .bind(public_key.to_wire_bytes())
+        .bind(public_key.as_bytes())
         .bind(signature.as_bytes())
         .execute(executor)
         .await?;
@@ -86,7 +86,7 @@ impl KeyRepository {
         for k in keys {
             ids.push(k.key_id);
             user_ids.push(user_id);
-            pub_keys.push(k.public_key.to_wire_bytes());
+            pub_keys.push(k.public_key.as_bytes());
         }
 
         sqlx::query(
@@ -176,7 +176,7 @@ impl KeyRepository {
         Ok(Some(PreKeyBundle { registration_id, identity_key, signed_pre_key, one_time_pre_key }))
     }
 
-    pub async fn fetch_identity_key<'e, E>(&self, executor: E, user_id: Uuid) -> Result<Option<Vec<u8>>>
+    pub async fn fetch_identity_key<'e, E>(&self, executor: E, user_id: Uuid) -> Result<Option<PublicKey>>
     where
         E: Executor<'e, Database = Postgres>,
     {
@@ -185,10 +185,17 @@ impl KeyRepository {
             .fetch_optional(executor)
             .await?;
 
-        Ok(row.map(|r| r.get("identity_key")))
+        match row {
+            Some(r) => {
+                let bytes: Vec<u8> = r.get("identity_key");
+                let pk = PublicKey::try_from(bytes).map_err(|_| AppError::Internal)?;
+                Ok(Some(pk))
+            }
+            None => Ok(None),
+        }
     }
 
-    pub async fn fetch_identity_key_for_update<'e, E>(&self, executor: E, user_id: Uuid) -> Result<Option<Vec<u8>>>
+    pub async fn fetch_identity_key_for_update<'e, E>(&self, executor: E, user_id: Uuid) -> Result<Option<PublicKey>>
     where
         E: Executor<'e, Database = Postgres>,
     {
@@ -197,7 +204,14 @@ impl KeyRepository {
             .fetch_optional(executor)
             .await?;
 
-        Ok(row.map(|r| r.get("identity_key")))
+        match row {
+            Some(r) => {
+                let bytes: Vec<u8> = r.get("identity_key");
+                let pk = PublicKey::try_from(bytes).map_err(|_| AppError::Internal)?;
+                Ok(Some(pk))
+            }
+            None => Ok(None),
+        }
     }
 
     pub async fn delete_all_signed_pre_keys<'e, E>(&self, executor: E, user_id: Uuid) -> Result<()>
@@ -225,5 +239,55 @@ impl KeyRepository {
             .fetch_one(executor)
             .await?;
         Ok(count)
+    }
+
+    pub async fn get_max_signed_pre_key_id<'e, E>(&self, executor: E, user_id: Uuid) -> Result<Option<i32>>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
+        let max_id: Option<i32> = sqlx::query_scalar("SELECT MAX(id) FROM signed_pre_keys WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_one(executor)
+            .await?;
+        Ok(max_id)
+    }
+
+    pub async fn delete_signed_pre_keys_older_than<'e, E>(
+        &self,
+        executor: E,
+        user_id: Uuid,
+        threshold_id: i32,
+    ) -> Result<()>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
+        sqlx::query("DELETE FROM signed_pre_keys WHERE user_id = $1 AND id < $2")
+            .bind(user_id)
+            .bind(threshold_id)
+            .execute(executor)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn delete_oldest_one_time_pre_keys<'e, E>(&self, executor: E, user_id: Uuid, limit: i64) -> Result<()>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
+        sqlx::query(
+            r#"
+            DELETE FROM one_time_pre_keys
+            WHERE user_id = $1 AND id IN (
+                SELECT id FROM one_time_pre_keys
+                WHERE user_id = $1
+                ORDER BY created_at ASC
+                LIMIT $2
+            )
+            "#,
+        )
+        .bind(user_id)
+        .bind(limit)
+        .execute(executor)
+        .await?;
+        Ok(())
     }
 }

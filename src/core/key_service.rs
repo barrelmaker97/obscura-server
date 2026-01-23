@@ -39,12 +39,22 @@ impl KeyService {
         Self { pool, key_repo, message_repo, notifier, config }
     }
 
+    pub fn validate_otpk_uniqueness(keys: &[OneTimePreKey]) -> Result<()> {
+        let mut unique_ids = std::collections::HashSet::with_capacity(keys.len());
+        for pk in keys {
+            if !unique_ids.insert(pk.key_id) {
+                return Err(AppError::BadRequest(format!("Duplicate prekey ID: {}", pk.key_id)));
+            }
+        }
+        Ok(())
+    }
+
     pub async fn get_pre_key_bundle(&self, user_id: Uuid) -> Result<Option<PreKeyBundle>> {
         let mut conn = self.pool.acquire().await?;
         self.key_repo.fetch_pre_key_bundle(&mut conn, user_id).await
     }
 
-    pub async fn fetch_identity_key(&self, user_id: Uuid) -> Result<Option<Vec<u8>>> {
+    pub async fn fetch_identity_key(&self, user_id: Uuid) -> Result<Option<PublicKey>> {
         self.key_repo.fetch_identity_key(&self.pool, user_id).await
     }
 
@@ -64,11 +74,8 @@ impl KeyService {
     pub async fn upload_keys(&self, params: KeyUploadParams) -> Result<()> {
         let user_id = params.user_id;
 
-        // If identity key is provided, we can verify the signature BEFORE starting a transaction.
-        // This avoids holding a DB lock during CPU-intensive crypto verification.
-        if let Some(ref ik) = params.identity_key {
-            verify_keys(ik, &params.signed_pre_key)?;
-        }
+        // 0. Uniqueness check (CPU only, outside transaction)
+        Self::validate_otpk_uniqueness(&params.one_time_pre_keys)?;
 
         let mut tx = self.pool.begin().await?;
 
@@ -90,38 +97,43 @@ impl KeyService {
         // 1. Identify/Verify Identity Key
         let ik = if let Some(new_ik) = params.identity_key {
             // Fetch existing identity key with LOCK
-            let existing_ik_bytes_opt = self.key_repo.fetch_identity_key_for_update(&mut *conn, params.user_id).await?;
+            let existing_ik_opt = self.key_repo.fetch_identity_key_for_update(&mut *conn, params.user_id).await?;
 
-            if let Some(existing_ik_bytes) = existing_ik_bytes_opt {
-                // Compare bytes (new_ik.to_wire_bytes() vs existing DB bytes)
-                let new_ik_bytes = new_ik.to_wire_bytes();
-                if existing_ik_bytes != new_ik_bytes {
+            if let Some(existing_ik) = existing_ik_opt {
+                if existing_ik != new_ik {
                     is_takeover = true;
                 }
             } else {
-                // No existing key? Treat as takeover to ensure clean slate.
                 is_takeover = true;
             }
 
-            // Note: Verification was likely already done in the public wrapper,
-            // but we keep it here for safety (in case it's called internally).
-            // This is fast if already verified because the math is the same.
             verify_keys(&new_ik, &params.signed_pre_key)?;
             new_ik
         } else {
             // Must exist
-            let bytes = self
+            let ik = self
                 .key_repo
                 .fetch_identity_key_for_update(&mut *conn, params.user_id)
                 .await?
                 .ok_or_else(|| AppError::BadRequest("Identity key missing".into()))?;
 
-            let ik = PublicKey::try_from(bytes).map_err(|_| AppError::Internal)?;
-
             // Verify signature with the stored key
             verify_keys(&ik, &params.signed_pre_key)?;
             ik
         };
+
+        // 2. Monotonic ID Check (Prevent Replay / Rollback)
+        if !is_takeover {
+            let max_id = self.key_repo.get_max_signed_pre_key_id(&mut *conn, params.user_id).await?;
+            if let Some(current_max) = max_id
+                && params.signed_pre_key.key_id <= current_max
+            {
+                return Err(AppError::BadRequest(format!(
+                    "Signed Pre-Key ID {} must be greater than current ID {}",
+                    params.signed_pre_key.key_id, current_max
+                )));
+            }
+        }
 
         // 3. Limit Check (Atomic within transaction)
         let current_count =
@@ -129,8 +141,8 @@ impl KeyService {
 
         let new_keys_count = params.one_time_pre_keys.len() as i64;
 
-        if current_count + new_keys_count > self.config.max_pre_keys {
-            return Err(AppError::BadRequest(format!("Too many pre-keys. Limit is {}", self.config.max_pre_keys)));
+        if new_keys_count > self.config.max_pre_keys {
+            return Err(AppError::BadRequest(format!("Batch too large. Limit is {}", self.config.max_pre_keys)));
         }
 
         // 4. Handle Takeover Cleanup
@@ -145,6 +157,12 @@ impl KeyService {
 
             // Upsert Identity Key
             self.key_repo.upsert_identity_key(&mut *conn, params.user_id, &ik, reg_id).await?;
+        } else {
+            // If not a takeover, we might need to prune old keys to make room for new ones
+            if current_count + new_keys_count > self.config.max_pre_keys {
+                let to_delete = (current_count + new_keys_count) - self.config.max_pre_keys;
+                self.key_repo.delete_oldest_one_time_pre_keys(&mut *conn, params.user_id, to_delete).await?;
+            }
         }
 
         // 5. Common flow: Upsert Keys
@@ -158,6 +176,13 @@ impl KeyService {
             )
             .await?;
 
+        // 6. Cleanup old Signed Pre-Keys
+        if !is_takeover {
+            self.key_repo
+                .delete_signed_pre_keys_older_than(&mut *conn, params.user_id, params.signed_pre_key.key_id)
+                .await?;
+        }
+
         self.key_repo.insert_one_time_pre_keys(&mut *conn, params.user_id, &params.one_time_pre_keys).await?;
 
         Ok(is_takeover)
@@ -165,84 +190,63 @@ impl KeyService {
 }
 
 fn verify_keys(ik: &PublicKey, signed_pre_key: &SignedPreKey) -> Result<()> {
-    let spk_bytes_full = signed_pre_key.public_key.to_wire_bytes();
-    let spk_bytes_inner = signed_pre_key.public_key.clone().into_inner();
-    let signature = signed_pre_key.signature.as_bytes();
+    let raw_32 = signed_pre_key.public_key.as_crypto_bytes();
+    let wire_33 = signed_pre_key.public_key.as_bytes();
 
-    // Verification Attempt Helper
-    let try_verify = |verifier_ik: &[u8], is_montgomery: bool| -> bool {
-        // 1. Try full bytes
-        if is_montgomery {
-            if crate::core::auth::verify_signature_with_montgomery(verifier_ik, &spk_bytes_full, signature).is_ok() {
-                return true;
-            }
-        } else if verify_signature(verifier_ik, &spk_bytes_full, signature).is_ok() {
-            return true;
-        }
+    // libsignal-protocol-typescript's generateSignedPreKey signs the 33-byte publicKey ArrayBuffer.
+    // However, some versions or test polyfills might sign the 32-byte raw key.
+    // We try both to be absolutely robust.
 
-        // 2. Try inner bytes (if different)
-        if spk_bytes_full.len() != spk_bytes_inner.len() {
-            if is_montgomery {
-                if crate::core::auth::verify_signature_with_montgomery(verifier_ik, &spk_bytes_inner, signature).is_ok()
-                {
-                    return true;
-                }
-            } else if verify_signature(verifier_ik, &spk_bytes_inner, signature).is_ok() {
-                return true;
-            }
-        }
-        false
-    };
-
-    match ik {
-        PublicKey::Edwards(bytes) => {
-            if try_verify(bytes, false) {
-                return Ok(());
-            }
-        }
-        PublicKey::Montgomery(bytes) => {
-            if try_verify(bytes, true) {
-                return Ok(());
-            }
-            if try_verify(bytes, false) {
-                return Ok(());
-            }
-        }
+    if verify_signature(ik, wire_33, &signed_pre_key.signature).is_ok() {
+        return Ok(());
     }
 
-    Err(AppError::BadRequest("Invalid signature".into()))
+    verify_signature(ik, raw_32, &signed_pre_key.signature)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::core::crypto_types::{PublicKey, Signature};
-    use ed25519_dalek::{Signer, SigningKey};
+    use curve25519_dalek::edwards::CompressedEdwardsY;
+    use xeddsa::xed25519::PrivateKey;
+    use xeddsa::{CalculateKeyPair, Sign};
     use rand::RngCore;
     use rand::rngs::OsRng;
 
-    fn generate_keys() -> (SigningKey, PublicKey, SigningKey, PublicKey, Signature) {
+    fn generate_keys() -> (PrivateKey, PublicKey, PrivateKey, PublicKey, Signature) {
         let mut ik_bytes = [0u8; 32];
         OsRng.fill_bytes(&mut ik_bytes);
-        let ik = SigningKey::from_bytes(&ik_bytes);
-        let ik_pub_bytes = ik.verifying_key().to_bytes();
-        let ik_pub = PublicKey::Edwards(ik_pub_bytes);
+        let ik = PrivateKey(ik_bytes);
+        
+        let (_, ik_pub_ed) = ik.calculate_key_pair(0);
+        let ik_pub_mont = CompressedEdwardsY(ik_pub_ed)
+            .decompress().unwrap().to_montgomery().to_bytes();
+        let mut ik_pub_wire = [0u8; 33];
+        ik_pub_wire[0] = 0x05;
+        ik_pub_wire[1..].copy_from_slice(&ik_pub_mont);
+        let ik_pub = PublicKey::new(ik_pub_wire);
 
         let mut spk_bytes = [0u8; 32];
         OsRng.fill_bytes(&mut spk_bytes);
-        let spk = SigningKey::from_bytes(&spk_bytes);
-        let spk_pub_bytes = spk.verifying_key().to_bytes();
-        let spk_pub = PublicKey::Edwards(spk_pub_bytes);
+        let spk = PrivateKey(spk_bytes);
+        let (_, spk_pub_ed) = spk.calculate_key_pair(0);
+        let spk_pub_mont = CompressedEdwardsY(spk_pub_ed)
+            .decompress().unwrap().to_montgomery().to_bytes();
+        let mut spk_pub_wire = [0u8; 33];
+        spk_pub_wire[0] = 0x05;
+        spk_pub_wire[1..].copy_from_slice(&spk_pub_mont);
+        let spk_pub = PublicKey::new(spk_pub_wire);
 
-        // Sign the WIRE format of SPK (32 bytes here)
-        let signature_bytes = ik.sign(&spk_pub.to_wire_bytes()).to_bytes();
-        let signature = Signature::try_from(&signature_bytes[..]).unwrap();
+        // Sign the 33-byte wire format (prefix + raw X25519)
+        let signature_bytes: [u8; 64] = ik.sign(spk_pub.as_bytes(), OsRng);
+        let signature = Signature::new(signature_bytes);
 
         (ik, ik_pub, spk, spk_pub, signature)
     }
 
     #[test]
-    fn test_verify_keys_standard_strict() {
+    fn test_verify_keys_client_format() {
         let (_, ik_pub, _, spk_pub, signature) = generate_keys();
         let spk = SignedPreKey { key_id: 1, public_key: spk_pub, signature };
 

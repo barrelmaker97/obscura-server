@@ -2,6 +2,8 @@ use base64::Engine;
 use reqwest::StatusCode;
 use serde_json::json;
 use uuid::Uuid;
+use xeddsa::xed25519::PrivateKey;
+use xeddsa::CalculateKeyPair;
 
 mod common;
 
@@ -12,14 +14,19 @@ async fn test_register_flow() {
     let username = format!("user_{}", run_id);
 
     let identity_key = common::generate_signing_key();
-    let ik_pub = identity_key.verifying_key().to_bytes();
+    let ik_priv = PrivateKey(identity_key);
+    let (_, ik_pub_ed) = ik_priv.calculate_key_pair(0);
+    let ik_pub_mont = curve25519_dalek::edwards::CompressedEdwardsY(ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
+    let mut ik_pub_wire = ik_pub_mont.to_vec();
+    ik_pub_wire.insert(0, 0x05);
+    
     let (spk_pub, spk_sig) = common::generate_signed_pre_key(&identity_key);
 
     let payload = json!({
         "username": username,
-        "password": "password123",
-        "registrationId": 12345,
-        "identityKey": base64::engine::general_purpose::STANDARD.encode(ik_pub),
+        "password": "password",
+        "registrationId": 123,
+        "identityKey": base64::engine::general_purpose::STANDARD.encode(ik_pub_wire),
         "signedPreKey": {
             "keyId": 1,
             "publicKey": base64::engine::general_purpose::STANDARD.encode(&spk_pub),
@@ -28,11 +35,11 @@ async fn test_register_flow() {
         "oneTimePreKeys": [
             {
                 "keyId": 1,
-                "publicKey": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
+                "publicKey": "BQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB"
             },
             {
                 "keyId": 2,
-                "publicKey": "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI="
+                "publicKey": "BQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB"
             }
         ]
     });
@@ -50,7 +57,7 @@ async fn test_register_flow() {
     // 2. Login
     let login_payload = json!({
         "username": username,
-        "password": "password123"
+        "password": "password"
     });
 
     let resp_login =

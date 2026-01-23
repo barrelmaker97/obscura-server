@@ -167,7 +167,7 @@ impl AttachmentService {
         }
     }
 
-    async fn cleanup_batch(&self) -> anyhow::Result<()> {
+    async fn cleanup_batch(&self) -> Result<()> {
         loop {
             // Fetch expired attachments (Limit 100 per cycle to avoid blocking)
             let ids = self.repo.fetch_expired(&self.pool, 100).await?;

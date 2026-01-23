@@ -17,5 +17,6 @@ CREATE TABLE one_time_pre_keys (
     id INTEGER NOT NULL,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     public_key BYTEA NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now(),
     PRIMARY KEY (id, user_id)
 );
