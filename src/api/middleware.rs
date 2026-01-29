@@ -37,7 +37,7 @@ impl FromRequestParts<AppState> for AuthUser {
             e
         })?;
 
-        tracing::Span::current().record("user_id", &claims.sub.to_string());
+        tracing::Span::current().record("user_id", claims.sub.to_string());
 
         Ok(AuthUser { user_id: claims.sub })
     }
