@@ -9,19 +9,19 @@ use crate::storage::{
     DbPool, attachment_repo::AttachmentRepository, key_repo::KeyRepository, message_repo::MessageRepository,
     refresh_token_repo::RefreshTokenRepository, user_repo::UserRepository,
 };
+use axum::body::Body;
+use axum::extract::ConnectInfo;
+use axum::http::Request;
 use axum::{
     Router,
     middleware::from_fn,
     routing::{get, post},
 };
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
-use tower_http::trace::{TraceLayer, DefaultOnResponse};
+use tower_http::trace::{DefaultOnResponse, TraceLayer};
 use tracing::Level;
-use axum::http::Request;
-use axum::body::Body;
-use axum::extract::ConnectInfo;
-use std::net::SocketAddr;
 
 pub mod attachments;
 pub mod auth;
@@ -131,10 +131,7 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(move |request: &Request<Body>| {
-                    let peer_addr = request
-                        .extensions()
-                        .get::<ConnectInfo<SocketAddr>>()
-                        .map(|info| info.0.ip());
+                    let peer_addr = request.extensions().get::<ConnectInfo<SocketAddr>>().map(|info| info.0.ip());
 
                     let client_ip = peer_addr
                         .map(|ip| trace_extractor.identify_client_ip(request.headers(), ip).to_string())

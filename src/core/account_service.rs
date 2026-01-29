@@ -174,7 +174,7 @@ impl AccountService {
         let hash = auth::hash_token(&refresh_token);
 
         self.refresh_repo.delete_owned(&self.pool, &hash, user_id).await?;
-        
+
         tracing::info!("User logged out: {}", user_id);
 
         Ok(())
