@@ -22,12 +22,12 @@ pub async fn upload_attachment(
         Ok(s) => match s.parse::<usize>() {
             Ok(len) => Some(len),
             Err(e) => {
-                tracing::warn!("Invalid Content-Length value: {}", e);
+                tracing::debug!("Invalid Content-Length value: {}", e);
                 None
             }
         },
         Err(e) => {
-            tracing::warn!("Invalid Content-Length encoding: {:?}", e);
+            tracing::debug!("Invalid Content-Length encoding: {:?}", e);
             None
         }
     });
@@ -53,14 +53,14 @@ pub async fn download_attachment(
     if let Ok(val) = "application/octet-stream".parse() {
         response.headers_mut().insert(header::CONTENT_TYPE, val);
     } else {
-        tracing::warn!("Failed to parse default Content-Type header value");
+        tracing::debug!("Failed to parse default Content-Type header value");
     }
 
     if content_length > 0 {
         if let Ok(val) = content_length.to_string().parse() {
             response.headers_mut().insert(header::CONTENT_LENGTH, val);
         } else {
-            tracing::warn!("Failed to parse Content-Length header value: {}", content_length);
+            tracing::debug!("Failed to parse Content-Length header value: {}", content_length);
         }
     }
 

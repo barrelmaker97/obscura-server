@@ -31,10 +31,22 @@ impl IntoResponse for AppError {
                 tracing::error!("Database error: {:?}", e);
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
             }
-            AppError::AuthError => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
-            AppError::NotFound => (StatusCode::NOT_FOUND, "Not found".to_string()),
-            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
-            AppError::Conflict(msg) => (StatusCode::CONFLICT, msg),
+            AppError::AuthError => {
+                tracing::debug!("Authentication failed");
+                (StatusCode::UNAUTHORIZED, "Unauthorized".to_string())
+            }
+            AppError::NotFound => {
+                tracing::debug!("Resource not found");
+                (StatusCode::NOT_FOUND, "Not found".to_string())
+            }
+            AppError::BadRequest(msg) => {
+                tracing::debug!("Bad request: {}", msg);
+                (StatusCode::BAD_REQUEST, msg)
+            }
+            AppError::Conflict(msg) => {
+                tracing::debug!("Conflict: {}", msg);
+                (StatusCode::CONFLICT, msg)
+            }
             AppError::Internal => {
                 tracing::error!("Internal server error occurred");
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())

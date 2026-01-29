@@ -16,6 +16,12 @@ use axum::{
 };
 use std::sync::Arc;
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
+use tower_http::trace::{TraceLayer, DefaultOnResponse};
+use tracing::Level;
+use axum::http::Request;
+use axum::body::Body;
+use axum::extract::ConnectInfo;
+use std::net::SocketAddr;
 
 pub mod attachments;
 pub mod auth;
@@ -86,6 +92,8 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_
             .unwrap(),
     );
 
+    let trace_extractor = extractor.clone();
+
     let state = AppState {
         pool,
         config,
@@ -120,5 +128,28 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_
         .route("/openapi.yaml", get(docs::openapi_yaml))
         .nest("/v1", auth_routes.merge(api_routes))
         .layer(from_fn_with_state(state.clone(), log_rate_limit_events))
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(move |request: &Request<Body>| {
+                    let peer_addr = request
+                        .extensions()
+                        .get::<ConnectInfo<SocketAddr>>()
+                        .map(|info| info.0.ip());
+
+                    let client_ip = peer_addr
+                        .map(|ip| trace_extractor.identify_client_ip(request.headers(), ip).to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+
+                    tracing::info_span!(
+                        "request",
+                        method = %request.method(),
+                        uri = %request.uri(),
+                        version = ?request.version(),
+                        client_ip = %client_ip,
+                        user_id = tracing::field::Empty,
+                    )
+                })
+                .on_response(DefaultOnResponse::new().level(Level::INFO)),
+        )
         .with_state(state)
 }

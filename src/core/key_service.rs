@@ -87,6 +87,8 @@ impl KeyService {
             self.notifier.notify(user_id, UserEvent::Disconnect);
         }
 
+        tracing::info!("Keys uploaded successfully for user: {}", user_id);
+
         Ok(())
     }
 

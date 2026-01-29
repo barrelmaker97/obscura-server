@@ -89,6 +89,8 @@ impl AccountService {
 
         tx.commit().await?;
 
+        tracing::info!("User registered successfully: {}", user.id);
+
         let expires_at = (time::OffsetDateTime::now_utc()
             + time::Duration::seconds(self.config.access_token_ttl_secs as i64))
         .unix_timestamp();
@@ -125,6 +127,8 @@ impl AccountService {
         let mut tx = self.pool.begin().await?;
         self.refresh_repo.create(&mut *tx, user.id, &refresh_hash, self.config.refresh_token_ttl_days).await?;
         tx.commit().await?;
+
+        tracing::info!("User logged in successfully: {}", user.id);
 
         let expires_at = (time::OffsetDateTime::now_utc()
             + time::Duration::seconds(self.config.access_token_ttl_secs as i64))
@@ -163,6 +167,8 @@ impl AccountService {
         let hash = auth::hash_token(&refresh_token);
 
         self.refresh_repo.delete_owned(&self.pool, &hash, user_id).await?;
+        
+        tracing::info!("User logged out: {}", user_id);
 
         Ok(())
     }

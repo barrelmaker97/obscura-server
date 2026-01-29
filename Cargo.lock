@@ -2258,6 +2258,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "tokio-util",
+ "tower-http",
  "tower_governor",
  "tracing",
  "tracing-subscriber",
@@ -3881,6 +3882,7 @@ dependencies = [
  "tower",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]
