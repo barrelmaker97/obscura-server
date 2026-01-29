@@ -171,6 +171,7 @@ impl GatewaySession {
 }
 
 async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
+    tracing::info!("WebSocket connected for user {}", user_id);
     let mut rx = state.notifier.subscribe(user_id);
 
     match state.key_service.fetch_identity_key(user_id).await {
@@ -295,4 +296,5 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
     let _ = ws_sink.close().await;
     db_poller_task.abort();
     ack_processor_task.abort();
+    tracing::info!("WebSocket disconnected for user {}", user_id);
 }

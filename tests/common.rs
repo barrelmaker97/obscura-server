@@ -30,6 +30,7 @@ pub fn setup_tracing() {
     INIT.call_once(|| {
         let filter = tracing_subscriber::EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| "warn".into())
+            .add_directive("tower=warn".parse().unwrap())
             .add_directive("sqlx=warn".parse().unwrap())
             .add_directive("hyper=warn".parse().unwrap())
             .add_directive("reqwest=warn".parse().unwrap())

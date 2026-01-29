@@ -11,7 +11,7 @@ use crate::storage::{
 };
 use axum::{
     Router,
-    middleware::from_fn_with_state,
+    middleware::from_fn,
     routing::{get, post},
 };
 use std::sync::Arc;
@@ -127,7 +127,7 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_
     Router::new()
         .route("/openapi.yaml", get(docs::openapi_yaml))
         .nest("/v1", auth_routes.merge(api_routes))
-        .layer(from_fn_with_state(state.clone(), log_rate_limit_events))
+        .layer(from_fn(log_rate_limit_events))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(move |request: &Request<Body>| {
@@ -143,8 +143,7 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_
                     tracing::info_span!(
                         "request",
                         method = %request.method(),
-                        uri = %request.uri(),
-                        version = ?request.version(),
+                        path = %request.uri().path(),
                         client_ip = %client_ip,
                         user_id = tracing::field::Empty,
                     )

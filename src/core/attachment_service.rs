@@ -122,6 +122,8 @@ impl AttachmentService {
         let expires_at = OffsetDateTime::now_utc() + Duration::days(self.ttl_days);
         self.repo.create(&self.pool, id, expires_at).await?;
 
+        tracing::debug!("Attachment uploaded: {} (expires: {})", id, expires_at);
+
         Ok((id, expires_at.unix_timestamp()))
     }
 

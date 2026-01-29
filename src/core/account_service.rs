@@ -99,7 +99,13 @@ impl AccountService {
     }
 
     pub async fn login(&self, username: String, password: String) -> Result<AuthResponse> {
-        let user = self.user_repo.find_by_username(&self.pool, &username).await?.ok_or(AppError::AuthError)?;
+        let user = match self.user_repo.find_by_username(&self.pool, &username).await? {
+            Some(u) => u,
+            None => {
+                tracing::info!("Login failed: User not found");
+                return Err(AppError::AuthError);
+            }
+        };
 
         let password_hash = user.password_hash.clone();
 
@@ -116,6 +122,7 @@ impl AccountService {
         })?;
 
         if !is_valid {
+            tracing::info!("Login failed: Invalid password");
             return Err(AppError::AuthError);
         }
 

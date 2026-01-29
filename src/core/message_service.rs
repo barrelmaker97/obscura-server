@@ -42,6 +42,8 @@ impl MessageService {
         // The background cleanup loop handles overflow.
         self.repo.create(&self.pool, sender_id, recipient_id, msg.r#type, msg.content, self.ttl_days).await?;
 
+        tracing::debug!("Message stored for delivery");
+
         // 3. Notify the user if they are connected
         self.notifier.notify(recipient_id, UserEvent::MessageReceived);
 
