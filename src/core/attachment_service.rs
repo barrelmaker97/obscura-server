@@ -80,6 +80,9 @@ impl AttachmentService {
                     Ok(bytes) => {
                         let frame_res = Ok(bytes);
                         if tx.send(frame_res).await.is_err() {
+                            tracing::debug!(
+                                "Attachment upload stream closed by receiver (S3 client likely finished or failed early)"
+                            );
                             break;
                         }
                     }

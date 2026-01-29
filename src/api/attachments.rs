@@ -18,8 +18,19 @@ pub async fn upload_attachment(
     headers: HeaderMap,
     body: Body,
 ) -> Result<impl IntoResponse> {
-    let content_len =
-        headers.get(header::CONTENT_LENGTH).and_then(|v| v.to_str().ok()).and_then(|v| v.parse::<usize>().ok());
+    let content_len = headers.get(header::CONTENT_LENGTH).and_then(|v| match v.to_str() {
+        Ok(s) => match s.parse::<usize>() {
+            Ok(len) => Some(len),
+            Err(e) => {
+                tracing::warn!("Invalid Content-Length value: {}", e);
+                None
+            }
+        },
+        Err(e) => {
+            tracing::warn!("Invalid Content-Length encoding: {:?}", e);
+            None
+        }
+    });
 
     let (id, expires_at) = state.attachment_service.upload(content_len, body).await?;
 
@@ -38,9 +49,19 @@ pub async fn download_attachment(
     let body = Body::from_stream(stream);
 
     let mut response = Response::new(body);
-    response.headers_mut().insert(header::CONTENT_TYPE, "application/octet-stream".parse().unwrap());
+
+    if let Ok(val) = "application/octet-stream".parse() {
+        response.headers_mut().insert(header::CONTENT_TYPE, val);
+    } else {
+        tracing::warn!("Failed to parse default Content-Type header value");
+    }
+
     if content_length > 0 {
-        response.headers_mut().insert(header::CONTENT_LENGTH, content_length.to_string().parse().unwrap());
+        if let Ok(val) = content_length.to_string().parse() {
+            response.headers_mut().insert(header::CONTENT_LENGTH, val);
+        } else {
+            tracing::warn!("Failed to parse Content-Length header value: {}", content_length);
+        }
     }
 
     Ok(response)

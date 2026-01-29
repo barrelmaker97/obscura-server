@@ -32,8 +32,10 @@ impl MessageService {
 
     pub async fn send_message(&self, sender_id: Uuid, recipient_id: Uuid, body: Bytes) -> Result<()> {
         // 1. Decode the EncryptedMessage protobuf to get type and content
-        let msg = EncryptedMessage::decode(body)
-            .map_err(|_| AppError::BadRequest("Invalid EncryptedMessage protobuf".into()))?;
+        let msg = EncryptedMessage::decode(body).map_err(|e| {
+            tracing::warn!("Failed to decode EncryptedMessage protobuf from user {}: {}", sender_id, e);
+            AppError::BadRequest("Invalid EncryptedMessage protobuf".into())
+        })?;
 
         // 2. Store raw body directly (blind relay)
         // Optimization: We no longer check limits synchronously.

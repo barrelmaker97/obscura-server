@@ -127,7 +127,10 @@ impl KeyRepository {
         let registration_id: i32 = identity_row.get("registration_id");
 
         // Convert Identity Key
-        let identity_key = PublicKey::try_from(identity_key_bytes).map_err(|_| AppError::Internal)?;
+        let identity_key = PublicKey::try_from(identity_key_bytes).map_err(|e| {
+            tracing::error!("Database data corruption: Invalid identity key format for user {}: {}", user_id, e);
+            AppError::Internal
+        })?;
 
         let signed_row = sqlx::query(
             r#"
@@ -145,8 +148,18 @@ impl KeyRepository {
         let pk_bytes: Vec<u8> = signed_row.get("public_key");
         let sig_bytes: Vec<u8> = signed_row.get("signature");
 
-        let pk = PublicKey::try_from(pk_bytes).map_err(|_| AppError::Internal)?;
-        let sig = Signature::try_from(sig_bytes).map_err(|_| AppError::Internal)?;
+        let pk = PublicKey::try_from(pk_bytes).map_err(|e| {
+            tracing::error!("Database data corruption: Invalid signed pre-key format for user {}: {}", user_id, e);
+            AppError::Internal
+        })?;
+        let sig = Signature::try_from(sig_bytes).map_err(|e| {
+            tracing::error!(
+                "Database data corruption: Invalid signed pre-key signature format for user {}: {}",
+                user_id,
+                e
+            );
+            AppError::Internal
+        })?;
 
         let signed_pre_key = SignedPreKey { key_id: signed_row.get("id"), public_key: pk, signature: sig };
 
@@ -167,7 +180,14 @@ impl KeyRepository {
         let one_time_pre_key = match otpk_row {
             Some(row) => {
                 let pk_bytes: Vec<u8> = row.get("public_key");
-                let pk = PublicKey::try_from(pk_bytes).map_err(|_| AppError::Internal)?;
+                let pk = PublicKey::try_from(pk_bytes).map_err(|e| {
+                    tracing::error!(
+                        "Database data corruption: Invalid one-time pre-key format for user {}: {}",
+                        user_id,
+                        e
+                    );
+                    AppError::Internal
+                })?;
                 Some(OneTimePreKey { key_id: row.get("id"), public_key: pk })
             }
             None => None,
@@ -188,7 +208,14 @@ impl KeyRepository {
         match row {
             Some(r) => {
                 let bytes: Vec<u8> = r.get("identity_key");
-                let pk = PublicKey::try_from(bytes).map_err(|_| AppError::Internal)?;
+                let pk = PublicKey::try_from(bytes).map_err(|e| {
+                    tracing::error!(
+                        "Database data corruption: Invalid identity key format for user {}: {}",
+                        user_id,
+                        e
+                    );
+                    AppError::Internal
+                })?;
                 Ok(Some(pk))
             }
             None => Ok(None),
@@ -207,7 +234,14 @@ impl KeyRepository {
         match row {
             Some(r) => {
                 let bytes: Vec<u8> = r.get("identity_key");
-                let pk = PublicKey::try_from(bytes).map_err(|_| AppError::Internal)?;
+                let pk = PublicKey::try_from(bytes).map_err(|e| {
+                    tracing::error!(
+                        "Database data corruption: Invalid identity key format for user {}: {}",
+                        user_id,
+                        e
+                    );
+                    AppError::Internal
+                })?;
                 Ok(Some(pk))
             }
             None => Ok(None),

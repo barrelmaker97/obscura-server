@@ -49,10 +49,15 @@ impl AccountService {
         // 0. Uniqueness check (CPU only, outside transaction)
         KeyService::validate_otpk_uniqueness(&one_time_pre_keys)?;
 
-        let password_hash: Result<String> = tokio::task::spawn_blocking(move || auth::hash_password(&password))
-            .await
-            .map_err(|_| AppError::Internal)?;
-        let password_hash = password_hash?;
+        let password_hash: Result<String> =
+            tokio::task::spawn_blocking(move || auth::hash_password(&password)).await.map_err(|e| {
+                tracing::error!("Failed to spawn password hashing task: {}", e);
+                AppError::Internal
+            })?;
+        let password_hash = password_hash.map_err(|e| {
+            tracing::error!("Password hashing failed: {:?}", e);
+            e
+        })?;
 
         let mut tx = self.pool.begin().await?;
 
@@ -97,10 +102,16 @@ impl AccountService {
         let password_hash = user.password_hash.clone();
 
         let is_valid: Result<bool> =
-            tokio::task::spawn_blocking(move || auth::verify_password(&password, &password_hash))
-                .await
-                .map_err(|_| AppError::Internal)?;
-        let is_valid = is_valid?;
+            tokio::task::spawn_blocking(move || auth::verify_password(&password, &password_hash)).await.map_err(
+                |e| {
+                    tracing::error!("Failed to spawn password verification task: {}", e);
+                    AppError::Internal
+                },
+            )?;
+        let is_valid = is_valid.map_err(|e| {
+            tracing::error!("Password verification failed: {:?}", e);
+            e
+        })?;
 
         if !is_valid {
             return Err(AppError::AuthError);

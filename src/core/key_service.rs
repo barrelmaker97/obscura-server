@@ -201,7 +201,10 @@ fn verify_keys(ik: &PublicKey, signed_pre_key: &SignedPreKey) -> Result<()> {
         return Ok(());
     }
 
-    verify_signature(ik, raw_32, &signed_pre_key.signature)
+    verify_signature(ik, raw_32, &signed_pre_key.signature).map_err(|e| {
+        tracing::warn!("Signature verification failed for key_id {}: {:?}", signed_pre_key.key_id, e);
+        e
+    })
 }
 
 #[cfg(test)]
@@ -209,19 +212,18 @@ mod tests {
     use super::*;
     use crate::core::crypto_types::{PublicKey, Signature};
     use curve25519_dalek::edwards::CompressedEdwardsY;
-    use xeddsa::xed25519::PrivateKey;
-    use xeddsa::{CalculateKeyPair, Sign};
     use rand::RngCore;
     use rand::rngs::OsRng;
+    use xeddsa::xed25519::PrivateKey;
+    use xeddsa::{CalculateKeyPair, Sign};
 
     fn generate_keys() -> (PrivateKey, PublicKey, PrivateKey, PublicKey, Signature) {
         let mut ik_bytes = [0u8; 32];
         OsRng.fill_bytes(&mut ik_bytes);
         let ik = PrivateKey(ik_bytes);
-        
+
         let (_, ik_pub_ed) = ik.calculate_key_pair(0);
-        let ik_pub_mont = CompressedEdwardsY(ik_pub_ed)
-            .decompress().unwrap().to_montgomery().to_bytes();
+        let ik_pub_mont = CompressedEdwardsY(ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
         let mut ik_pub_wire = [0u8; 33];
         ik_pub_wire[0] = 0x05;
         ik_pub_wire[1..].copy_from_slice(&ik_pub_mont);
@@ -231,8 +233,7 @@ mod tests {
         OsRng.fill_bytes(&mut spk_bytes);
         let spk = PrivateKey(spk_bytes);
         let (_, spk_pub_ed) = spk.calculate_key_pair(0);
-        let spk_pub_mont = CompressedEdwardsY(spk_pub_ed)
-            .decompress().unwrap().to_montgomery().to_bytes();
+        let spk_pub_mont = CompressedEdwardsY(spk_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
         let mut spk_pub_wire = [0u8; 33];
         spk_pub_wire[0] = 0x05;
         spk_pub_wire[1..].copy_from_slice(&spk_pub_mont);

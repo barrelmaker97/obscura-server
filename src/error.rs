@@ -35,7 +35,10 @@ impl IntoResponse for AppError {
             AppError::NotFound => (StatusCode::NOT_FOUND, "Not found".to_string()),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
             AppError::Conflict(msg) => (StatusCode::CONFLICT, msg),
-            AppError::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()),
+            AppError::Internal => {
+                tracing::error!("Internal server error occurred");
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+            }
         };
 
         let body = Json(json!({
