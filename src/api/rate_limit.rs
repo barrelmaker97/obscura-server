@@ -1,6 +1,5 @@
-use crate::api::AppState;
 use axum::body::Body;
-use axum::extract::{ConnectInfo, State};
+use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
@@ -61,30 +60,22 @@ impl KeyExtractor for IpKeyExtractor {
     }
 }
 
-pub async fn log_rate_limit_events(State(state): State<AppState>, req: Request<Body>, next: Next) -> Response {
-    let method = req.method().clone();
-
+pub async fn log_rate_limit_events(req: Request<Body>, next: Next) -> Response {
     // We must extract information BEFORE calling next.run(req), as that consumes the request.
-    let path = req.uri().path().to_string();
-    let headers = req.headers().clone();
-    let peer_addr = req.extensions().get::<axum::extract::ConnectInfo<SocketAddr>>().map(|info| info.0.ip());
-
     let mut response = next.run(req).await;
 
     if response.status() == StatusCode::TOO_MANY_REQUESTS {
-        // Use the exact same secure logic as the rate limiter to identify the client IP.
-        let ip = peer_addr
-            .map(|addr| state.extractor.identify_client_ip(&headers, addr).to_string())
-            .unwrap_or_else(|| "unknown".into());
-
-        warn!("Rate limit hit: client_ip={}, method={}, path={}", ip, method, path);
-
         // Map the internal x-ratelimit-after to the standard Retry-After header
         // for better compatibility with standard HTTP clients.
-        if let Some(after) = response.headers().get("x-ratelimit-after") {
+        let retry_after = if let Some(after) = response.headers().get("x-ratelimit-after") {
             let after = after.clone();
-            response.headers_mut().insert("retry-after", after);
-        }
+            response.headers_mut().insert("retry-after", after.clone());
+            after.to_str().unwrap_or("?").to_string()
+        } else {
+            "unknown".to_string()
+        };
+
+        warn!("Rate limit exceeded (retry allowed after {}s)", retry_after);
     }
 
     response

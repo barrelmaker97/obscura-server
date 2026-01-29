@@ -5,13 +5,13 @@ use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
 };
 use base64::Engine;
+use ed25519_dalek::Verifier;
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use rand::{RngCore, rngs::OsRng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
-use ed25519_dalek::Verifier;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
@@ -20,28 +20,45 @@ pub struct Claims {
 }
 
 pub fn create_jwt(user_id: Uuid, secret: &str, ttl_secs: u64) -> Result<String> {
-    let expiration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as usize + ttl_secs as usize;
+    let expiration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(std::time::Duration::from_secs(0)).as_secs()
+        as usize
+        + ttl_secs as usize;
 
     let claims = Claims { sub: user_id, exp: expiration };
 
-    encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes())).map_err(|_| AppError::Internal)
+    encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes())).map_err(|e| {
+        tracing::error!("JWT encoding failed: {}", e);
+        AppError::Internal
+    })
 }
 
 pub fn verify_jwt(token: &str, secret: &str) -> Result<Claims> {
     let token_data = decode::<Claims>(token, &DecodingKey::from_secret(secret.as_bytes()), &Validation::default())
-        .map_err(|_| AppError::AuthError)?;
+        .map_err(|e| {
+            tracing::debug!("JWT verification failed: {}", e);
+            AppError::AuthError
+        })?;
     Ok(token_data.claims)
 }
 
 pub fn hash_password(password: &str) -> Result<String> {
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
-    let password_hash = argon2.hash_password(password.as_bytes(), &salt).map_err(|_| AppError::Internal)?.to_string();
+    let password_hash = argon2
+        .hash_password(password.as_bytes(), &salt)
+        .map_err(|e| {
+            tracing::error!("Argon2 hashing failed: {}", e);
+            AppError::Internal
+        })?
+        .to_string();
     Ok(password_hash)
 }
 
 pub fn verify_password(password: &str, password_hash: &str) -> Result<bool> {
-    let parsed_hash = PasswordHash::new(password_hash).map_err(|_| AppError::Internal)?;
+    let parsed_hash = PasswordHash::new(password_hash).map_err(|e| {
+        tracing::error!("Invalid password hash format: {}", e);
+        AppError::Internal
+    })?;
     Ok(Argon2::default().verify_password(password.as_bytes(), &parsed_hash).is_ok())
 }
 
@@ -50,12 +67,16 @@ pub fn verify_password(password: &str, password_hash: &str) -> Result<bool> {
 /// XEdDSA is used to verify Ed25519 signatures against Curve25519 (Montgomery) public keys.
 /// Because a Montgomery X-coordinate corresponds to two Edwards points (sign bit 0 and 1),
 /// we try both to ensure compatibility with various client implementations and environments.
-pub fn verify_signature(verifier_key: &crate::core::crypto_types::PublicKey, message: &[u8], signature: &Signature) -> Result<()> {
+pub fn verify_signature(
+    verifier_key: &crate::core::crypto_types::PublicKey,
+    message: &[u8],
+    signature: &Signature,
+) -> Result<()> {
     let pk = xeddsa::xed25519::PublicKey(*verifier_key.as_crypto_bytes());
 
     use xeddsa::ConvertMont;
     let sig_bytes = signature.as_bytes();
-    
+
     // We must clear the 255th bit of 's' for standard Ed25519 libraries.
     // XEdDSA uses this bit to represent the sign of the recovered point.
     let mut sig_canonical = *sig_bytes;
@@ -110,7 +131,7 @@ mod tests {
             // 1. Calculate public key with specific sign bit
             let (_, ed_pub) = xed_priv.calculate_key_pair(ik_sign);
             let mont_pub = CompressedEdwardsY(ed_pub).decompress().unwrap().to_montgomery().to_bytes();
-            
+
             let mut ik_wire = [0u8; 33];
             ik_wire[0] = 0x05;
             ik_wire[1..].copy_from_slice(&mont_pub);
@@ -127,16 +148,8 @@ mod tests {
             let sig_32 = Signature::new(xed_priv.sign(&msg_32, OsRng));
             let sig_33 = Signature::new(xed_priv.sign(&msg_33, OsRng));
 
-            assert!(
-                verify_signature(&ik_pub, &msg_32, &sig_32).is_ok(),
-                "Failed 32-byte msg for ik_sign={}",
-                ik_sign
-            );
-            assert!(
-                verify_signature(&ik_pub, &msg_33, &sig_33).is_ok(),
-                "Failed 33-byte msg for ik_sign={}",
-                ik_sign
-            );
+            assert!(verify_signature(&ik_pub, &msg_32, &sig_32).is_ok(), "Failed 32-byte msg for ik_sign={}", ik_sign);
+            assert!(verify_signature(&ik_pub, &msg_33, &sig_33).is_ok(), "Failed 33-byte msg for ik_sign={}", ik_sign);
         }
     }
 }

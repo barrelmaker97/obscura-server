@@ -30,8 +30,14 @@ WORKDIR /app
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
 
+# Create a non-root user with a specific UID/GID
+RUN groupadd -g 10001 appuser && useradd -u 10001 -g 10001 -r appuser
+
 # Copy binary to release image
-COPY --from=builder /app/target/release/obscura-server .
+COPY --from=builder --chown=appuser:appuser /app/target/release/obscura-server .
+
+# Switch to non-root user
+USER appuser
 
 # Run the application
 CMD ["./obscura-server"]

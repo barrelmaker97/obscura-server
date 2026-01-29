@@ -30,7 +30,10 @@ pub async fn websocket_handler(
 ) -> impl IntoResponse {
     match verify_jwt(&params.token, &state.config.auth.jwt_secret) {
         Ok(claims) => ws.on_upgrade(move |socket| handle_socket(socket, state, claims.sub)),
-        Err(_) => axum::http::StatusCode::UNAUTHORIZED.into_response(),
+        Err(e) => {
+            tracing::debug!("WebSocket handshake failed: invalid token: {:?}", e);
+            axum::http::StatusCode::UNAUTHORIZED.into_response()
+        }
     }
 }
 
@@ -168,21 +171,37 @@ impl GatewaySession {
 }
 
 async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
+    tracing::info!("WebSocket connected for user {}", user_id);
     let mut rx = state.notifier.subscribe(user_id);
 
-    if let Ok(None) = state.key_service.fetch_identity_key(user_id).await {
-        let _ = socket.close().await;
-        return;
+    match state.key_service.fetch_identity_key(user_id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            warn!("User {} connected but has no identity key", user_id);
+            let _ = socket.close().await;
+            return;
+        }
+        Err(e) => {
+            error!("Failed to fetch identity key for user {}: {}", user_id, e);
+            let _ = socket.close().await;
+            return;
+        }
     }
 
     let (mut ws_sink, mut ws_stream) = socket.split();
 
-    if let Ok(Some(status)) = state.key_service.check_pre_key_status(user_id).await {
-        let frame = WebSocketFrame { payload: Some(Payload::PreKeyStatus(status)) };
-        let mut buf = Vec::new();
-        if frame.encode(&mut buf).is_ok() {
-            let _ = ws_sink.send(WsMessage::Binary(buf.into())).await;
+    match state.key_service.check_pre_key_status(user_id).await {
+        Ok(Some(status)) => {
+            let frame = WebSocketFrame { payload: Some(Payload::PreKeyStatus(status)) };
+            let mut buf = Vec::new();
+            if frame.encode(&mut buf).is_ok() {
+                let _ = ws_sink.send(WsMessage::Binary(buf.into())).await;
+            }
         }
+        Err(e) => {
+            warn!("Failed to check pre-key status for user {}: {}", user_id, e);
+        }
+        _ => {}
     }
 
     let (outbound_tx, mut outbound_rx) = mpsc::channel(state.config.websocket.outbound_buffer_size);
@@ -205,16 +224,31 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
             msg = ws_stream.next() => {
                 match msg {
                     Some(Ok(WsMessage::Binary(bin))) => {
-                         if let Ok(frame) = WebSocketFrame::decode(bin.as_ref())
-                             && let Some(Payload::Ack(ack)) = frame.payload
-                             && let Ok(msg_id) = Uuid::parse_str(&ack.message_id)
-                             && ack_tx.try_send(msg_id).is_err()
-                         {
-                             warn!("Dropped ACK for message {} due to full buffer", msg_id);
+                         match WebSocketFrame::decode(bin.as_ref()) {
+                             Ok(frame) => {
+                                 if let Some(Payload::Ack(ack)) = frame.payload {
+                                     match Uuid::parse_str(&ack.message_id) {
+                                         Ok(msg_id) => {
+                                             if ack_tx.try_send(msg_id).is_err() {
+                                                 warn!("Dropped ACK for message {} due to full buffer", msg_id);
+                                             }
+                                         }
+                                         Err(_) => {
+                                             warn!("Received ACK with invalid UUID from user {}", user_id);
+                                         }
+                                     }
+                                 }
+                             }
+                             Err(e) => {
+                                 warn!("Failed to decode WebSocket frame from user {}: {}", user_id, e);
+                             }
                          }
                     }
                     Some(Ok(WsMessage::Close(_))) => break,
-                    Some(Err(_)) => break,
+                    Some(Err(e)) => {
+                        warn!("WebSocket error for user {}: {}", user_id, e);
+                        break;
+                    }
                     None => break,
                     _ => {}
                 }
@@ -262,4 +296,5 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
     let _ = ws_sink.close().await;
     db_poller_task.abort();
     ack_processor_task.abort();
+    tracing::info!("WebSocket disconnected for user {}", user_id);
 }

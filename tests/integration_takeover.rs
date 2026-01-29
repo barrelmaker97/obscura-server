@@ -3,8 +3,8 @@ use base64::engine::general_purpose::STANDARD;
 use obscura_server::storage::message_repo::MessageRepository;
 use serde_json::json;
 use uuid::Uuid;
-use xeddsa::xed25519::PrivateKey;
 use xeddsa::CalculateKeyPair;
+use xeddsa::xed25519::PrivateKey;
 
 mod common;
 
@@ -29,10 +29,11 @@ async fn test_device_takeover_success() {
     let new_identity_key_bytes = common::generate_signing_key();
     let new_priv = PrivateKey(new_identity_key_bytes);
     let (_, new_ik_pub_ed) = new_priv.calculate_key_pair(0);
-    let new_ik_pub_mont = curve25519_dalek::edwards::CompressedEdwardsY(new_ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
+    let new_ik_pub_mont =
+        curve25519_dalek::edwards::CompressedEdwardsY(new_ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
     let mut new_ik_pub_wire = new_ik_pub_mont.to_vec();
     new_ik_pub_wire.insert(0, 0x05);
-    
+
     let (new_spk_pub, new_spk_sig) = common::generate_signed_pre_key(&new_identity_key_bytes);
 
     let takeover_payload = json!({
@@ -46,22 +47,30 @@ async fn test_device_takeover_success() {
         "oneTimePreKeys": []
     });
 
-    let resp = app.client.post(format!("{}/v1/keys", app.server_url))
+    let resp = app
+        .client
+        .post(format!("{}/v1/keys", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
         .json(&takeover_payload)
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
 
     assert_eq!(resp.status(), 200);
 
     // 6. Verify Identity Key Changed
-    let resp = app.client.get(format!("{}/v1/keys/{}", app.server_url, user.user_id))
+    let resp = app
+        .client
+        .get(format!("{}/v1/keys/{}", app.server_url, user.user_id))
         .header("Authorization", format!("Bearer {}", user.token))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let bundle: serde_json::Value = resp.json().await.unwrap();
     let ik_b64 = bundle["identityKey"].as_str().unwrap();
     let ik_bytes = base64::engine::general_purpose::STANDARD.decode(ik_b64).unwrap();
-    
+
     assert_eq!(ik_bytes.len(), 33);
     assert_eq!(ik_bytes[0], 0x05);
     assert_eq!(&ik_bytes[1..], &new_ik_pub_mont);
@@ -78,10 +87,11 @@ async fn test_refill_pre_keys_no_overwrite() {
 
     // 2. Refill (Same Identity Key)
     let (new_spk_pub, new_spk_sig) = common::generate_signed_pre_key(&user.identity_key);
-    
+
     let ik_priv = PrivateKey(user.identity_key);
     let (_, ik_pub_ed) = ik_priv.calculate_key_pair(0);
-    let ik_pub_mont = curve25519_dalek::edwards::CompressedEdwardsY(ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
+    let ik_pub_mont =
+        curve25519_dalek::edwards::CompressedEdwardsY(ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
     let mut ik_pub_wire = ik_pub_mont.to_vec();
     ik_pub_wire.insert(0, 0x05);
 

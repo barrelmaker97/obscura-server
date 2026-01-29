@@ -16,10 +16,11 @@ async fn test_key_rotation_monotonic_check() {
     let identity_key = common::generate_signing_key();
     let ik_priv = PrivateKey(identity_key);
     let (_, ik_pub_ed) = ik_priv.calculate_key_pair(0);
-    let ik_pub_mont = curve25519_dalek::edwards::CompressedEdwardsY(ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
+    let ik_pub_mont =
+        curve25519_dalek::edwards::CompressedEdwardsY(ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
     let mut ik_pub_wire = ik_pub_mont.to_vec();
     ik_pub_wire.insert(0, 0x05);
-    
+
     // Generate SPK 10
     let (spk_pub_10, spk_sig_10) = generate_spk(&identity_key);
 
@@ -53,9 +54,14 @@ async fn test_key_rotation_monotonic_check() {
         "oneTimePreKeys": []
     });
 
-    let resp_11 = app.client.post(format!("{}/v1/keys", app.server_url))
+    let resp_11 = app
+        .client
+        .post(format!("{}/v1/keys", app.server_url))
         .header("Authorization", format!("Bearer {}", token))
-        .json(&rotate_payload_11).send().await.unwrap();
+        .json(&rotate_payload_11)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp_11.status(), 200);
 
     // 3. Try Replay Key ID 10 (Fail - Too Old)
@@ -69,22 +75,32 @@ async fn test_key_rotation_monotonic_check() {
         },
         "oneTimePreKeys": []
     });
-    let resp_10 = app.client.post(format!("{}/v1/keys", app.server_url))
+    let resp_10 = app
+        .client
+        .post(format!("{}/v1/keys", app.server_url))
         .header("Authorization", format!("Bearer {}", token))
-        .json(&rotate_payload_10).send().await.unwrap();
+        .json(&rotate_payload_10)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp_10.status(), 400);
 
     // 4. Try Replay Key ID 11 (Fail - Must be > current)
-    let resp_retry_11 = app.client.post(format!("{}/v1/keys", app.server_url))
+    let resp_retry_11 = app
+        .client
+        .post(format!("{}/v1/keys", app.server_url))
         .header("Authorization", format!("Bearer {}", token))
-        .json(&rotate_payload_11).send().await.unwrap();
+        .json(&rotate_payload_11)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp_retry_11.status(), 400);
 
     // 5. Cleanup Verification
     // ID 10 should be deleted, ID 11 should exist.
     // We can't query DB directly easily from here due to Uuid/Pool separation in test helper,
     // but we can infer it by the fact that if we tried to rotate to 12, it works.
-    
+
     // Rotate to 12
     let (spk_pub_12, spk_sig_12) = generate_spk(&identity_key);
     let rotate_payload_12 = json!({
@@ -97,9 +113,14 @@ async fn test_key_rotation_monotonic_check() {
         },
         "oneTimePreKeys": []
     });
-    let resp_12 = app.client.post(format!("{}/v1/keys", app.server_url))
+    let resp_12 = app
+        .client
+        .post(format!("{}/v1/keys", app.server_url))
         .header("Authorization", format!("Bearer {}", token))
-        .json(&rotate_payload_12).send().await.unwrap();
+        .json(&rotate_payload_12)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp_12.status(), 200);
 }
 
@@ -115,7 +136,8 @@ async fn test_key_rotation_cleanup() {
     // Identity Key Wire
     let ik_priv = PrivateKey(user.identity_key);
     let (_, ik_pub_ed) = ik_priv.calculate_key_pair(0);
-    let ik_pub_mont = curve25519_dalek::edwards::CompressedEdwardsY(ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
+    let ik_pub_mont =
+        curve25519_dalek::edwards::CompressedEdwardsY(ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
     let mut ik_pub_wire = ik_pub_mont.to_vec();
     ik_pub_wire.insert(0, 0x05);
 
@@ -130,9 +152,13 @@ async fn test_key_rotation_cleanup() {
         "oneTimePreKeys": []
     });
 
-    app.client.post(format!("{}/v1/keys", app.server_url))
+    app.client
+        .post(format!("{}/v1/keys", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
-        .json(&payload).send().await.unwrap();
+        .json(&payload)
+        .send()
+        .await
+        .unwrap();
 
     // Verify directly in DB that ID 1 is GONE and ID 10 EXISTS
     let count_1: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM signed_pre_keys WHERE user_id = $1 AND id = 1")
@@ -154,7 +180,8 @@ fn generate_spk(identity_key: &[u8; 32]) -> (Vec<u8>, Vec<u8>) {
     let spk_bytes = common::generate_signing_key();
     let spk_priv = PrivateKey(spk_bytes);
     let (_, spk_pub_ed) = spk_priv.calculate_key_pair(0);
-    let spk_pub_mont = curve25519_dalek::edwards::CompressedEdwardsY(spk_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
+    let spk_pub_mont =
+        curve25519_dalek::edwards::CompressedEdwardsY(spk_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
     let mut spk_pub_wire = [0u8; 33];
     spk_pub_wire[0] = 0x05;
     spk_pub_wire[1..].copy_from_slice(&spk_pub_mont);

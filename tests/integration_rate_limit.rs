@@ -178,7 +178,6 @@ async fn test_rate_limit_tiers() {
         }
     }
 
-
     for _ in 0..5 {
         let resp = app
             .client

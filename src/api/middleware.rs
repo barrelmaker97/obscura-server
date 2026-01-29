@@ -16,17 +16,17 @@ impl FromRequestParts<AppState> for AuthUser {
 
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
         let auth_header = parts.headers.get(header::AUTHORIZATION).ok_or_else(|| {
-            tracing::warn!("Missing Authorization header");
+            tracing::debug!("Missing Authorization header");
             AppError::AuthError
         })?;
 
         let auth_str = auth_header.to_str().map_err(|_| {
-            tracing::warn!("Invalid Authorization header encoding");
+            tracing::debug!("Invalid Authorization header encoding");
             AppError::AuthError
         })?;
 
         if !auth_str.starts_with("Bearer ") {
-            tracing::warn!("Authorization header does not start with 'Bearer '");
+            tracing::debug!("Authorization header does not start with 'Bearer '");
             return Err(AppError::AuthError);
         }
 
@@ -36,6 +36,8 @@ impl FromRequestParts<AppState> for AuthUser {
             tracing::debug!("JWT verification failed: {:?}", e);
             e
         })?;
+
+        tracing::Span::current().record("user_id", claims.sub.to_string());
 
         Ok(AuthUser { user_id: claims.sub })
     }
