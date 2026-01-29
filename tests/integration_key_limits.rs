@@ -1,8 +1,8 @@
 use base64::Engine;
 use serde_json::json;
 use uuid::Uuid;
-use xeddsa::xed25519::PrivateKey;
 use xeddsa::CalculateKeyPair;
+use xeddsa::xed25519::PrivateKey;
 
 mod common;
 
@@ -18,10 +18,11 @@ async fn test_key_limit_enforced() {
     let identity_key = common::generate_signing_key();
     let ik_priv = PrivateKey(identity_key);
     let (_, ik_pub_ed) = ik_priv.calculate_key_pair(0);
-    let ik_pub_mont = curve25519_dalek::edwards::CompressedEdwardsY(ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
+    let ik_pub_mont =
+        curve25519_dalek::edwards::CompressedEdwardsY(ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
     let mut ik_pub_wire = ik_pub_mont.to_vec();
     ik_pub_wire.insert(0, 0x05);
-    
+
     let (spk_pub, spk_sig) = common::generate_signed_pre_key(&identity_key);
 
     // 1. Register with 40 keys (Under limit)
@@ -85,11 +86,13 @@ async fn test_key_limit_enforced() {
     assert_eq!(resp.status(), 200, "Refill should succeed with pruning");
 
     // 3. Verify total is capped at 50
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM one_time_pre_keys WHERE user_id IN (SELECT id FROM users WHERE username = $1)")
-        .bind(&username)
-        .fetch_one(&app.pool)
-        .await
-        .unwrap();
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM one_time_pre_keys WHERE user_id IN (SELECT id FROM users WHERE username = $1)",
+    )
+    .bind(&username)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
     assert_eq!(count, 50, "Total keys should be capped at max_pre_keys (50)");
 }
 
@@ -109,10 +112,11 @@ async fn test_key_limit_enforced_on_takeover() {
     let new_identity_key = common::generate_signing_key();
     let new_priv = PrivateKey(new_identity_key);
     let (_, new_ik_pub_ed) = new_priv.calculate_key_pair(0);
-    let new_ik_pub_mont = curve25519_dalek::edwards::CompressedEdwardsY(new_ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
+    let new_ik_pub_mont =
+        curve25519_dalek::edwards::CompressedEdwardsY(new_ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
     let mut new_ik_pub_wire = new_ik_pub_mont.to_vec();
     new_ik_pub_wire.insert(0, 0x05);
-    
+
     let (spk_pub, spk_sig) = common::generate_signed_pre_key(&new_identity_key);
 
     let mut keys = Vec::new();

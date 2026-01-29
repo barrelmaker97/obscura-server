@@ -9,13 +9,19 @@ use crate::storage::{
     DbPool, attachment_repo::AttachmentRepository, key_repo::KeyRepository, message_repo::MessageRepository,
     refresh_token_repo::RefreshTokenRepository, user_repo::UserRepository,
 };
+use axum::body::Body;
+use axum::extract::ConnectInfo;
+use axum::http::Request;
 use axum::{
     Router,
-    middleware::from_fn_with_state,
+    middleware::from_fn,
     routing::{get, post},
 };
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
+use tower_http::trace::{DefaultOnResponse, TraceLayer};
+use tracing::Level;
 
 pub mod attachments;
 pub mod auth;
@@ -86,6 +92,8 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_
             .unwrap(),
     );
 
+    let trace_extractor = extractor.clone();
+
     let state = AppState {
         pool,
         config,
@@ -119,6 +127,25 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_
     Router::new()
         .route("/openapi.yaml", get(docs::openapi_yaml))
         .nest("/v1", auth_routes.merge(api_routes))
-        .layer(from_fn_with_state(state.clone(), log_rate_limit_events))
+        .layer(from_fn(log_rate_limit_events))
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(move |request: &Request<Body>| {
+                    let peer_addr = request.extensions().get::<ConnectInfo<SocketAddr>>().map(|info| info.0.ip());
+
+                    let client_ip = peer_addr
+                        .map(|ip| trace_extractor.identify_client_ip(request.headers(), ip).to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+
+                    tracing::info_span!(
+                        "request",
+                        method = %request.method(),
+                        path = %request.uri().path(),
+                        client_ip = %client_ip,
+                        user_id = tracing::field::Empty,
+                    )
+                })
+                .on_response(DefaultOnResponse::new().level(Level::INFO)),
+        )
         .with_state(state)
 }

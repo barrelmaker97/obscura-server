@@ -4,7 +4,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// Prefix byte used by Signal/DJB for Montgomery (X25519) keys.
 pub const DJB_KEY_PREFIX: u8 = 0x05;
 
-/// Strong type for public keys. 
+/// Strong type for public keys.
 /// We store the full 33-byte wire format (DJB_KEY_PREFIX + 32-byte Montgomery key).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PublicKey([u8; 33]);
@@ -151,7 +151,7 @@ mod tests {
         bytes[0] = DJB_KEY_PREFIX;
         let inner = [3u8; 32];
         bytes[1..].copy_from_slice(&inner);
-        
+
         let key = PublicKey::try_from_bytes(&bytes).unwrap();
         assert_eq!(key.as_crypto_bytes(), &inner);
     }

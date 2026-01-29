@@ -49,10 +49,15 @@ impl AccountService {
         // 0. Uniqueness check (CPU only, outside transaction)
         KeyService::validate_otpk_uniqueness(&one_time_pre_keys)?;
 
-        let password_hash: Result<String> = tokio::task::spawn_blocking(move || auth::hash_password(&password))
-            .await
-            .map_err(|_| AppError::Internal)?;
-        let password_hash = password_hash?;
+        let password_hash: Result<String> =
+            tokio::task::spawn_blocking(move || auth::hash_password(&password)).await.map_err(|e| {
+                tracing::error!("Failed to spawn password hashing task: {}", e);
+                AppError::Internal
+            })?;
+        let password_hash = password_hash.map_err(|e| {
+            tracing::error!("Password hashing failed: {:?}", e);
+            e
+        })?;
 
         let mut tx = self.pool.begin().await?;
 
@@ -84,6 +89,8 @@ impl AccountService {
 
         tx.commit().await?;
 
+        tracing::info!("User registered successfully: {}", user.id);
+
         let expires_at = (time::OffsetDateTime::now_utc()
             + time::Duration::seconds(self.config.access_token_ttl_secs as i64))
         .unix_timestamp();
@@ -92,17 +99,30 @@ impl AccountService {
     }
 
     pub async fn login(&self, username: String, password: String) -> Result<AuthResponse> {
-        let user = self.user_repo.find_by_username(&self.pool, &username).await?.ok_or(AppError::AuthError)?;
+        let user = match self.user_repo.find_by_username(&self.pool, &username).await? {
+            Some(u) => u,
+            None => {
+                tracing::info!("Login failed: User not found");
+                return Err(AppError::AuthError);
+            }
+        };
 
         let password_hash = user.password_hash.clone();
 
         let is_valid: Result<bool> =
-            tokio::task::spawn_blocking(move || auth::verify_password(&password, &password_hash))
-                .await
-                .map_err(|_| AppError::Internal)?;
-        let is_valid = is_valid?;
+            tokio::task::spawn_blocking(move || auth::verify_password(&password, &password_hash)).await.map_err(
+                |e| {
+                    tracing::error!("Failed to spawn password verification task: {}", e);
+                    AppError::Internal
+                },
+            )?;
+        let is_valid = is_valid.map_err(|e| {
+            tracing::error!("Password verification failed: {:?}", e);
+            e
+        })?;
 
         if !is_valid {
+            tracing::info!("Login failed: Invalid password");
             return Err(AppError::AuthError);
         }
 
@@ -114,6 +134,8 @@ impl AccountService {
         let mut tx = self.pool.begin().await?;
         self.refresh_repo.create(&mut *tx, user.id, &refresh_hash, self.config.refresh_token_ttl_days).await?;
         tx.commit().await?;
+
+        tracing::info!("User logged in successfully: {}", user.id);
 
         let expires_at = (time::OffsetDateTime::now_utc()
             + time::Duration::seconds(self.config.access_token_ttl_secs as i64))
@@ -152,6 +174,8 @@ impl AccountService {
         let hash = auth::hash_token(&refresh_token);
 
         self.refresh_repo.delete_owned(&self.pool, &hash, user_id).await?;
+
+        tracing::info!("User logged out: {}", user_id);
 
         Ok(())
     }

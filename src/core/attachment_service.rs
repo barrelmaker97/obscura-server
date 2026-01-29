@@ -80,6 +80,9 @@ impl AttachmentService {
                     Ok(bytes) => {
                         let frame_res = Ok(bytes);
                         if tx.send(frame_res).await.is_err() {
+                            tracing::debug!(
+                                "Attachment upload stream closed by receiver (S3 client likely finished or failed early)"
+                            );
                             break;
                         }
                     }
@@ -118,6 +121,8 @@ impl AttachmentService {
         // 3. Record Metadata
         let expires_at = OffsetDateTime::now_utc() + Duration::days(self.ttl_days);
         self.repo.create(&self.pool, id, expires_at).await?;
+
+        tracing::debug!("Attachment uploaded: {} (expires: {})", id, expires_at);
 
         Ok((id, expires_at.unix_timestamp()))
     }
