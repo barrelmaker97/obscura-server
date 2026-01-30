@@ -1,5 +1,5 @@
 use crate::api::rate_limit::{IpKeyExtractor, log_rate_limit_events};
-use crate::config::Config;
+use crate::config::{Config, HealthConfig};
 use crate::core::account_service::AccountService;
 use crate::core::attachment_service::AttachmentService;
 use crate::core::key_service::KeyService;
@@ -27,6 +27,7 @@ pub mod attachments;
 pub mod auth;
 pub mod docs;
 pub mod gateway;
+pub mod health;
 pub mod keys;
 pub mod messages;
 pub mod middleware;
@@ -43,6 +44,14 @@ pub struct AppState {
     pub attachment_service: AttachmentService,
     pub account_service: AccountService,
     pub message_service: MessageService,
+}
+
+#[derive(Clone)]
+pub struct MgmtState {
+    pub pool: DbPool,
+    pub health_config: HealthConfig,
+    pub s3_bucket: String,
+    pub s3_client: aws_sdk_s3::Client,
 }
 
 pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_client: aws_sdk_s3::Client) -> Router {
@@ -147,5 +156,13 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_
                 })
                 .on_response(DefaultOnResponse::new().level(Level::INFO)),
         )
+        .with_state(state)
+}
+
+pub fn mgmt_router(state: MgmtState) -> Router {
+    Router::new()
+        .route("/livez", get(health::livez))
+        .route("/readyz", get(health::readyz))
+        .route("/metrics", get(health::metrics))
         .with_state(state)
 }

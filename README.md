@@ -22,6 +22,9 @@ Command-line options take precedence over environment variables.
 | `--jwt-secret` | Secret key for signing JWTs | `OBSCURA_JWT_SECRET` | - | **Yes** |
 | `--host` | Interface to bind the server to | `OBSCURA_HOST` | `0.0.0.0` | No |
 | `--port` | Port to bind the server to | `OBSCURA_PORT` | `3000` | No |
+| `--mgmt-port` | Management port for health/metrics | `OBSCURA_MGMT_PORT` | `9090` | No |
+| `--health-db-timeout-ms` | Timeout for DB health check | `OBSCURA_HEALTH_DB_TIMEOUT_MS` | `2000` | No |
+| `--health-s3-timeout-ms` | Timeout for S3 health check | `OBSCURA_HEALTH_S3_TIMEOUT_MS` | `2000` | No |
 | `--access-token-ttl-secs` | Access Token lifetime in seconds | `OBSCURA_ACCESS_TOKEN_TTL_SECS` | `900` | No |
 | `--refresh-token-ttl-days` | Refresh Token lifetime in days | `OBSCURA_REFRESH_TOKEN_TTL_DAYS` | `30` | No |
 | `--max-inbox-size` | Max pending messages per user | `OBSCURA_MAX_INBOX_SIZE` | `1000` | No |
@@ -75,8 +78,10 @@ A Dockerfile is included for easy deployment.
 
 2. **Run with Docker**:
    ```bash
+   docker build -t obscura-server .
    docker run -d \
      -p 3000:3000 \
+     -p 9090:9090 \
      -e OBSCURA_DATABASE_URL="postgres://user:pass@host.docker.internal:5432/obscura" \
      -e OBSCURA_JWT_SECRET="your_secret_key" \
      -e OBSCURA_S3_BUCKET="obscura-attachments" \

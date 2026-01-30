@@ -88,6 +88,7 @@ mod tests {
             server: crate::config::ServerConfig {
                 host: "0.0.0.0".to_string(),
                 port: 3000,
+                mgmt_port: 9000,
                 trusted_proxies: vec!["127.0.0.1/32".parse().unwrap()],
             },
             auth: crate::config::AuthConfig {
@@ -96,6 +97,7 @@ mod tests {
                 refresh_token_ttl_days: 30,
             },
             rate_limit: crate::config::RateLimitConfig { per_second: 5, burst: 10, auth_per_second: 1, auth_burst: 3 },
+            health: crate::config::HealthConfig { db_timeout_ms: 2000, s3_timeout_ms: 2000 },
             messaging: crate::config::MessagingConfig {
                 max_inbox_size: 1000,
                 cleanup_interval_secs: 300,
