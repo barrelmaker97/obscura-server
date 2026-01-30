@@ -4,15 +4,22 @@ This document serves as the master index for planned work and architectural visi
 
 ## 🗺️ Feature Roadmap
 
-### ☁️ Phase 1: Data & Recovery
-- [ ] **[001: Encrypted Cloud Backup](001-encrypted-backup.md)**: Secure account recovery via client-side password encryption.
+### 📊 Phase 1: Operational Maturity
+*Establishing a stable, measurable foundation before adding complexity.*
+- [ ] **[006: Operational Hardening](006-operational-hardening.md)**: Request tracing, structured logging, and graceful shutdowns. **(Immediate Priority)**
+- [ ] **[005: Observability](005-observability.md)**: Prometheus instrumentation for runtime health, queue depths, and connection tracking. **(High Priority)**
+
+### 📱 Phase 2: Mobile Essentials
+*Features required for a functional mobile application experience.*
+- [ ] **[004: Push Notifications](004-push-notifications.md)**: Generic FCM/APNs alerts for offline delivery and "wake-up" functionality.
+- [ ] **[001: Encrypted Cloud Backup](001-encrypted-backup.md)**: Secure account recovery via client-side password encryption to prevent data loss.
+
+### 👤 Phase 3: Identity & Social
+*Enhancing the user experience and social features.*
 - [ ] **[002: Profile Management](002-profile-management.md)**: Persistent avatars and encrypted profile metadata.
 
-### 🔔 Phase 2: Engagement & Visibility
-- [ ] **[004: Push Notifications](004-push-notifications.md)**: Generic FCM alerts for offline delivery.
-- [ ] **[005: Observability](005-observability.md)**: Prometheus instrumentation for runtime health and bottlenecks.
-
-### 🛡️ Phase 3: Privacy Evolution
+### 🛡️ Phase 4: Privacy Evolution
+*Advanced cryptographic privacy features.*
 - [ ] **[003: Sealed Sender](003-sealed-sender.md)**: Transitioning to Unidentified Delivery and capability-based blocking.
 
 ---

@@ -43,7 +43,8 @@ To prevent abuse and manage costs:
 -   **Auth**: Required (Bearer Token).
 -   **Headers**: `If-Match: <version>` (Optional for first upload).
 -   **Body**: Binary blob.
-    -   *Max Size*: 1MB (Strictly enforced).
+    -   *Max Size*: 2MB (Strictly enforced).
+        -   *Note*: While Protobuf is compact, a large contact list (>5000 entries) combined with metadata could exceed 1MB. 2MB provides a safety margin while preventing storage abuse.
     -   *Min Size*: 32 bytes (Prevent accidental zero-byte wipes).
 -   **Action**: Upsert blob into `backups` table, increment version.
 

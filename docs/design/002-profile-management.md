@@ -17,6 +17,7 @@ Instead of a manual `is_persisted` flag (which is prone to sync errors), we will
 2.  **Garbage Collector (Refined)**:
     -   The GC query becomes: "Delete attachments where `expires_at < NOW()` AND `id` is NOT present in `users.avatar_id`."
     -   This guarantees that as long as an avatar is "in use" by a profile, it is safe. As soon as the user changes it (updates `users.avatar_id`), the old one becomes eligible for GC (assuming it has expired).
+    -   *Performance Requirement*: The `users.avatar_id` column **MUST be indexed**. The GC query utilizes a `NOT IN` or `NOT EXISTS` clause, which can trigger expensive table scans without an index on the referencing column.
 
 ### 2.3 Upload Flow (Atomic Swap)
 1.  Client uploads new attachment (standard upload, gets standard TTL).

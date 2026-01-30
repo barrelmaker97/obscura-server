@@ -7,10 +7,10 @@ When a user is not connected to the WebSocket (offline), they need to be notifie
 To support **Sealed Sender** (where the server doesn't know who sent the message), we cannot send "Message from Alice" in the push.
 
 ### 2.1 Payload Type: "Wake Up"
--   **Android**: FCM "Data Message" (High Priority).
--   **iOS**: APNs "VoIP Push" (PushKit) or Background Fetch.
+-   **Android**: FCM "Data Message" with `priority: 'high'`.
+-   **iOS**: APNs "VoIP Push" (PushKit) or Background Notification with `apns-priority: '10'`.
 -   **Behavior**:
-    1.  Push wakes app in background.
+    1.  Push wakes app in background immediately.
     2.  App connects to WebSocket -> Fetches Sealed Envelope.
     3.  App decrypts Sender Identity locally.
     4.  App posts **Local Notification**: "Message from Alice".
