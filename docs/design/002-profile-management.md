@@ -8,10 +8,21 @@ Users need a way to share a display name and avatar with other users without exp
 ### 2.1 The Problem with Current Attachments
 Currently, the `AttachmentService` enforces a strict TTL (e.g., 30 days), after which files are garbage collected (deleted from DB and S3). Avatars need to persist indefinitely until changed.
 
-### 2.2 Solution
-1.  **Database Schema**: Add `is_persisted` (boolean) to the `attachments` table.
-2.  **Garbage Collector**: Update `cleanup_batch` to ignore rows where `is_persisted = true`.
-3.  **Quotas**: Strictly limit **1 persisted attachment per user**.
+### 2.2 Solution: Reference Strategy
+Instead of a manual `is_persisted` flag (which is prone to sync errors), we will link the avatar directly to the user profile.
+
+1.  **Database Schema**:
+    -   Add `avatar_id` (UUID, Nullable) to the `users` table.
+    -   FK: `users.avatar_id` references `attachments.id`.
+2.  **Garbage Collector (Refined)**:
+    -   The GC query becomes: "Delete attachments where `expires_at < NOW()` AND `id` is NOT present in `users.avatar_id`."
+    -   This guarantees that as long as an avatar is "in use" by a profile, it is safe. As soon as the user changes it (updates `users.avatar_id`), the old one becomes eligible for GC (assuming it has expired).
+
+### 2.3 Upload Flow (Atomic Swap)
+1.  Client uploads new attachment (standard upload, gets standard TTL).
+2.  Client calls `PUT /v1/profile` with `{ "avatarId": "new_uuid", ... }`.
+3.  Server updates `users` table.
+4.  Old avatar (no longer referenced) will eventually expire and be GC'd. No manual deletion logic required.
 
 ## 3. Profile Metadata & Key Distribution
 

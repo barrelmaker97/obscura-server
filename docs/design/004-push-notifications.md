@@ -3,10 +3,20 @@
 ## 1. Overview
 When a user is not connected to the WebSocket (offline), they need to be notified of incoming messages so they can wake up the app and fetch content.
 
-## 2. Privacy & Strategy
--   **Payload:** "Generic" notification only (`"New Message"`).
--   **Metadata:** NO sender names, NO message snippets, NO user IDs sent to Google/Apple servers.
--   **Provider:** Firebase Cloud Messaging (FCM) v1 API.
+## 2. Privacy & Strategy (The Signal Model)
+To support **Sealed Sender** (where the server doesn't know who sent the message), we cannot send "Message from Alice" in the push.
+
+### 2.1 Payload Type: "Wake Up"
+-   **Android**: FCM "Data Message" (High Priority).
+-   **iOS**: APNs "VoIP Push" (PushKit) or Background Fetch.
+-   **Behavior**:
+    1.  Push wakes app in background.
+    2.  App connects to WebSocket -> Fetches Sealed Envelope.
+    3.  App decrypts Sender Identity locally.
+    4.  App posts **Local Notification**: "Message from Alice".
+
+### 2.2 Metadata
+-   `collapse_key`: `"obscura_check"` (Deduplicates wake-up calls).
 
 ## 3. Database Schema
 We strictly enforce a **Single Device** policy.
@@ -28,12 +38,20 @@ We strictly enforce a **Single Device** policy.
 -   **Behavior**: Upserts into `push_tokens`.
 
 ## 5. Backend Logic (MessageService)
-1.  **Check Connection**: Try to send envelope via WebSocket `Notifier`.
-2.  **If Offline**:
-    -   Lookup `token` from `push_tokens` for `recipient_id`.
-    -   If found, send HTTP/2 POST to FCM API.
-3.  **Error Handling**:
-    -   If FCM returns `UNREGISTERED` (404) or `INVALID_ARGUMENT`, **delete** the token from the DB immediately (stale token cleanup).
+
+### 5.1 Refactoring `Notifier` Trait
+The `Notifier::notify` method currently returns `()`. We must change it to return `bool`:
+-   `true`: User is connected (WebSocket active).
+-   `false`: User is offline (No active subscribers).
+
+### 5.2 Flow
+1.  **Store Message**: `repo.create(...)`.
+2.  **Attempt Local Delivery**: `let online = notifier.notify(recipient_id, ...);`
+3.  **If Offline (`!online`)**:
+    -   Lookup `token` from `push_tokens`.
+    -   If found, send `Data Message` to FCM.
+4.  **Error Handling**:
+    -   If FCM returns `UNREGISTERED`, delete token from DB.
 
 ## 6. Implementation Notes
 -   Use `reqwest` + `google_auth` (or manual JWT signing) to talk to FCM HTTP v1.

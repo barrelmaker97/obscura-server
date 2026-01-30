@@ -13,8 +13,9 @@ We avoid complex enclave-based solutions (like SGX) in favor of a robust standar
 2.  **Key Derivation**: Client uses **Argon2id**.
     -   *Parameters*: Must be tuned to take ~500ms - 1s on a standard mobile device.
     -   *Output*: 256-bit AES Key.
-3.  **Encryption**: Client encrypts the backup payload (JSON) using AES-GCM (or similar authenticated encryption).
-4.  **Upload**: The encrypted binary blob is sent to the server.
+3.  **Serialization**: Payload is serialized using **Protobuf** (not JSON) for compactness and type safety.
+4.  **Encryption**: Client encrypts the Protobuf blob using AES-GCM.
+5.  **Upload**: The encrypted binary blob is sent to the server.
 
 ### 2.2 Threat Model
 -   **Server Compromise**: Attacker gets opaque blobs. Without the user's password, they are useless.
@@ -28,21 +29,27 @@ The backup payload (inside the encryption) should contain:
 
 ## 4. Server Architecture
 
-### 4.1 Storage Limits
+### 4.1 Storage Limits & Concurrency
 To prevent abuse and manage costs:
 -   **One-Slot Rule**: Each `user_id` is allowed exactly **one** backup row.
--   New uploads **overwrite** the previous backup.
+-   **Concurrency**: Use Optimistic Locking.
+    -   The table tracks a `version` (int) or hash.
+    -   Client must provide `If-Match` header when updating.
+    -   If version mismatch, server returns `409 Conflict`. Client must fetch, merge, and retry.
 
 ### 4.2 API Endpoints
 
 #### `POST /v1/backup`
 -   **Auth**: Required (Bearer Token).
--   **Body**: Binary blob (Max size limit: e.g., 1MB).
--   **Action**: Upsert blob into `backups` table.
+-   **Headers**: `If-Match: <version>` (Optional for first upload).
+-   **Body**: Binary blob.
+    -   *Max Size*: 1MB (Strictly enforced).
+    -   *Min Size*: 32 bytes (Prevent accidental zero-byte wipes).
+-   **Action**: Upsert blob into `backups` table, increment version.
 
 #### `GET /v1/backup`
 -   **Auth**: Required.
--   **Response**: The binary blob.
+-   **Response**: The binary blob + `ETag` header (version).
 
 ## 5. Implementation Tasks
 - [ ] Create `backups` table (`user_id` PK, `blob` BYTEA, `updated_at` TIMESTAMP).

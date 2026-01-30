@@ -3,7 +3,10 @@
 ## 1. Overview
 We need visibility into the runtime health and performance of the server. This document covers **Application Metrics** exposed via a Prometheus-compatible `/metrics` endpoint.
 
-*Note: Business metrics (e.g., "Total Registered Users") should be queried directly from the DB by dashboards, not computed by the application.*
+### 1.1 Security
+-   The `/metrics` endpoint **MUST** be exposed **ONLY on the Management Port** (default: 9090).
+-   It **MUST NOT** be accessible via the public API port (3000) or the public internet.
+-   This prevents leakage of business intelligence (user counts, traffic patterns) to attackers.
 
 ## 2. Technology Stack
 -   **Crate:** `metrics` (facade)
