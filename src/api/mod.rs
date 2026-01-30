@@ -1,5 +1,5 @@
 use crate::api::rate_limit::{IpKeyExtractor, log_rate_limit_events};
-use crate::config::Config;
+use crate::config::{Config, HealthConfig};
 use crate::core::account_service::AccountService;
 use crate::core::attachment_service::AttachmentService;
 use crate::core::key_service::KeyService;
@@ -49,7 +49,8 @@ pub struct AppState {
 #[derive(Clone)]
 pub struct MgmtState {
     pub pool: DbPool,
-    pub config: Config,
+    pub health_config: HealthConfig,
+    pub s3_bucket: String,
     pub s3_client: aws_sdk_s3::Client,
 }
 

@@ -11,8 +11,8 @@ pub async fn livez() -> impl IntoResponse {
 
 /// Readiness probe: checks connectivity to the database and S3.
 pub async fn readyz(State(state): State<MgmtState>) -> impl IntoResponse {
-    let db_timeout = Duration::from_millis(state.config.health.db_timeout_ms);
-    let s3_timeout = Duration::from_millis(state.config.health.s3_timeout_ms);
+    let db_timeout = Duration::from_millis(state.health_config.db_timeout_ms);
+    let s3_timeout = Duration::from_millis(state.health_config.s3_timeout_ms);
 
     let db_check = async {
         match timeout(db_timeout, sqlx::query("SELECT 1").execute(&state.pool)).await {
@@ -23,9 +23,9 @@ pub async fn readyz(State(state): State<MgmtState>) -> impl IntoResponse {
     };
 
     let s3_check = async {
-        match timeout(s3_timeout, state.s3_client.head_bucket().bucket(&state.config.s3.bucket).send()).await {
+        match timeout(s3_timeout, state.s3_client.head_bucket().bucket(&state.s3_bucket).send()).await {
             Ok(Ok(_)) => Ok(()),
-            Ok(Err(e)) => Err(format!("S3 connection failed for bucket {}: {:?}", state.config.s3.bucket, e)),
+            Ok(Err(e)) => Err(format!("S3 connection failed for bucket {}: {:?}", state.s3_bucket, e)),
             Err(_) => Err("S3 connection timed out".to_string()),
         }
     };

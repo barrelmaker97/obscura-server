@@ -232,8 +232,12 @@ impl TestApp {
         let s3_client = aws_sdk_s3::Client::from_conf(s3_config_builder.build());
 
         let app = app_router(pool.clone(), config.clone(), notifier.clone(), s3_client.clone());
-        let mgmt_state =
-            obscura_server::api::MgmtState { pool: pool.clone(), config: config.clone(), s3_client: s3_client.clone() };
+        let mgmt_state = obscura_server::api::MgmtState {
+            pool: pool.clone(),
+            health_config: config.health.clone(),
+            s3_bucket: config.s3.bucket.clone(),
+            s3_client: s3_client.clone(),
+        };
         let mgmt_app = obscura_server::api::mgmt_router(mgmt_state);
 
         let server_url = format!("http://{}", addr);

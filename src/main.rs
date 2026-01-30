@@ -69,8 +69,12 @@ async fn main() -> anyhow::Result<()> {
     });
 
     let app = api::app_router(pool.clone(), config.clone(), notifier.clone(), s3_client.clone());
-    let mgmt_state =
-        obscura_server::api::MgmtState { pool: pool.clone(), config: config.clone(), s3_client: s3_client.clone() };
+    let mgmt_state = obscura_server::api::MgmtState {
+        pool: pool.clone(),
+        health_config: config.health.clone(),
+        s3_bucket: config.s3.bucket.clone(),
+        s3_client: s3_client.clone(),
+    };
     let mgmt_app = api::mgmt_router(mgmt_state);
 
     let addr_str = format!("{}:{}", config.server.host, config.server.port);
