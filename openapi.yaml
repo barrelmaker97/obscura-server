@@ -8,6 +8,45 @@ info:
     - **Protocol:** Protocol Buffers (application/x-protobuf) are used for message bodies to minimize metadata leakage and binary bloat.
   version: 0.0.0
 paths:
+  /health:
+    get:
+      summary: Health Check
+      description: Returns the health status of the server.
+      tags: [System]
+      responses:
+        '200':
+          description: Server is healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+                  database:
+                    type: string
+                    example: "ok"
+                  s3:
+                    type: string
+                    example: "ok"
+        '503':
+          description: Server or one of its dependencies is unhealthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "error"
+                  database:
+                    type: string
+                    example: "error"
+                  s3:
+                    type: string
+                    example: "ok"
+
   # --- Account & Identity ---
   /v1/users:
     post:

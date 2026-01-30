@@ -68,16 +68,43 @@ async fn main() -> anyhow::Result<()> {
         cleanup_service.run_cleanup_loop(attachment_cleanup_rx).await;
     });
 
-    let app = api::app_router(pool, config.clone(), notifier, s3_client);
+    let app = api::app_router(pool.clone(), config.clone(), notifier.clone(), s3_client.clone());
+    let mgmt_state = obscura_server::api::MgmtState {
+        pool: pool.clone(),
+        config: config.clone(),
+        s3_client: s3_client.clone(),
+    };
+    let mgmt_app = api::mgmt_router(mgmt_state);
 
     let addr_str = format!("{}:{}", config.server.host, config.server.port);
     let addr: SocketAddr = addr_str.parse().expect("Invalid address format");
-    tracing::info!("listening on {}", addr);
+    let mgmt_addr_str = format!("{}:{}", config.server.host, config.server.mgmt_port);
+    let mgmt_addr: SocketAddr = mgmt_addr_str.parse().expect("Invalid management address format");
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    tracing::info!("listening on {}", addr);
+    tracing::info!("management server listening on {}", mgmt_addr);
+
+    let api_listener = tokio::net::TcpListener::bind(addr).await?;
+    let mgmt_listener = tokio::net::TcpListener::bind(mgmt_addr).await?;
+
+    let api_server = axum::serve(api_listener, app.into_make_service_with_connect_info::<SocketAddr>())
+        .with_graceful_shutdown(shutdown_signal());
+
+    let mgmt_server = axum::serve(mgmt_listener, mgmt_app.into_make_service_with_connect_info::<SocketAddr>())
+        .with_graceful_shutdown(shutdown_signal());
+
+    tokio::select! {
+        res = api_server => {
+            if let Err(e) = res {
+                tracing::error!("API server error: {}", e);
+            }
+        }
+        res = mgmt_server => {
+            if let Err(e) = res {
+                tracing::error!("Management server error: {}", e);
+            }
+        }
+    }
 
     // Signal background tasks to shut down
     tracing::info!("Signaling background tasks to shut down...");

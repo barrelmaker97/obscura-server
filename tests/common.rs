@@ -61,6 +61,7 @@ pub fn get_test_config() -> Config {
         server: obscura_server::config::ServerConfig {
             host: "127.0.0.1".to_string(),
             port: 0,
+            mgmt_port: 0,
             trusted_proxies: vec!["127.0.0.1/32".parse().unwrap(), "::1/128".parse().unwrap()],
         },
         auth: obscura_server::config::AuthConfig {
@@ -73,6 +74,10 @@ pub fn get_test_config() -> Config {
             burst: 10000,
             auth_per_second: 10000,
             auth_burst: 10000,
+        },
+        health: obscura_server::config::HealthConfig {
+            db_timeout_ms: 2000,
+            s3_timeout_ms: 2000,
         },
         messaging: obscura_server::config::MessagingConfig {
             max_inbox_size: 1000,
@@ -186,6 +191,7 @@ pub struct TestApp {
     pub pool: PgPool,
     pub config: Config,
     pub server_url: String,
+    pub mgmt_url: String,
     pub ws_url: String,
     pub client: Client,
     pub s3_client: aws_sdk_s3::Client,
@@ -203,6 +209,10 @@ impl TestApp {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         config.server.port = addr.port();
+
+        let mgmt_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mgmt_addr = mgmt_listener.local_addr().unwrap();
+        config.server.mgmt_port = mgmt_addr.port();
 
         let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
         let notifier = Arc::new(InMemoryNotifier::new(config.clone(), shutdown_rx));
@@ -224,16 +234,27 @@ impl TestApp {
             aws_sdk_s3::config::Builder::from(&sdk_config).force_path_style(config.s3.force_path_style);
         let s3_client = aws_sdk_s3::Client::from_conf(s3_config_builder.build());
 
-        let app = app_router(pool.clone(), config.clone(), notifier, s3_client.clone());
+        let app = app_router(pool.clone(), config.clone(), notifier.clone(), s3_client.clone());
+        let mgmt_state = obscura_server::api::MgmtState {
+            pool: pool.clone(),
+            config: config.clone(),
+            s3_client: s3_client.clone(),
+        };
+        let mgmt_app = obscura_server::api::mgmt_router(mgmt_state);
 
         let server_url = format!("http://{}", addr);
+        let mgmt_url = format!("http://{}", mgmt_addr);
         let ws_url = format!("ws://{}/v1/gateway", addr);
 
         tokio::spawn(async move {
             axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
         });
 
-        TestApp { pool, config, server_url, ws_url, client: Client::new(), s3_client }
+        tokio::spawn(async move {
+            axum::serve(mgmt_listener, mgmt_app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
+        });
+
+        TestApp { pool, config, server_url, mgmt_url, ws_url, client: Client::new(), s3_client }
     }
 
     pub async fn register_user(&self, username: &str) -> TestUser {

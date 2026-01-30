@@ -22,6 +22,9 @@ pub struct Config {
     pub rate_limit: RateLimitConfig,
 
     #[command(flatten)]
+    pub health: HealthConfig,
+
+    #[command(flatten)]
     pub messaging: MessagingConfig,
 
     #[command(flatten)]
@@ -43,6 +46,10 @@ pub struct ServerConfig {
     /// Port to listen on
     #[arg(long, env = "OBSCURA_PORT", default_value_t = 3000)]
     pub port: u16,
+
+    /// Management port for health checks and metrics
+    #[arg(long, env = "OBSCURA_MGMT_PORT", default_value_t = 9000)]
+    pub mgmt_port: u16,
 
     /// Comma-separated list of CIDRs to trust for X-Forwarded-For IP extraction
     #[arg(
@@ -176,4 +183,15 @@ impl Config {
     pub fn load() -> Self {
         Self::parse()
     }
+}
+
+#[derive(Clone, Debug, Args)]
+pub struct HealthConfig {
+    /// Timeout for database health check in milliseconds
+    #[arg(long, env = "OBSCURA_HEALTH_DB_TIMEOUT_MS", default_value_t = 2000)]
+    pub db_timeout_ms: u64,
+
+    /// Timeout for S3 health check in milliseconds
+    #[arg(long, env = "OBSCURA_HEALTH_S3_TIMEOUT_MS", default_value_t = 2000)]
+    pub s3_timeout_ms: u64,
 }
