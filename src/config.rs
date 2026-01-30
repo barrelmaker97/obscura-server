@@ -48,7 +48,7 @@ pub struct ServerConfig {
     pub port: u16,
 
     /// Management port for health checks and metrics
-    #[arg(long, env = "OBSCURA_MGMT_PORT", default_value_t = 9000)]
+    #[arg(long, env = "OBSCURA_MGMT_PORT", default_value_t = 9090)]
     pub mgmt_port: u16,
 
     /// Comma-separated list of CIDRs to trust for X-Forwarded-For IP extraction

@@ -36,7 +36,7 @@ RUN groupadd -g 10001 appuser && useradd -u 10001 -g 10001 -r appuser
 # Copy binary to release image
 COPY --from=builder --chown=appuser:appuser /app/target/release/obscura-server .
 
-EXPOSE 3000 9000
+EXPOSE 3000 9090
 
 # Switch to non-root user
 USER appuser
