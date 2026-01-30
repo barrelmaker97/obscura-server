@@ -75,10 +75,7 @@ pub fn get_test_config() -> Config {
             auth_per_second: 10000,
             auth_burst: 10000,
         },
-        health: obscura_server::config::HealthConfig {
-            db_timeout_ms: 2000,
-            s3_timeout_ms: 2000,
-        },
+        health: obscura_server::config::HealthConfig { db_timeout_ms: 2000, s3_timeout_ms: 2000 },
         messaging: obscura_server::config::MessagingConfig {
             max_inbox_size: 1000,
             cleanup_interval_secs: 300,
@@ -235,11 +232,8 @@ impl TestApp {
         let s3_client = aws_sdk_s3::Client::from_conf(s3_config_builder.build());
 
         let app = app_router(pool.clone(), config.clone(), notifier.clone(), s3_client.clone());
-        let mgmt_state = obscura_server::api::MgmtState {
-            pool: pool.clone(),
-            config: config.clone(),
-            s3_client: s3_client.clone(),
-        };
+        let mgmt_state =
+            obscura_server::api::MgmtState { pool: pool.clone(), config: config.clone(), s3_client: s3_client.clone() };
         let mgmt_app = obscura_server::api::mgmt_router(mgmt_state);
 
         let server_url = format!("http://{}", addr);
@@ -251,7 +245,9 @@ impl TestApp {
         });
 
         tokio::spawn(async move {
-            axum::serve(mgmt_listener, mgmt_app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
+            axum::serve(mgmt_listener, mgmt_app.into_make_service_with_connect_info::<std::net::SocketAddr>())
+                .await
+                .unwrap();
         });
 
         TestApp { pool, config, server_url, mgmt_url, ws_url, client: Client::new(), s3_client }

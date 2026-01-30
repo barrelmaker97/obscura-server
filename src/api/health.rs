@@ -23,12 +23,7 @@ pub async fn readyz(State(state): State<MgmtState>) -> impl IntoResponse {
     };
 
     let s3_check = async {
-        match timeout(
-            s3_timeout,
-            state.s3_client.head_bucket().bucket(&state.config.s3.bucket).send(),
-        )
-        .await
-        {
+        match timeout(s3_timeout, state.s3_client.head_bucket().bucket(&state.config.s3.bucket).send()).await {
             Ok(Ok(_)) => Ok(()),
             Ok(Err(e)) => Err(format!("S3 connection failed for bucket {}: {:?}", state.config.s3.bucket, e)),
             Err(_) => Err("S3 connection timed out".to_string()),

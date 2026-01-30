@@ -9,12 +9,7 @@ async fn ensure_bucket(s3_client: &aws_sdk_s3::Client, bucket: &str) {
 async fn test_livez() {
     let app = common::TestApp::spawn().await;
 
-    let resp = app
-        .client
-        .get(format!("{}/livez", app.mgmt_url))
-        .send()
-        .await
-        .unwrap();
+    let resp = app.client.get(format!("{}/livez", app.mgmt_url)).send().await.unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
 }
@@ -23,12 +18,7 @@ async fn test_livez() {
 async fn test_metrics_placeholder() {
     let app = common::TestApp::spawn().await;
 
-    let resp = app
-        .client
-        .get(format!("{}/metrics", app.mgmt_url))
-        .send()
-        .await
-        .unwrap();
+    let resp = app.client.get(format!("{}/metrics", app.mgmt_url)).send().await.unwrap();
 
     assert_eq!(resp.status(), StatusCode::NOT_IMPLEMENTED);
 }
@@ -40,12 +30,7 @@ async fn test_readyz_happy_path() {
     // Ensure the bucket exists so S3 check passes
     ensure_bucket(&app.s3_client, &app.config.s3.bucket).await;
 
-    let resp = app
-        .client
-        .get(format!("{}/readyz", app.mgmt_url))
-        .send()
-        .await
-        .unwrap();
+    let resp = app.client.get(format!("{}/readyz", app.mgmt_url)).send().await.unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
 
@@ -63,12 +48,7 @@ async fn test_readyz_s3_error() {
 
     let app = common::TestApp::spawn_with_config(config).await;
 
-    let resp = app
-        .client
-        .get(format!("{}/readyz", app.mgmt_url))
-        .send()
-        .await
-        .unwrap();
+    let resp = app.client.get(format!("{}/readyz", app.mgmt_url)).send().await.unwrap();
 
     // S3 check should fail because the bucket doesn't exist
     assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
@@ -87,12 +67,7 @@ async fn test_readyz_database_error() {
     // Close the pool to simulate a database error
     app.pool.close().await;
 
-    let resp = app
-        .client
-        .get(format!("{}/readyz", app.mgmt_url))
-        .send()
-        .await
-        .unwrap();
+    let resp = app.client.get(format!("{}/readyz", app.mgmt_url)).send().await.unwrap();
 
     assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
 
