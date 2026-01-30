@@ -90,17 +90,8 @@ async fn main() -> anyhow::Result<()> {
     let mgmt_server = axum::serve(mgmt_listener, mgmt_app.into_make_service_with_connect_info::<SocketAddr>())
         .with_graceful_shutdown(shutdown_signal());
 
-    tokio::select! {
-        res = api_server => {
-            if let Err(e) = res {
-                tracing::error!("API server error: {}", e);
-            }
-        }
-        res = mgmt_server => {
-            if let Err(e) = res {
-                tracing::error!("Management server error: {}", e);
-            }
-        }
+    if let Err(e) = tokio::try_join!(api_server, mgmt_server) {
+        tracing::error!("Server error: {}", e);
     }
 
     // Signal background tasks to shut down

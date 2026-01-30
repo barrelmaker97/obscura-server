@@ -34,7 +34,7 @@ pub async fn readyz(State(state): State<MgmtState>) -> impl IntoResponse {
 
     let mut status_code = StatusCode::OK;
     let db_status = if let Err(e) = db_res {
-        tracing::debug!("Health check failure (Readyz): {}", e);
+        tracing::warn!("Health check failure (Readyz): {}", e);
         status_code = StatusCode::SERVICE_UNAVAILABLE;
         "error"
     } else {
@@ -42,7 +42,7 @@ pub async fn readyz(State(state): State<MgmtState>) -> impl IntoResponse {
     };
 
     let s3_status = if let Err(e) = s3_res {
-        tracing::debug!("Health check failure (Readyz): {}", e);
+        tracing::warn!("Health check failure (Readyz): {}", e);
         status_code = StatusCode::SERVICE_UNAVAILABLE;
         "error"
     } else {
