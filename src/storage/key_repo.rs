@@ -12,6 +12,7 @@ impl KeyRepository {
         Self {}
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor, identity_key))]
     pub async fn upsert_identity_key<'e, E>(
         &self,
         executor: E,
@@ -38,6 +39,7 @@ impl KeyRepository {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor, public_key, signature))]
     pub async fn upsert_signed_pre_key<'e, E>(
         &self,
         executor: E,
@@ -66,6 +68,7 @@ impl KeyRepository {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor, keys))]
     pub async fn insert_one_time_pre_keys<'e, E>(
         &self,
         executor: E,
@@ -105,6 +108,7 @@ impl KeyRepository {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor))]
     pub async fn fetch_pre_key_bundle(
         &self,
         executor: &mut PgConnection,
@@ -121,7 +125,7 @@ impl KeyRepository {
         .await?;
 
         let Some(identity_row) = identity_row else {
-            tracing::debug!("fetch_pre_key_bundle: Missing identity key for user {}", user_id);
+            tracing::debug!("Missing identity key");
             return Ok(None);
         };
         let identity_key_bytes: Vec<u8> = identity_row.get("identity_key");
@@ -129,7 +133,7 @@ impl KeyRepository {
 
         // Convert Identity Key
         let identity_key = PublicKey::try_from(identity_key_bytes).map_err(|e| {
-            tracing::error!("Database data corruption: Invalid identity key format for user {}: {}", user_id, e);
+            tracing::error!(error = %e, "Database data corruption: Invalid identity key format");
             AppError::Internal
         })?;
 
@@ -144,21 +148,20 @@ impl KeyRepository {
         .await?;
 
         let Some(signed_row) = signed_row else {
-            tracing::debug!("fetch_pre_key_bundle: Missing signed pre-key for user {}", user_id);
+            tracing::debug!("Missing signed pre-key");
             return Ok(None);
         };
         let pk_bytes: Vec<u8> = signed_row.get("public_key");
         let sig_bytes: Vec<u8> = signed_row.get("signature");
 
         let pk = PublicKey::try_from(pk_bytes).map_err(|e| {
-            tracing::error!("Database data corruption: Invalid signed pre-key format for user {}: {}", user_id, e);
+            tracing::error!(error = %e, "Database data corruption: Invalid signed pre-key format");
             AppError::Internal
         })?;
         let sig = Signature::try_from(sig_bytes).map_err(|e| {
             tracing::error!(
-                "Database data corruption: Invalid signed pre-key signature format for user {}: {}",
-                user_id,
-                e
+                error = %e,
+                "Database data corruption: Invalid signed pre-key signature format"
             );
             AppError::Internal
         })?;
@@ -184,9 +187,8 @@ impl KeyRepository {
                 let pk_bytes: Vec<u8> = row.get("public_key");
                 let pk = PublicKey::try_from(pk_bytes).map_err(|e| {
                     tracing::error!(
-                        "Database data corruption: Invalid one-time pre-key format for user {}: {}",
-                        user_id,
-                        e
+                        error = %e,
+                        "Database data corruption: Invalid one-time pre-key format"
                     );
                     AppError::Internal
                 })?;
@@ -198,6 +200,7 @@ impl KeyRepository {
         Ok(Some(PreKeyBundle { registration_id, identity_key, signed_pre_key, one_time_pre_key }))
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor))]
     pub async fn fetch_identity_key<'e, E>(&self, executor: E, user_id: Uuid) -> Result<Option<PublicKey>>
     where
         E: Executor<'e, Database = Postgres>,
@@ -212,9 +215,8 @@ impl KeyRepository {
                 let bytes: Vec<u8> = r.get("identity_key");
                 let pk = PublicKey::try_from(bytes).map_err(|e| {
                     tracing::error!(
-                        "Database data corruption: Invalid identity key format for user {}: {}",
-                        user_id,
-                        e
+                        error = %e,
+                        "Database data corruption: Invalid identity key format"
                     );
                     AppError::Internal
                 })?;
@@ -224,6 +226,7 @@ impl KeyRepository {
         }
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor))]
     pub async fn fetch_identity_key_for_update<'e, E>(&self, executor: E, user_id: Uuid) -> Result<Option<PublicKey>>
     where
         E: Executor<'e, Database = Postgres>,
@@ -238,9 +241,8 @@ impl KeyRepository {
                 let bytes: Vec<u8> = r.get("identity_key");
                 let pk = PublicKey::try_from(bytes).map_err(|e| {
                     tracing::error!(
-                        "Database data corruption: Invalid identity key format for user {}: {}",
-                        user_id,
-                        e
+                        error = %e,
+                        "Database data corruption: Invalid identity key format"
                     );
                     AppError::Internal
                 })?;
@@ -250,6 +252,7 @@ impl KeyRepository {
         }
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor))]
     pub async fn delete_all_signed_pre_keys<'e, E>(&self, executor: E, user_id: Uuid) -> Result<()>
     where
         E: Executor<'e, Database = Postgres>,
@@ -258,6 +261,7 @@ impl KeyRepository {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor))]
     pub async fn delete_all_one_time_pre_keys<'e, E>(&self, executor: E, user_id: Uuid) -> Result<()>
     where
         E: Executor<'e, Database = Postgres>,
@@ -266,6 +270,7 @@ impl KeyRepository {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor))]
     pub async fn count_one_time_pre_keys<'e, E>(&self, executor: E, user_id: Uuid) -> Result<i64>
     where
         E: Executor<'e, Database = Postgres>,
@@ -277,6 +282,7 @@ impl KeyRepository {
         Ok(count)
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor))]
     pub async fn get_max_signed_pre_key_id<'e, E>(&self, executor: E, user_id: Uuid) -> Result<Option<i32>>
     where
         E: Executor<'e, Database = Postgres>,
@@ -288,6 +294,7 @@ impl KeyRepository {
         Ok(max_id)
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor))]
     pub async fn delete_signed_pre_keys_older_than<'e, E>(
         &self,
         executor: E,
@@ -305,6 +312,7 @@ impl KeyRepository {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor))]
     pub async fn delete_oldest_one_time_pre_keys<'e, E>(&self, executor: E, user_id: Uuid, limit: i64) -> Result<()>
     where
         E: Executor<'e, Database = Postgres>,

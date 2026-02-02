@@ -10,14 +10,12 @@ use crate::storage::{
     refresh_token_repo::RefreshTokenRepository, user_repo::UserRepository,
 };
 use axum::body::Body;
-use axum::extract::ConnectInfo;
 use axum::http::Request;
 use axum::{
     Router,
     middleware::from_fn,
     routing::{get, post},
 };
-use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tower_http::request_id::{PropagateRequestIdLayer, SetRequestIdLayer};
@@ -109,8 +107,6 @@ pub fn app_router(
             .unwrap(),
     );
 
-    let trace_extractor = extractor.clone();
-
     let state = AppState {
         pool,
         config,
@@ -150,12 +146,6 @@ pub fn app_router(
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(move |request: &Request<Body>| {
-                    let peer_addr = request.extensions().get::<ConnectInfo<SocketAddr>>().map(|info| info.0.ip());
-
-                    let client_ip = peer_addr
-                        .map(|ip| trace_extractor.identify_client_ip(request.headers(), ip).to_string())
-                        .unwrap_or_else(|| "unknown".to_string());
-
                     let request_id = request
                         .extensions()
                         .get::<tower_http::request_id::RequestId>()
@@ -168,7 +158,6 @@ pub fn app_router(
                         request_id = %request_id,
                         method = %request.method(),
                         path = %request.uri().path(),
-                        client_ip = %client_ip,
                         user_id = tracing::field::Empty,
                     )
                 })

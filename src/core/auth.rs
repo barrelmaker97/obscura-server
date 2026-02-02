@@ -27,7 +27,7 @@ pub fn create_jwt(user_id: Uuid, secret: &str, ttl_secs: u64) -> Result<String> 
     let claims = Claims { sub: user_id, exp: expiration };
 
     encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes())).map_err(|e| {
-        tracing::error!("JWT encoding failed: {}", e);
+        tracing::error!(error = %e, "JWT encoding failed");
         AppError::Internal
     })
 }
@@ -35,28 +35,30 @@ pub fn create_jwt(user_id: Uuid, secret: &str, ttl_secs: u64) -> Result<String> 
 pub fn verify_jwt(token: &str, secret: &str) -> Result<Claims> {
     let token_data = decode::<Claims>(token, &DecodingKey::from_secret(secret.as_bytes()), &Validation::default())
         .map_err(|e| {
-            tracing::debug!("JWT verification failed: {}", e);
+            tracing::debug!(error = %e, "JWT verification failed");
             AppError::AuthError
         })?;
     Ok(token_data.claims)
 }
 
+#[tracing::instrument(level = "debug", skip(password))]
 pub fn hash_password(password: &str) -> Result<String> {
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
     let password_hash = argon2
         .hash_password(password.as_bytes(), &salt)
         .map_err(|e| {
-            tracing::error!("Argon2 hashing failed: {}", e);
+            tracing::error!(error = %e, "Argon2 hashing failed");
             AppError::Internal
         })?
         .to_string();
     Ok(password_hash)
 }
 
+#[tracing::instrument(level = "debug", skip(password, password_hash))]
 pub fn verify_password(password: &str, password_hash: &str) -> Result<bool> {
     let parsed_hash = PasswordHash::new(password_hash).map_err(|e| {
-        tracing::error!("Invalid password hash format: {}", e);
+        tracing::error!(error = %e, "Invalid password hash format");
         AppError::Internal
     })?;
     Ok(Argon2::default().verify_password(password.as_bytes(), &parsed_hash).is_ok())

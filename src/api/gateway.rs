@@ -39,7 +39,7 @@ pub async fn websocket_handler(
     match verify_jwt(&params.token, &state.config.auth.jwt_secret) {
         Ok(claims) => ws.on_upgrade(move |socket| handle_socket(socket, state, claims.sub, request_id)),
         Err(e) => {
-            tracing::debug!("WebSocket handshake failed: invalid token: {:?}", e);
+            tracing::warn!(error = %e, "WebSocket handshake failed: invalid token");
             axum::http::StatusCode::UNAUTHORIZED.into_response()
         }
     }
@@ -120,7 +120,7 @@ impl GatewaySession {
             if !batch.is_empty()
                 && let Err(e) = self.message_service.delete_batch(&batch).await
             {
-                error!("Failed to process ACK batch for user {}: {}", self.user_id, e);
+                error!(error = %e, "Failed to process ACK batch");
             }
         }
     }
@@ -169,7 +169,7 @@ impl GatewaySession {
                     }
                 }
                 Err(e) => {
-                    error!("Failed to fetch pending messages for user {}: {}", self.user_id, e);
+                    error!(error = %e, "Failed to fetch pending messages");
                     return false;
                 }
             }
@@ -193,7 +193,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid, re
                 return;
             }
             Err(e) => {
-                error!("Failed to fetch identity key: {}", e);
+                error!(error = %e, "Failed to fetch identity key");
                 let _ = socket.close().await;
                 return;
             }
@@ -210,7 +210,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid, re
                 }
             }
             Err(e) => {
-                warn!("Failed to check pre-key status: {}", e);
+                warn!(error = %e, "Failed to check pre-key status");
             }
             _ => {}
         }
@@ -256,7 +256,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid, re
                                          match Uuid::parse_str(&ack.message_id) {
                                              Ok(msg_id) => {
                                                  if ack_tx.try_send(msg_id).is_err() {
-                                                     warn!("Dropped ACK for message {} due to full buffer", msg_id);
+                                                     warn!(message_id = %msg_id, "Dropped ACK due to full buffer");
                                                  }
                                              }
                                              Err(_) => {
@@ -266,19 +266,20 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid, re
                                      }
                                  }
                                  Err(e) => {
-                                     warn!("Failed to decode WebSocket frame: {}", e);
+                                     warn!(error = %e, "Failed to decode WebSocket frame");
                                  }
                              }
                         }
                         Some(Ok(WsMessage::Close(_))) => break,
                         Some(Err(e)) => {
-                            warn!("WebSocket error: {}", e);
+                            warn!(error = %e, "WebSocket error");
                             break;
                         }
                         None => break,
                         _ => {}
                     }
                 }
+
 
                 res = outbound_rx.recv() => {
                     match res {

@@ -119,8 +119,8 @@ async fn main() -> anyhow::Result<()> {
     let mgmt_addr_str = format!("{}:{}", config.server.host, config.server.mgmt_port);
     let mgmt_addr: SocketAddr = mgmt_addr_str.parse().expect("Invalid management address format");
 
-    tracing::info!("listening on {}", addr);
-    tracing::info!("management server listening on {}", mgmt_addr);
+    tracing::info!(address = %addr, "listening");
+    tracing::info!(address = %mgmt_addr, "management server listening");
 
     let api_listener = tokio::net::TcpListener::bind(addr).await?;
     let mgmt_listener = tokio::net::TcpListener::bind(mgmt_addr).await?;
@@ -138,7 +138,7 @@ async fn main() -> anyhow::Result<()> {
         });
 
     if let Err(e) = tokio::try_join!(api_server, mgmt_server) {
-        tracing::error!("Server error: {}", e);
+        tracing::error!(error = %e, "Server error");
     }
 
     // Ensure all background tasks are signaled to shut down

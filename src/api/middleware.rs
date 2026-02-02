@@ -35,11 +35,11 @@ impl FromRequestParts<AppState> for AuthUser {
         let token = &auth_str[7..];
 
         let claims = verify_jwt(token, &state.config.auth.jwt_secret).map_err(|e| {
-            tracing::debug!("JWT verification failed: {:?}", e);
+            tracing::debug!(error = %e, "JWT verification failed");
             e
         })?;
 
-        tracing::Span::current().record("user_id", claims.sub.to_string());
+        tracing::Span::current().record("user_id", &tracing::field::display(claims.sub));
 
         Ok(AuthUser { user_id: claims.sub })
     }

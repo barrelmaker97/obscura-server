@@ -33,10 +33,12 @@ impl InMemoryNotifier {
 
         // Spawn background GC task
         tokio::spawn(async move {
+            let span = tracing::info_span!("notifier_gc_task");
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
             while !*shutdown.borrow() {
                 tokio::select! {
                     _ = interval.tick() => {
+                        let _enter = span.enter();
                         // Atomic cleanup: Remove entries with 0 receivers
                         map_ref.retain(|_, sender: &mut broadcast::Sender<UserEvent>| sender.receiver_count() > 0);
                     }

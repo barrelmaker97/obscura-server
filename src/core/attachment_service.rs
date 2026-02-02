@@ -55,6 +55,7 @@ impl AttachmentService {
         Self { pool, repo, s3_client, config, ttl_days }
     }
 
+    #[tracing::instrument(skip(self, body))]
     pub async fn upload(&self, content_len: Option<usize>, body: Body) -> Result<(Uuid, i64)> {
         // 1. Check Content-Length (Early rejection)
         if let Some(len) = content_len
@@ -114,7 +115,7 @@ impl AttachmentService {
             .send()
             .await
             .map_err(|e| {
-                tracing::error!("S3 Upload failed for key {}: {:?}", key, e);
+                tracing::error!(error = ?e, key = %key, "S3 Upload failed");
                 AppError::Internal
             })?;
 
@@ -122,11 +123,12 @@ impl AttachmentService {
         let expires_at = OffsetDateTime::now_utc() + Duration::days(self.ttl_days);
         self.repo.create(&self.pool, id, expires_at).await?;
 
-        tracing::debug!("Attachment uploaded: {} (expires: {})", id, expires_at);
+        tracing::debug!(attachment_id = %id, expires_at = %expires_at, "Attachment uploaded");
 
         Ok((id, expires_at.unix_timestamp()))
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn download(&self, id: Uuid) -> Result<(u64, ByteStream)> {
         // 1. Check Existence & Expiry
         match self.repo.get_expires_at(&self.pool, id).await? {
@@ -141,14 +143,16 @@ impl AttachmentService {
         // 2. Stream from S3
         let key = id.to_string();
         let output = self.s3_client.get_object().bucket(&self.config.bucket).key(&key).send().await.map_err(|e| {
-            tracing::error!("S3 Download failed for {}: {:?}", key, e);
+            tracing::error!(error = ?e, key = %key, "S3 Download failed");
             AppError::NotFound
         })?;
 
         let content_length = output.content_length.unwrap_or(0);
+        tracing::debug!(size = %content_length, "Attachment download successful");
         Ok((content_length as u64, output.body))
     }
 
+    #[tracing::instrument(skip(self, shutdown), name = "attachment_cleanup_task")]
     pub async fn run_cleanup_loop(&self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
         // Run every hour
         let interval = StdDuration::from_secs(3600);
@@ -160,7 +164,7 @@ impl AttachmentService {
                     tracing::debug!("Running attachment cleanup...");
 
                     if let Err(e) = self.cleanup_batch().await {
-                        tracing::error!("Attachment cleanup cycle failed: {:?}", e);
+                        tracing::error!(error = %e, "Attachment cleanup cycle failed");
                     }
                     next_tick = tokio::time::Instant::now() + interval;
                 }
@@ -179,7 +183,7 @@ impl AttachmentService {
                 break;
             }
 
-            tracing::info!("Found {} expired attachments to delete", ids.len());
+            tracing::info!(count = %ids.len(), "Found expired attachments to delete");
 
             for id in ids {
                 let key = id.to_string();
@@ -190,11 +194,11 @@ impl AttachmentService {
                 match res {
                     Ok(_) => {}
                     Err(aws_sdk_s3::error::SdkError::ServiceError(e)) => {
-                        tracing::warn!("S3 delete error for {}: {:?}", key, e);
+                        tracing::warn!(error = ?e, key = %key, "S3 delete error");
                         continue;
                     }
                     Err(e) => {
-                        tracing::error!("S3 network/transport error for {}: {:?}", key, e);
+                        tracing::error!(error = ?e, key = %key, "S3 network/transport error");
                         continue;
                     }
                 }

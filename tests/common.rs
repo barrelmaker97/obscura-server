@@ -38,7 +38,23 @@ pub fn setup_tracing() {
             .add_directive("tungstenite=warn".parse().unwrap())
             .add_directive("aws=warn".parse().unwrap());
 
-        tracing_subscriber::fmt().with_env_filter(filter).init();
+        let format = std::env::var("OBSCURA_LOG_FORMAT").unwrap_or_else(|_| "text".to_string());
+        use tracing_subscriber::fmt::format::FmtSpan;
+
+        match format.as_str() {
+            "json" => {
+                tracing_subscriber::fmt()
+                    .json()
+                    .with_env_filter(filter)
+                    .with_span_events(FmtSpan::CLOSE)
+                    .init();
+            }
+            _ => {
+                tracing_subscriber::fmt()
+                    .with_env_filter(filter)
+                    .init();
+            }
+        }
     });
 }
 
