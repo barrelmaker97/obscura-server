@@ -63,6 +63,7 @@ pub fn get_test_config() -> Config {
             port: 0,
             mgmt_port: 0,
             trusted_proxies: vec!["127.0.0.1/32".parse().unwrap(), "::1/128".parse().unwrap()],
+            log_format: obscura_server::config::LogFormat::Text,
         },
         auth: obscura_server::config::AuthConfig {
             jwt_secret: "test_secret".to_string(),
@@ -212,7 +213,7 @@ impl TestApp {
         config.server.mgmt_port = mgmt_addr.port();
 
         let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-        let notifier = Arc::new(InMemoryNotifier::new(config.clone(), shutdown_rx));
+        let notifier = Arc::new(InMemoryNotifier::new(config.clone(), shutdown_rx.clone()));
 
         let region_provider = aws_config::Region::new(config.s3.region.clone());
         let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider);
@@ -231,7 +232,7 @@ impl TestApp {
             aws_sdk_s3::config::Builder::from(&sdk_config).force_path_style(config.s3.force_path_style);
         let s3_client = aws_sdk_s3::Client::from_conf(s3_config_builder.build());
 
-        let app = app_router(pool.clone(), config.clone(), notifier.clone(), s3_client.clone());
+        let app = app_router(pool.clone(), config.clone(), notifier.clone(), s3_client.clone(), shutdown_rx.clone());
         let mgmt_state = obscura_server::api::MgmtState {
             pool: pool.clone(),
             health_config: config.health.clone(),
@@ -262,7 +263,7 @@ impl TestApp {
     }
 
     pub async fn register_user_with_keys(&self, username: &str, reg_id: u32, otpk_count: usize) -> TestUser {
-        let (reg_payload, identity_key) = generate_registration_payload(username, "password", reg_id, otpk_count);
+        let (reg_payload, identity_key) = generate_registration_payload(username, "password12345", reg_id, otpk_count);
 
         let resp = self.client.post(format!("{}/v1/users", self.server_url)).json(&reg_payload).send().await.unwrap();
 

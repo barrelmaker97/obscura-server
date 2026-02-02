@@ -1,10 +1,12 @@
 use crate::api::AppState;
 use crate::core::auth::verify_jwt;
 use crate::error::AppError;
+use axum::http::HeaderValue;
 use axum::{
     extract::FromRequestParts,
     http::{header, request::Parts},
 };
+use tower_http::request_id::{MakeRequestId, RequestId};
 use uuid::Uuid;
 
 pub struct AuthUser {
@@ -40,5 +42,19 @@ impl FromRequestParts<AppState> for AuthUser {
         tracing::Span::current().record("user_id", claims.sub.to_string());
 
         Ok(AuthUser { user_id: claims.sub })
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct MakeRequestUuidOrHeader;
+
+impl MakeRequestId for MakeRequestUuidOrHeader {
+    fn make_request_id<B>(&mut self, request: &axum::http::Request<B>) -> Option<RequestId> {
+        let header_value = request.headers().get("x-request-id").cloned().unwrap_or_else(|| {
+            let uuid = Uuid::new_v4().to_string();
+            HeaderValue::from_str(&uuid).unwrap()
+        });
+
+        Some(RequestId::new(header_value))
     }
 }

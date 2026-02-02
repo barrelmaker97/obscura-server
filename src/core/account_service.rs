@@ -46,6 +46,10 @@ impl AccountService {
         signed_pre_key: SignedPreKey,
         one_time_pre_keys: Vec<OneTimePreKey>,
     ) -> Result<AuthResponse> {
+        if password.len() < 12 {
+            return Err(AppError::BadRequest("Password must be at least 12 characters long".into()));
+        }
+
         // 0. Uniqueness check (CPU only, outside transaction)
         KeyService::validate_otpk_uniqueness(&one_time_pre_keys)?;
 

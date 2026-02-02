@@ -217,9 +217,20 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
         state.config.websocket.ack_flush_interval_ms,
     );
 
+    let mut shutdown_rx = state.shutdown_rx.clone();
+
     loop {
         tokio::select! {
             biased;
+
+            _ = shutdown_rx.changed() => {
+                tracing::info!("Shutdown signal received, closing WebSocket for user {}", user_id);
+                let _ = ws_sink.send(WsMessage::Close(Some(axum::extract::ws::CloseFrame {
+                    code: axum::extract::ws::close_code::AWAY,
+                    reason: "Server shutting down".into(),
+                }))).await;
+                break;
+            }
 
             msg = ws_stream.next() => {
                 match msg {

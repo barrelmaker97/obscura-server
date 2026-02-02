@@ -6,12 +6,42 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::new(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into())))
-        .with(tracing_subscriber::fmt::layer())
-        .init();
-
     let config = Config::load();
+
+    let filter = tracing_subscriber::EnvFilter::new(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()));
+    let registry = tracing_subscriber::registry().with(filter);
+
+    match config.server.log_format {
+        obscura_server::config::LogFormat::Text => {
+            registry.with(tracing_subscriber::fmt::layer()).init();
+        }
+        obscura_server::config::LogFormat::Json => {
+            registry.with(tracing_subscriber::fmt::layer().json()).init();
+        }
+    }
+
+    std::panic::set_hook(Box::new(|panic_info| {
+        let payload = panic_info.payload();
+        let msg = if let Some(s) = payload.downcast_ref::<&str>() {
+            *s
+        } else if let Some(s) = payload.downcast_ref::<String>() {
+            s.as_str()
+        } else {
+            "Box<Any>"
+        };
+
+        let location = if let Some(location) = panic_info.location() {
+            format!("{}:{}:{}", location.file(), location.line(), location.column())
+        } else {
+            "unknown".to_string()
+        };
+
+        tracing::error!(
+            panic.message = %msg,
+            panic.location = %location,
+            "Application panicked"
+        );
+    }));
 
     // Initialize pool
     let pool = storage::init_pool(&config.database_url).await?;
@@ -68,7 +98,7 @@ async fn main() -> anyhow::Result<()> {
         cleanup_service.run_cleanup_loop(attachment_cleanup_rx).await;
     });
 
-    let app = api::app_router(pool.clone(), config.clone(), notifier.clone(), s3_client.clone());
+    let app = api::app_router(pool.clone(), config.clone(), notifier.clone(), s3_client.clone(), shutdown_rx.clone());
     let mgmt_state = obscura_server::api::MgmtState {
         pool: pool.clone(),
         health_config: config.health.clone(),
