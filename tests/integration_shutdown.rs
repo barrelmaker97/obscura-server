@@ -22,13 +22,11 @@ async fn test_graceful_websocket_shutdown() {
     let mut close_received = false;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(5) {
-        if let Some(Ok(msg)) = ws.receive_raw_timeout(Duration::from_millis(100)).await {
-            if let Message::Close(Some(cf)) = msg {
-                assert_eq!(cf.code, CloseCode::Away);
-                assert_eq!(cf.reason, "Server shutting down");
-                close_received = true;
-                break;
-            }
+        if let Some(Ok(Message::Close(Some(cf)))) = ws.receive_raw_timeout(Duration::from_millis(100)).await {
+            assert_eq!(cf.code, CloseCode::Away);
+            assert_eq!(cf.reason, "Server shutting down");
+            close_received = true;
+            break;
         }
     }
 

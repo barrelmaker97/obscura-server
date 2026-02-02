@@ -43,16 +43,10 @@ pub fn setup_tracing() {
 
         match format.as_str() {
             "json" => {
-                tracing_subscriber::fmt()
-                    .json()
-                    .with_env_filter(filter)
-                    .with_span_events(FmtSpan::CLOSE)
-                    .init();
+                tracing_subscriber::fmt().json().with_env_filter(filter).with_span_events(FmtSpan::CLOSE).init();
             }
             _ => {
-                tracing_subscriber::fmt()
-                    .with_env_filter(filter)
-                    .init();
+                tracing_subscriber::fmt().with_env_filter(filter).init();
             }
         }
     });

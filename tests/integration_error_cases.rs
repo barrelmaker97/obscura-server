@@ -96,11 +96,9 @@ async fn test_websocket_malformed_frame() {
     // We might receive other messages first (like PreKeyStatus), so drain until Pong
     let mut pong_received = false;
     for _ in 0..5 {
-        if let Some(Ok(msg)) = socket.next().await {
-            if let WsMessage::Pong(_) = msg {
-                pong_received = true;
-                break;
-            }
+        if let Some(Ok(WsMessage::Pong(_))) = socket.next().await {
+            pong_received = true;
+            break;
         }
     }
 
