@@ -112,7 +112,7 @@ async fn test_password_strength() {
 
     // Try to register with a weak password
     let (mut reg_payload, _) = common::generate_registration_payload(&username, "too_short", 123, 1);
-    
+
     let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&reg_payload).send().await.unwrap();
 
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
@@ -136,7 +136,8 @@ async fn test_request_id_propagation() {
 
     // 1. Client-provided Request ID
     let custom_id = "test-request-id-123";
-    let resp = app.client
+    let resp = app
+        .client
         .get(format!("{}/openapi.yaml", app.server_url))
         .header("x-request-id", custom_id)
         .send()
@@ -146,11 +147,7 @@ async fn test_request_id_propagation() {
     assert_eq!(resp.headers().get("x-request-id").unwrap(), custom_id);
 
     // 2. Server-generated Request ID
-    let resp = app.client
-        .get(format!("{}/openapi.yaml", app.server_url))
-        .send()
-        .await
-        .unwrap();
+    let resp = app.client.get(format!("{}/openapi.yaml", app.server_url)).send().await.unwrap();
 
     assert!(resp.headers().contains_key("x-request-id"));
     let generated_id = resp.headers().get("x-request-id").unwrap().to_str().unwrap();

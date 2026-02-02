@@ -222,10 +222,12 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
     loop {
         if *shutdown_rx.borrow() {
             tracing::info!("Shutdown signal received, closing WebSocket for user {}", user_id);
-            let _ = ws_sink.send(WsMessage::Close(Some(axum::extract::ws::CloseFrame {
-                code: axum::extract::ws::close_code::AWAY,
-                reason: "Server shutting down".into(),
-            }))).await;
+            let _ = ws_sink
+                .send(WsMessage::Close(Some(axum::extract::ws::CloseFrame {
+                    code: axum::extract::ws::close_code::AWAY,
+                    reason: "Server shutting down".into(),
+                })))
+                .await;
             break;
         }
 

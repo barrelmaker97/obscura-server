@@ -1,7 +1,7 @@
-use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
-use tokio_tungstenite::tungstenite::protocol::Message;
-use uuid::Uuid;
 use std::time::Duration;
+use tokio_tungstenite::tungstenite::protocol::Message;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+use uuid::Uuid;
 
 mod common;
 

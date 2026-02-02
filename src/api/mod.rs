@@ -146,9 +146,7 @@ pub fn app_router(
         .route("/openapi.yaml", get(docs::openapi_yaml))
         .nest("/v1", auth_routes.merge(api_routes))
         .layer(from_fn(log_rate_limit_events))
-        .layer(PropagateRequestIdLayer::new(
-            axum::http::HeaderName::from_static("x-request-id"),
-        ))
+        .layer(PropagateRequestIdLayer::new(axum::http::HeaderName::from_static("x-request-id")))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(move |request: &Request<Body>| {
