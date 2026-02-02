@@ -36,7 +36,7 @@ async fn test_key_limit_enforced() {
 
     let reg_payload = json!({
         "username": username,
-        "password": "password",
+        "password": "password12345",
         "registrationId": 123,
         "identityKey": base64::engine::general_purpose::STANDARD.encode(&ik_pub_wire),
         "signedPreKey": {

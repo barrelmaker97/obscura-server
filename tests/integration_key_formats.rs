@@ -39,7 +39,7 @@ async fn test_format_typescript_standard() {
 
     let payload = json!({
         "username": username,
-        "password": "password",
+        "password": "password12345",
         "registrationId": 123,
         "identityKey": STANDARD.encode(ik_pub_wire),
         "signedPreKey": {
@@ -85,7 +85,7 @@ async fn test_format_pure_math_32_byte() {
 
     let payload = json!({
         "username": username,
-        "password": "password",
+        "password": "password12345",
         "registrationId": 123,
         "identityKey": STANDARD.encode(ik_pub_wire),
         "signedPreKey": {
@@ -140,7 +140,7 @@ async fn test_format_sign_bit_1_manual() {
 
     let payload = json!({
         "username": username,
-        "password": "password",
+        "password": "password12345",
         "registrationId": 123,
         "identityKey": STANDARD.encode(ik_pub_wire),
         "signedPreKey": {
@@ -195,7 +195,7 @@ async fn test_format_sign_bit_1_identity() {
 
     let payload = json!({
         "username": username,
-        "password": "password",
+        "password": "password12345",
         "registrationId": 123,
         "identityKey": STANDARD.encode(ik_pub_wire),
         "signedPreKey": {
