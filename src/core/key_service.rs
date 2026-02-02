@@ -71,6 +71,7 @@ impl KeyService {
     }
 
     /// Public entry point for key uploads.
+    #[tracing::instrument(skip(self, params))]
     pub async fn upload_keys(&self, params: KeyUploadParams) -> Result<()> {
         let user_id = params.user_id;
 
@@ -84,15 +85,17 @@ impl KeyService {
         tx.commit().await?;
 
         if is_takeover {
+            tracing::warn!("Device takeover detected");
             self.notifier.notify(user_id, UserEvent::Disconnect);
         }
 
-        tracing::info!("Keys uploaded successfully for user: {}", user_id);
+        tracing::info!("Keys uploaded successfully");
 
         Ok(())
     }
 
     /// Internal implementation that accepts a mutable connection.
+    #[tracing::instrument(skip(self, conn, params))]
     pub(crate) async fn upload_keys_internal(&self, conn: &mut PgConnection, params: KeyUploadParams) -> Result<bool> {
         let mut is_takeover = false;
 
@@ -204,7 +207,7 @@ fn verify_keys(ik: &PublicKey, signed_pre_key: &SignedPreKey) -> Result<()> {
     }
 
     verify_signature(ik, raw_32, &signed_pre_key.signature).map_err(|e| {
-        tracing::warn!("Signature verification failed for key_id {}: {:?}", signed_pre_key.key_id, e);
+        tracing::warn!(error = %e, key_id = %signed_pre_key.key_id, "Signature verification failed");
         e
     })
 }

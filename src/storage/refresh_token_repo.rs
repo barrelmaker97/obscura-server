@@ -13,6 +13,7 @@ impl RefreshTokenRepository {
 
     /// Creates a new refresh token record.
     /// Note: We store the HASH, not the raw token.
+    #[tracing::instrument(level = "debug", skip(self, executor, token_hash))]
     pub async fn create<'e, E>(&self, executor: E, user_id: Uuid, token_hash: &str, ttl_days: i64) -> Result<()>
     where
         E: Executor<'e, Database = Postgres>,
@@ -34,6 +35,7 @@ impl RefreshTokenRepository {
     /// If valid: Returns the user_id and DELETES the token from the DB.
     /// If invalid/expired: Returns None.
     /// The caller MUST commit the transaction.
+    #[tracing::instrument(level = "debug", skip(self, executor, token_hash))]
     pub async fn verify_and_consume(&self, executor: &mut PgConnection, token_hash: &str) -> Result<Option<Uuid>> {
         #[derive(sqlx::FromRow)]
         struct TokenRecord {
@@ -79,6 +81,7 @@ impl RefreshTokenRepository {
     }
 
     /// Revokes a specific refresh token owned by the user (Logout).
+    #[tracing::instrument(level = "debug", skip(self, executor, token_hash))]
     pub async fn delete_owned<'e, E>(&self, executor: E, token_hash: &str, user_id: Uuid) -> Result<()>
     where
         E: Executor<'e, Database = Postgres>,

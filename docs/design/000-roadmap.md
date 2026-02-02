@@ -6,7 +6,7 @@ This document serves as the master index for planned work and architectural visi
 
 ### 📊 Phase 1: Operational Maturity
 *Establishing a stable, measurable foundation before adding complexity.*
-- [ ] **[006: Operational Hardening](006-operational-hardening.md)**: Request tracing, structured logging, and graceful shutdowns. **(Immediate Priority)**
+- [x] **[006: Operational Hardening](006-operational-hardening.md)**: Request tracing, structured logging, and graceful shutdowns.
 - [ ] **[005: Observability](005-observability.md)**: Prometheus instrumentation for runtime health, queue depths, and connection tracking. **(High Priority)**
 
 ### 📱 Phase 2: Mobile Essentials
@@ -32,6 +32,6 @@ This document serves as the master index for planned work and architectural visi
 - [ ] **Load Testing**: Simulate peak WebSocket concurrency using `k6` or `locust`.
 
 ### 🧹 Refactoring & Maintenance
-- [ ] **Error Audit**: Standardize `AppError` mappings across all modules to ensure consistent status codes and zero leakage of sensitive internal details.
+- [x] **Error Audit**: Standardize `AppError` mappings across all modules to ensure consistent status codes and zero leakage of sensitive internal details.
 - [ ] **Configuration Improvements**: Evaluate the need for dynamic config reloading (SIGHUP) vs. standard container restarts.
 - [ ] **CI/CD Enhancements**: Expand the current GitHub Actions to include performance regression checks.

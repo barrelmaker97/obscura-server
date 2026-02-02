@@ -33,16 +33,16 @@ impl InMemoryNotifier {
 
         // Spawn background GC task
         tokio::spawn(async move {
+            let span = tracing::info_span!("notifier_gc_task");
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
-            loop {
+            while !*shutdown.borrow() {
                 tokio::select! {
                     _ = interval.tick() => {
+                        let _enter = span.enter();
                         // Atomic cleanup: Remove entries with 0 receivers
                         map_ref.retain(|_, sender: &mut broadcast::Sender<UserEvent>| sender.receiver_count() > 0);
                     }
-                    _ = shutdown.changed() => {
-                        break;
-                    }
+                    _ = shutdown.changed() => {}
                 }
             }
         });
@@ -89,6 +89,7 @@ mod tests {
                 host: "0.0.0.0".to_string(),
                 port: 3000,
                 mgmt_port: 9000,
+                log_format: crate::config::LogFormat::Text,
                 trusted_proxies: vec!["127.0.0.1/32".parse().unwrap()],
             },
             auth: crate::config::AuthConfig {

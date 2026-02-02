@@ -169,7 +169,7 @@ async fn test_rate_limit_tiers() {
 
     let ip = "1.2.3.4";
 
-    let (reg_payload, _) = common::generate_registration_payload("tier_test", "password", 123, 0);
+    let (reg_payload, _) = common::generate_registration_payload("tier_test", "password12345", 123, 0);
 
     for _ in 0..2 {
         let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&reg_payload).send().await.unwrap();

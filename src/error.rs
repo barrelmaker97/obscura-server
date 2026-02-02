@@ -28,7 +28,7 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
             AppError::Database(e) => {
-                tracing::error!("Database error: {:?}", e);
+                tracing::error!(error = %e, "Database error");
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
             }
             AppError::AuthError => {
@@ -40,11 +40,11 @@ impl IntoResponse for AppError {
                 (StatusCode::NOT_FOUND, "Not found".to_string())
             }
             AppError::BadRequest(msg) => {
-                tracing::debug!("Bad request: {}", msg);
+                tracing::debug!(message = %msg, "Bad request");
                 (StatusCode::BAD_REQUEST, msg)
             }
             AppError::Conflict(msg) => {
-                tracing::debug!("Conflict: {}", msg);
+                tracing::debug!(message = %msg, "Conflict");
                 (StatusCode::CONFLICT, msg)
             }
             AppError::Internal => {

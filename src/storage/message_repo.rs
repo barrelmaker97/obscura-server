@@ -12,6 +12,7 @@ impl MessageRepository {
         Self {}
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor, content))]
     pub async fn create<'e, E>(
         &self,
         executor: E,
@@ -50,6 +51,7 @@ impl MessageRepository {
         }
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor))]
     pub async fn fetch_pending_batch<'e, E>(
         &self,
         executor: E,
@@ -101,6 +103,7 @@ impl MessageRepository {
         Ok(messages)
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor))]
     pub async fn delete_batch<'e, E>(&self, executor: E, message_ids: &[Uuid]) -> Result<()>
     where
         E: Executor<'e, Database = Postgres>,
@@ -112,6 +115,7 @@ impl MessageRepository {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor))]
     pub async fn delete_expired<'e, E>(&self, executor: E) -> Result<u64>
     where
         E: Executor<'e, Database = Postgres>,
@@ -120,6 +124,7 @@ impl MessageRepository {
         Ok(result.rows_affected())
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor))]
     pub async fn delete_global_overflow<'e, E>(&self, executor: E, limit: i64) -> Result<u64>
     where
         E: Executor<'e, Database = Postgres>,
@@ -142,6 +147,7 @@ impl MessageRepository {
         Ok(result.rows_affected())
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor))]
     pub async fn delete_all_for_user<'e, E>(&self, executor: E, user_id: Uuid) -> Result<u64>
     where
         E: sqlx::Executor<'e, Database = sqlx::Postgres>,

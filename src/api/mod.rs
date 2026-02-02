@@ -10,16 +10,15 @@ use crate::storage::{
     refresh_token_repo::RefreshTokenRepository, user_repo::UserRepository,
 };
 use axum::body::Body;
-use axum::extract::ConnectInfo;
 use axum::http::Request;
 use axum::{
     Router,
     middleware::from_fn,
     routing::{get, post},
 };
-use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
+use tower_http::request_id::{PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::trace::{DefaultOnResponse, TraceLayer};
 use tracing::Level;
 
@@ -44,6 +43,7 @@ pub struct AppState {
     pub attachment_service: AttachmentService,
     pub account_service: AccountService,
     pub message_service: MessageService,
+    pub shutdown_rx: tokio::sync::watch::Receiver<bool>,
 }
 
 #[derive(Clone)]
@@ -54,7 +54,13 @@ pub struct MgmtState {
     pub s3_client: aws_sdk_s3::Client,
 }
 
-pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_client: aws_sdk_s3::Client) -> Router {
+pub fn app_router(
+    pool: DbPool,
+    config: Config,
+    notifier: Arc<dyn Notifier>,
+    s3_client: aws_sdk_s3::Client,
+    shutdown_rx: tokio::sync::watch::Receiver<bool>,
+) -> Router {
     let extractor = IpKeyExtractor::new(config.server.trusted_proxies.clone());
 
     // Initialize Repositories
@@ -101,8 +107,6 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_
             .unwrap(),
     );
 
-    let trace_extractor = extractor.clone();
-
     let state = AppState {
         pool,
         config,
@@ -113,6 +117,7 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_
         attachment_service,
         account_service,
         message_service,
+        shutdown_rx,
     };
 
     // Sensitive routes with strict limits
@@ -137,25 +142,31 @@ pub fn app_router(pool: DbPool, config: Config, notifier: Arc<dyn Notifier>, s3_
         .route("/openapi.yaml", get(docs::openapi_yaml))
         .nest("/v1", auth_routes.merge(api_routes))
         .layer(from_fn(log_rate_limit_events))
+        .layer(PropagateRequestIdLayer::new(axum::http::HeaderName::from_static("x-request-id")))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(move |request: &Request<Body>| {
-                    let peer_addr = request.extensions().get::<ConnectInfo<SocketAddr>>().map(|info| info.0.ip());
-
-                    let client_ip = peer_addr
-                        .map(|ip| trace_extractor.identify_client_ip(request.headers(), ip).to_string())
-                        .unwrap_or_else(|| "unknown".to_string());
+                    let request_id = request
+                        .extensions()
+                        .get::<tower_http::request_id::RequestId>()
+                        .map(|id| id.header_value().to_str().unwrap_or_default())
+                        .unwrap_or_default()
+                        .to_string();
 
                     tracing::info_span!(
                         "request",
+                        request_id = %request_id,
                         method = %request.method(),
                         path = %request.uri().path(),
-                        client_ip = %client_ip,
                         user_id = tracing::field::Empty,
                     )
                 })
                 .on_response(DefaultOnResponse::new().level(Level::INFO)),
         )
+        .layer(SetRequestIdLayer::new(
+            axum::http::HeaderName::from_static("x-request-id"),
+            middleware::MakeRequestUuidOrHeader,
+        ))
         .with_state(state)
 }
 

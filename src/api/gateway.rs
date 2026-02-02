@@ -8,6 +8,7 @@ use axum::{
         Query, State,
         ws::{Message as WsMessage, WebSocket, WebSocketUpgrade},
     },
+    http::Extensions,
     response::IntoResponse,
 };
 use futures::{SinkExt, StreamExt};
@@ -15,7 +16,8 @@ use prost::Message as ProstMessage;
 use serde::Deserialize;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
-use tracing::{error, warn};
+use tower_http::request_id::RequestId;
+use tracing::{Instrument, error, warn};
 use uuid::Uuid;
 
 #[derive(Deserialize)]
@@ -26,12 +28,18 @@ pub struct WsParams {
 pub async fn websocket_handler(
     ws: WebSocketUpgrade,
     Query(params): Query<WsParams>,
+    extensions: Extensions,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
+    let request_id = extensions
+        .get::<RequestId>()
+        .map(|id| id.header_value().to_str().unwrap_or_default().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
     match verify_jwt(&params.token, &state.config.auth.jwt_secret) {
-        Ok(claims) => ws.on_upgrade(move |socket| handle_socket(socket, state, claims.sub)),
+        Ok(claims) => ws.on_upgrade(move |socket| handle_socket(socket, state, claims.sub, request_id)),
         Err(e) => {
-            tracing::debug!("WebSocket handshake failed: invalid token: {:?}", e);
+            tracing::warn!(error = %e, "WebSocket handshake failed: invalid token");
             axum::http::StatusCode::UNAUTHORIZED.into_response()
         }
     }
@@ -112,7 +120,7 @@ impl GatewaySession {
             if !batch.is_empty()
                 && let Err(e) = self.message_service.delete_batch(&batch).await
             {
-                error!("Failed to process ACK batch for user {}: {}", self.user_id, e);
+                error!(error = %e, "Failed to process ACK batch");
             }
         }
     }
@@ -161,7 +169,7 @@ impl GatewaySession {
                     }
                 }
                 Err(e) => {
-                    error!("Failed to fetch pending messages for user {}: {}", self.user_id, e);
+                    error!(error = %e, "Failed to fetch pending messages");
                     return false;
                 }
             }
@@ -170,131 +178,153 @@ impl GatewaySession {
     }
 }
 
-async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid) {
-    tracing::info!("WebSocket connected for user {}", user_id);
-    let mut rx = state.notifier.subscribe(user_id);
+async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid, request_id: String) {
+    let span = tracing::info_span!("websocket", request_id = %request_id, user_id = %user_id);
 
-    match state.key_service.fetch_identity_key(user_id).await {
-        Ok(Some(_)) => {}
-        Ok(None) => {
-            warn!("User {} connected but has no identity key", user_id);
-            let _ = socket.close().await;
-            return;
-        }
-        Err(e) => {
-            error!("Failed to fetch identity key for user {}: {}", user_id, e);
-            let _ = socket.close().await;
-            return;
-        }
-    }
+    async move {
+        tracing::info!("WebSocket connected");
+        let mut rx = state.notifier.subscribe(user_id);
 
-    let (mut ws_sink, mut ws_stream) = socket.split();
-
-    match state.key_service.check_pre_key_status(user_id).await {
-        Ok(Some(status)) => {
-            let frame = WebSocketFrame { payload: Some(Payload::PreKeyStatus(status)) };
-            let mut buf = Vec::new();
-            if frame.encode(&mut buf).is_ok() {
-                let _ = ws_sink.send(WsMessage::Binary(buf.into())).await;
+        match state.key_service.fetch_identity_key(user_id).await {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                warn!("User connected but has no identity key");
+                let _ = socket.close().await;
+                return;
+            }
+            Err(e) => {
+                error!(error = %e, "Failed to fetch identity key");
+                let _ = socket.close().await;
+                return;
             }
         }
-        Err(e) => {
-            warn!("Failed to check pre-key status for user {}: {}", user_id, e);
+
+        let (mut ws_sink, mut ws_stream) = socket.split();
+
+        match state.key_service.check_pre_key_status(user_id).await {
+            Ok(Some(status)) => {
+                let frame = WebSocketFrame { payload: Some(Payload::PreKeyStatus(status)) };
+                let mut buf = Vec::new();
+                if frame.encode(&mut buf).is_ok() {
+                    let _ = ws_sink.send(WsMessage::Binary(buf.into())).await;
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, "Failed to check pre-key status");
+            }
+            _ => {}
         }
-        _ => {}
-    }
 
-    let (outbound_tx, mut outbound_rx) = mpsc::channel(state.config.websocket.outbound_buffer_size);
-    let (fetch_trigger, fetch_signal) = mpsc::channel(1);
-    let (ack_tx, ack_rx) = mpsc::channel(state.config.websocket.ack_buffer_size);
+        let (outbound_tx, mut outbound_rx) = mpsc::channel(state.config.websocket.outbound_buffer_size);
+        let (fetch_trigger, fetch_signal) = mpsc::channel(1);
+        let (ack_tx, ack_rx) = mpsc::channel(state.config.websocket.ack_buffer_size);
 
-    let session = Arc::new(GatewaySession::new(user_id, &state, outbound_tx));
+        let session = Arc::new(GatewaySession::new(user_id, &state, outbound_tx));
 
-    let (mut db_poller_task, mut ack_processor_task) = session.clone().spawn_background_tasks(
-        fetch_signal,
-        ack_rx,
-        state.config.websocket.ack_batch_size,
-        state.config.websocket.ack_flush_interval_ms,
-    );
+        let (mut db_poller_task, mut ack_processor_task) = session.clone().spawn_background_tasks(
+            fetch_signal,
+            ack_rx,
+            state.config.websocket.ack_batch_size,
+            state.config.websocket.ack_flush_interval_ms,
+        );
 
-    loop {
-        tokio::select! {
-            biased;
+        let mut shutdown_rx = state.shutdown_rx.clone();
 
-            msg = ws_stream.next() => {
-                match msg {
-                    Some(Ok(WsMessage::Binary(bin))) => {
-                         match WebSocketFrame::decode(bin.as_ref()) {
-                             Ok(frame) => {
-                                 if let Some(Payload::Ack(ack)) = frame.payload {
-                                     match Uuid::parse_str(&ack.message_id) {
-                                         Ok(msg_id) => {
-                                             if ack_tx.try_send(msg_id).is_err() {
-                                                 warn!("Dropped ACK for message {} due to full buffer", msg_id);
+        loop {
+            if *shutdown_rx.borrow() {
+                tracing::info!("Shutdown signal received, closing WebSocket");
+                let _ = ws_sink
+                    .send(WsMessage::Close(Some(axum::extract::ws::CloseFrame {
+                        code: axum::extract::ws::close_code::AWAY,
+                        reason: "Server shutting down".into(),
+                    })))
+                    .await;
+                break;
+            }
+
+            tokio::select! {
+                biased;
+
+                _ = shutdown_rx.changed() => {}
+
+                msg = ws_stream.next() => {
+                    match msg {
+                        Some(Ok(WsMessage::Binary(bin))) => {
+                             match WebSocketFrame::decode(bin.as_ref()) {
+                                 Ok(frame) => {
+                                     if let Some(Payload::Ack(ack)) = frame.payload {
+                                         match Uuid::parse_str(&ack.message_id) {
+                                             Ok(msg_id) => {
+                                                 if ack_tx.try_send(msg_id).is_err() {
+                                                     warn!(message_id = %msg_id, "Dropped ACK due to full buffer");
+                                                 }
                                              }
-                                         }
-                                         Err(_) => {
-                                             warn!("Received ACK with invalid UUID from user {}", user_id);
+                                             Err(_) => {
+                                                 warn!("Received ACK with invalid UUID");
+                                             }
                                          }
                                      }
                                  }
+                                 Err(e) => {
+                                     warn!(error = %e, "Failed to decode WebSocket frame");
+                                 }
                              }
-                             Err(e) => {
-                                 warn!("Failed to decode WebSocket frame from user {}: {}", user_id, e);
-                             }
-                         }
-                    }
-                    Some(Ok(WsMessage::Close(_))) => break,
-                    Some(Err(e)) => {
-                        warn!("WebSocket error for user {}: {}", user_id, e);
-                        break;
-                    }
-                    None => break,
-                    _ => {}
-                }
-            }
-
-            res = outbound_rx.recv() => {
-                match res {
-                    Some(msg) => {
-                        if ws_sink.send(msg).await.is_err() {
+                        }
+                        Some(Ok(WsMessage::Close(_))) => break,
+                        Some(Err(e)) => {
+                            warn!(error = %e, "WebSocket error");
                             break;
                         }
+                        None => break,
+                        _ => {}
                     }
-                    None => break,
                 }
+
+
+                res = outbound_rx.recv() => {
+                    match res {
+                        Some(msg) => {
+                            if ws_sink.send(msg).await.is_err() {
+                                break;
+                            }
+                        }
+                        None => break,
+                    }
+                }
+
+                result = rx.recv() => {
+                    match result {
+                        Ok(UserEvent::MessageReceived) => {
+                            let _ = fetch_trigger.try_send(());
+                        }
+                        Ok(UserEvent::Disconnect) => break,
+                        Err(broadcast::error::RecvError::Lagged(_)) => {
+                            let _ = fetch_trigger.try_send(());
+                        }
+                        Err(broadcast::error::RecvError::Closed) => break,
+                    }
+
+                    // Drain any pending events
+                    let mut disconnect_seen = false;
+                    while let Ok(evt) = rx.try_recv() {
+                        match evt {
+                            UserEvent::Disconnect => disconnect_seen = true,
+                            UserEvent::MessageReceived => { let _ = fetch_trigger.try_send(()); }
+                        }
+                    }
+                    if disconnect_seen { break; }
+                }
+
+                _ = &mut db_poller_task => break,
+                _ = &mut ack_processor_task => break,
             }
-
-            result = rx.recv() => {
-                match result {
-                    Ok(UserEvent::MessageReceived) => {
-                        let _ = fetch_trigger.try_send(());
-                    }
-                    Ok(UserEvent::Disconnect) => break,
-                    Err(broadcast::error::RecvError::Lagged(_)) => {
-                        let _ = fetch_trigger.try_send(());
-                    }
-                    Err(broadcast::error::RecvError::Closed) => break,
-                }
-
-                // Drain any pending events
-                let mut disconnect_seen = false;
-                while let Ok(evt) = rx.try_recv() {
-                    match evt {
-                        UserEvent::Disconnect => disconnect_seen = true,
-                        UserEvent::MessageReceived => { let _ = fetch_trigger.try_send(()); }
-                    }
-                }
-                if disconnect_seen { break; }
-            }
-
-            _ = &mut db_poller_task => break,
-            _ = &mut ack_processor_task => break,
         }
-    }
 
-    let _ = ws_sink.close().await;
-    db_poller_task.abort();
-    ack_processor_task.abort();
-    tracing::info!("WebSocket disconnected for user {}", user_id);
+        let _ = ws_sink.close().await;
+        db_poller_task.abort();
+        ack_processor_task.abort();
+        tracing::info!("WebSocket disconnected");
+    }
+    .instrument(span)
+    .await;
 }

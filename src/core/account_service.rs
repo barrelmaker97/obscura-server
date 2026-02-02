@@ -37,6 +37,7 @@ impl AccountService {
         Self { pool, config, key_service, user_repo, refresh_repo }
     }
 
+    #[tracing::instrument(skip(self, username, password, identity_key, signed_pre_key, one_time_pre_keys))]
     pub async fn register(
         &self,
         username: String,
@@ -46,16 +47,20 @@ impl AccountService {
         signed_pre_key: SignedPreKey,
         one_time_pre_keys: Vec<OneTimePreKey>,
     ) -> Result<AuthResponse> {
+        if password.len() < 12 {
+            return Err(AppError::BadRequest("Password must be at least 12 characters long".into()));
+        }
+
         // 0. Uniqueness check (CPU only, outside transaction)
         KeyService::validate_otpk_uniqueness(&one_time_pre_keys)?;
 
         let password_hash: Result<String> =
             tokio::task::spawn_blocking(move || auth::hash_password(&password)).await.map_err(|e| {
-                tracing::error!("Failed to spawn password hashing task: {}", e);
+                tracing::error!(error = %e, "Failed to spawn password hashing task");
                 AppError::Internal
             })?;
         let password_hash = password_hash.map_err(|e| {
-            tracing::error!("Password hashing failed: {:?}", e);
+            tracing::error!(error = %e, "Password hashing failed");
             e
         })?;
 
@@ -89,7 +94,7 @@ impl AccountService {
 
         tx.commit().await?;
 
-        tracing::info!("User registered successfully: {}", user.id);
+        tracing::info!("User registered successfully");
 
         let expires_at = (time::OffsetDateTime::now_utc()
             + time::Duration::seconds(self.config.access_token_ttl_secs as i64))
@@ -98,6 +103,7 @@ impl AccountService {
         Ok(AuthResponse { token, refresh_token, expires_at })
     }
 
+    #[tracing::instrument(skip(self, username, password))]
     pub async fn login(&self, username: String, password: String) -> Result<AuthResponse> {
         let user = match self.user_repo.find_by_username(&self.pool, &username).await? {
             Some(u) => u,
@@ -112,12 +118,12 @@ impl AccountService {
         let is_valid: Result<bool> =
             tokio::task::spawn_blocking(move || auth::verify_password(&password, &password_hash)).await.map_err(
                 |e| {
-                    tracing::error!("Failed to spawn password verification task: {}", e);
+                    tracing::error!(error = %e, "Failed to spawn password verification task");
                     AppError::Internal
                 },
             )?;
         let is_valid = is_valid.map_err(|e| {
-            tracing::error!("Password verification failed: {:?}", e);
+            tracing::error!(error = %e, "Password verification failed");
             e
         })?;
 
@@ -135,7 +141,7 @@ impl AccountService {
         self.refresh_repo.create(&mut *tx, user.id, &refresh_hash, self.config.refresh_token_ttl_days).await?;
         tx.commit().await?;
 
-        tracing::info!("User logged in successfully: {}", user.id);
+        tracing::info!("User logged in successfully");
 
         let expires_at = (time::OffsetDateTime::now_utc()
             + time::Duration::seconds(self.config.access_token_ttl_secs as i64))
@@ -144,6 +150,7 @@ impl AccountService {
         Ok(AuthResponse { token, refresh_token, expires_at })
     }
 
+    #[tracing::instrument(skip(self, refresh_token))]
     pub async fn refresh(&self, refresh_token: String) -> Result<AuthResponse> {
         // 1. Hash the incoming token to look it up
         let hash = auth::hash_token(&refresh_token);
@@ -163,6 +170,8 @@ impl AccountService {
 
         tx.commit().await?;
 
+        tracing::info!("Tokens rotated successfully");
+
         let expires_at = (time::OffsetDateTime::now_utc()
             + time::Duration::seconds(self.config.access_token_ttl_secs as i64))
         .unix_timestamp();
@@ -170,12 +179,13 @@ impl AccountService {
         Ok(AuthResponse { token: new_access_token, refresh_token: new_refresh_token, expires_at })
     }
 
+    #[tracing::instrument(skip(self, refresh_token))]
     pub async fn logout(&self, user_id: Uuid, refresh_token: String) -> Result<()> {
         let hash = auth::hash_token(&refresh_token);
 
         self.refresh_repo.delete_owned(&self.pool, &hash, user_id).await?;
 
-        tracing::info!("User logged out: {}", user_id);
+        tracing::info!("User logged out");
 
         Ok(())
     }

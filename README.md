@@ -6,6 +6,7 @@
 - **Zero-Knowledge Architecture**: The server stores opaque encrypted blobs. It cannot read message content.
 - **Signal Protocol Support**: Uses PreKeys (Identity, Signed, One-Time) to enable X3DH key exchanges.
 - **Asynchronous Delivery**: Stores encrypted messages until the recipient comes online to fetch them.
+- **Encrypted Attachments**: Supports secure file uploads via S3-compatible storage with automated expiry.
 - **Strict Privacy Limits**: Automatic garbage collection of old messages and global inbox limits to prevent metadata buildup.
 - **Container Native**: Built with Docker in mind for easy deployment.
 - **Configurable**: Fully configurable via command-line flags or environment variables.
@@ -23,6 +24,7 @@ Command-line options take precedence over environment variables.
 | `--host` | Interface to bind the server to | `OBSCURA_HOST` | `0.0.0.0` | No |
 | `--port` | Port to bind the server to | `OBSCURA_PORT` | `3000` | No |
 | `--mgmt-port` | Management port for health/metrics | `OBSCURA_MGMT_PORT` | `9090` | No |
+| `--log-format` | Log format (`text` or `json`) | `OBSCURA_LOG_FORMAT` | `text` | No |
 | `--health-db-timeout-ms` | Timeout for DB health check | `OBSCURA_HEALTH_DB_TIMEOUT_MS` | `2000` | No |
 | `--health-s3-timeout-ms` | Timeout for S3 health check | `OBSCURA_HEALTH_S3_TIMEOUT_MS` | `2000` | No |
 | `--access-token-ttl-secs` | Access Token lifetime in seconds | `OBSCURA_ACCESS_TOKEN_TTL_SECS` | `900` | No |
@@ -122,7 +124,7 @@ docker compose up -d
 ### Testing
 
 ```bash
-`cargo test`
+cargo test
 ```
 
 ## Releasing
@@ -142,8 +144,8 @@ The system will automatically:
 
 ## API Documentation
 
-- **REST API**: Defined in `specs/001-signal-server/contracts/openapi.yaml`.
-- **WebSocket**: Available at `/v1/gateway`. Expects Protobuf messages defined in `proto/obscura.proto`.
+- **REST API**: Defined in `openapi.yaml`.
+- **WebSocket**: Available at `/v1/gateway`. Expects Protobuf messages defined in `proto/obscura/v1/obscura.proto`.
 
 # License
 

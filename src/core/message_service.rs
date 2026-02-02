@@ -30,10 +30,11 @@ impl MessageService {
         Self { pool, repo, notifier, config, ttl_days }
     }
 
+    #[tracing::instrument(skip(self, body, sender_id, recipient_id))]
     pub async fn send_message(&self, sender_id: Uuid, recipient_id: Uuid, body: Bytes) -> Result<()> {
         // 1. Decode the EncryptedMessage protobuf to get type and content
         let msg = EncryptedMessage::decode(body).map_err(|e| {
-            tracing::warn!("Failed to decode EncryptedMessage protobuf from user {}: {}", sender_id, e);
+            tracing::warn!(error = %e, "Failed to decode EncryptedMessage protobuf");
             AppError::BadRequest("Invalid EncryptedMessage protobuf".into())
         })?;
 
@@ -50,6 +51,7 @@ impl MessageService {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, content))]
     pub async fn enqueue_message(
         &self,
         sender_id: Uuid,
@@ -61,6 +63,7 @@ impl MessageService {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn fetch_pending_batch(
         &self,
         recipient_id: Uuid,
@@ -70,6 +73,7 @@ impl MessageService {
         self.repo.fetch_pending_batch(&self.pool, recipient_id, cursor, limit).await
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn delete_batch(&self, message_ids: &[Uuid]) -> Result<()> {
         self.repo.delete_batch(&self.pool, message_ids).await
     }
@@ -79,10 +83,11 @@ impl MessageService {
     }
 
     /// Periodically cleans up expired messages and enforces inbox limits.
+    #[tracing::instrument(skip(self, shutdown), name = "message_cleanup_task")]
     pub async fn run_cleanup_loop(&self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
         let mut interval = tokio::time::interval(Duration::from_secs(self.config.cleanup_interval_secs));
 
-        loop {
+        while !*shutdown.borrow() {
             tokio::select! {
                 _ = interval.tick() => {
                     tracing::debug!("Running message cleanup (expiry + limits)...");
@@ -91,10 +96,10 @@ impl MessageService {
                     match self.repo.delete_expired(&self.pool).await {
                         Ok(count) => {
                             if count > 0 {
-                                tracing::info!("Cleanup: Deleted {} expired messages.", count);
+                                tracing::info!(count = %count, "Deleted expired messages");
                             }
                         }
-                        Err(e) => tracing::error!("Cleanup loop error (expiry): {:?}", e),
+                        Err(e) => tracing::error!(error = %e, "Cleanup loop error (expiry)"),
                     }
 
                     // 2. Enforce Inbox Limits (Global Overflow)
@@ -102,17 +107,15 @@ impl MessageService {
                     match self.repo.delete_global_overflow(&self.pool, self.config.max_inbox_size).await {
                         Ok(count) => {
                             if count > 0 {
-                                tracing::info!("Cleanup: Pruned {} overflow messages.", count);
+                                tracing::info!(count = %count, "Pruned overflow messages");
                             }
                         }
-                        Err(e) => tracing::error!("Cleanup loop error (overflow): {:?}", e),
+                        Err(e) => tracing::error!(error = %e, "Cleanup loop error (overflow)"),
                     }
                 }
-                _ = shutdown.changed() => {
-                    tracing::info!("Message cleanup loop shutting down...");
-                    break;
-                }
+                _ = shutdown.changed() => {}
             }
         }
+        tracing::info!("Message cleanup loop shutting down...");
     }
 }

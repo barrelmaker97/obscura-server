@@ -103,3 +103,55 @@ async fn test_refresh_token_expiration() {
 
     assert_eq!(resp_refresh.status(), StatusCode::UNAUTHORIZED, "Expired refresh token should be rejected");
 }
+
+#[tokio::test]
+async fn test_password_strength() {
+    let app = common::TestApp::spawn().await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let username = format!("weak_user_{}", run_id);
+
+    // Try to register with a weak password
+    let (mut reg_payload, _) = common::generate_registration_payload(&username, "too_short", 123, 1);
+
+    let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&reg_payload).send().await.unwrap();
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert!(body["error"].as_str().unwrap().contains("at least 12 characters"));
+
+    // Try again with exactly 11 characters
+    reg_payload["password"] = json!("12345678901");
+    let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&reg_payload).send().await.unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    // Try with exactly 12 characters (should pass)
+    reg_payload["password"] = json!("123456789012");
+    let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&reg_payload).send().await.unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+}
+
+#[tokio::test]
+async fn test_request_id_propagation() {
+    let app = common::TestApp::spawn().await;
+
+    // 1. Client-provided Request ID
+    let custom_id = "test-request-id-123";
+    let resp = app
+        .client
+        .get(format!("{}/openapi.yaml", app.server_url))
+        .header("x-request-id", custom_id)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.headers().get("x-request-id").unwrap(), custom_id);
+
+    // 2. Server-generated Request ID
+    let resp = app.client.get(format!("{}/openapi.yaml", app.server_url)).send().await.unwrap();
+
+    assert!(resp.headers().contains_key("x-request-id"));
+    let generated_id = resp.headers().get("x-request-id").unwrap().to_str().unwrap();
+    assert!(!generated_id.is_empty());
+    // Should be a UUID (approx check)
+    assert_eq!(generated_id.split('-').count(), 5);
+}

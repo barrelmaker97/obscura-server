@@ -37,6 +37,13 @@ pub struct Config {
     pub s3: S3Config,
 }
 
+#[derive(Clone, Debug, Default, clap::ValueEnum)]
+pub enum LogFormat {
+    #[default]
+    Text,
+    Json,
+}
+
 #[derive(Clone, Debug, Args)]
 pub struct ServerConfig {
     /// Host to listen on
@@ -50,6 +57,10 @@ pub struct ServerConfig {
     /// Management port for health checks and metrics
     #[arg(long, env = "OBSCURA_MGMT_PORT", default_value_t = 9090)]
     pub mgmt_port: u16,
+
+    /// Log format (text or json)
+    #[arg(long, env = "OBSCURA_LOG_FORMAT", default_value = "text")]
+    pub log_format: LogFormat,
 
     /// Comma-separated list of CIDRs to trust for X-Forwarded-For IP extraction
     #[arg(

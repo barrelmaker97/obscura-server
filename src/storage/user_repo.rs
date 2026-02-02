@@ -10,6 +10,7 @@ impl UserRepository {
         Self {}
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor, password_hash))]
     pub async fn create<'e, E>(&self, executor: E, username: &str, password_hash: &str) -> Result<User>
     where
         E: Executor<'e, Database = Postgres>,
@@ -29,6 +30,7 @@ impl UserRepository {
         Ok(user)
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor))]
     pub async fn find_by_username<'e, E>(&self, executor: E, username: &str) -> Result<Option<User>>
     where
         E: Executor<'e, Database = Postgres>,

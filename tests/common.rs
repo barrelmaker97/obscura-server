@@ -38,7 +38,17 @@ pub fn setup_tracing() {
             .add_directive("tungstenite=warn".parse().unwrap())
             .add_directive("aws=warn".parse().unwrap());
 
-        tracing_subscriber::fmt().with_env_filter(filter).init();
+        let format = std::env::var("OBSCURA_LOG_FORMAT").unwrap_or_else(|_| "text".to_string());
+        use tracing_subscriber::fmt::format::FmtSpan;
+
+        match format.as_str() {
+            "json" => {
+                tracing_subscriber::fmt().json().with_env_filter(filter).with_span_events(FmtSpan::CLOSE).init();
+            }
+            _ => {
+                tracing_subscriber::fmt().with_env_filter(filter).init();
+            }
+        }
     });
 }
 
@@ -63,6 +73,7 @@ pub fn get_test_config() -> Config {
             port: 0,
             mgmt_port: 0,
             trusted_proxies: vec!["127.0.0.1/32".parse().unwrap(), "::1/128".parse().unwrap()],
+            log_format: obscura_server::config::LogFormat::Text,
         },
         auth: obscura_server::config::AuthConfig {
             jwt_secret: "test_secret".to_string(),
@@ -192,6 +203,7 @@ pub struct TestApp {
     pub ws_url: String,
     pub client: Client,
     pub s3_client: aws_sdk_s3::Client,
+    pub shutdown_tx: tokio::sync::watch::Sender<bool>,
 }
 
 impl TestApp {
@@ -211,8 +223,8 @@ impl TestApp {
         let mgmt_addr = mgmt_listener.local_addr().unwrap();
         config.server.mgmt_port = mgmt_addr.port();
 
-        let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-        let notifier = Arc::new(InMemoryNotifier::new(config.clone(), shutdown_rx));
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        let notifier = Arc::new(InMemoryNotifier::new(config.clone(), shutdown_rx.clone()));
 
         let region_provider = aws_config::Region::new(config.s3.region.clone());
         let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider);
@@ -231,7 +243,7 @@ impl TestApp {
             aws_sdk_s3::config::Builder::from(&sdk_config).force_path_style(config.s3.force_path_style);
         let s3_client = aws_sdk_s3::Client::from_conf(s3_config_builder.build());
 
-        let app = app_router(pool.clone(), config.clone(), notifier.clone(), s3_client.clone());
+        let app = app_router(pool.clone(), config.clone(), notifier.clone(), s3_client.clone(), shutdown_rx.clone());
         let mgmt_state = obscura_server::api::MgmtState {
             pool: pool.clone(),
             health_config: config.health.clone(),
@@ -254,7 +266,7 @@ impl TestApp {
                 .unwrap();
         });
 
-        TestApp { pool, config, server_url, mgmt_url, ws_url, client: Client::new(), s3_client }
+        TestApp { pool, config, server_url, mgmt_url, ws_url, client: Client::new(), s3_client, shutdown_tx }
     }
 
     pub async fn register_user(&self, username: &str) -> TestUser {
@@ -262,7 +274,7 @@ impl TestApp {
     }
 
     pub async fn register_user_with_keys(&self, username: &str, reg_id: u32, otpk_count: usize) -> TestUser {
-        let (reg_payload, identity_key) = generate_registration_payload(username, "password", reg_id, otpk_count);
+        let (reg_payload, identity_key) = generate_registration_payload(username, "password12345", reg_id, otpk_count);
 
         let resp = self.client.post(format!("{}/v1/users", self.server_url)).json(&reg_payload).send().await.unwrap();
 
@@ -304,10 +316,14 @@ impl TestApp {
         let (tx_env, rx_env) = tokio::sync::mpsc::unbounded_channel();
         let (tx_status, rx_status) = tokio::sync::mpsc::unbounded_channel();
         let (tx_pong, rx_pong) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_raw, rx_raw) = tokio::sync::mpsc::unbounded_channel();
 
         let mut stream = stream;
         tokio::spawn(async move {
             while let Some(msg) = stream.next().await {
+                if let Ok(m) = &msg {
+                    let _ = tx_raw.send(Ok(m.clone()));
+                }
                 match msg {
                     Ok(Message::Binary(bin)) => {
                         if let Ok(frame) = WebSocketFrame::decode(bin.as_ref()) {
@@ -330,7 +346,7 @@ impl TestApp {
             }
         });
 
-        TestWsClient { sink, rx_env, rx_status, rx_pong }
+        TestWsClient { sink, rx_env, rx_status, rx_pong, rx_raw }
     }
 
     pub async fn wait_until<F, Fut>(&self, mut condition: F, timeout: Duration) -> bool
@@ -380,6 +396,7 @@ pub struct TestWsClient {
     pub rx_env: tokio::sync::mpsc::UnboundedReceiver<Envelope>,
     pub rx_status: tokio::sync::mpsc::UnboundedReceiver<PreKeyStatus>,
     pub rx_pong: tokio::sync::mpsc::UnboundedReceiver<tokio_tungstenite::tungstenite::Bytes>,
+    pub rx_raw: tokio::sync::mpsc::UnboundedReceiver<Result<Message, tokio_tungstenite::tungstenite::Error>>,
 }
 
 impl TestWsClient {
@@ -401,6 +418,13 @@ impl TestWsClient {
 
     pub async fn receive_prekey_status_timeout(&mut self, timeout: Duration) -> Option<PreKeyStatus> {
         tokio::time::timeout(timeout, self.rx_status.recv()).await.ok().flatten()
+    }
+
+    pub async fn receive_raw_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> Option<Result<Message, tokio_tungstenite::tungstenite::Error>> {
+        tokio::time::timeout(timeout, self.rx_raw.recv()).await.ok().flatten()
     }
 
     pub async fn send_ack(&mut self, message_id: String) {

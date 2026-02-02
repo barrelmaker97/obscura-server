@@ -22,12 +22,12 @@ pub async fn upload_attachment(
         Ok(s) => match s.parse::<usize>() {
             Ok(len) => Some(len),
             Err(e) => {
-                tracing::debug!("Invalid Content-Length value: {}", e);
+                tracing::debug!(error = %e, "Invalid Content-Length value");
                 None
             }
         },
         Err(e) => {
-            tracing::debug!("Invalid Content-Length encoding: {:?}", e);
+            tracing::debug!(error = %e, "Invalid Content-Length encoding");
             None
         }
     });
@@ -60,7 +60,7 @@ pub async fn download_attachment(
         if let Ok(val) = content_length.to_string().parse() {
             response.headers_mut().insert(header::CONTENT_LENGTH, val);
         } else {
-            tracing::debug!("Failed to parse Content-Length header value: {}", content_length);
+            tracing::debug!(content_length = %content_length, "Failed to parse Content-Length header value");
         }
     }
 

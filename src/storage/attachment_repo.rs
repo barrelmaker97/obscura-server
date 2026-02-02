@@ -11,6 +11,7 @@ impl AttachmentRepository {
         Self {}
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor))]
     pub async fn create<'e, E>(&self, executor: E, id: Uuid, expires_at: OffsetDateTime) -> Result<()>
     where
         E: Executor<'e, Database = Postgres>,
@@ -23,6 +24,7 @@ impl AttachmentRepository {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor))]
     pub async fn get_expires_at<'e, E>(&self, executor: E, id: Uuid) -> Result<Option<OffsetDateTime>>
     where
         E: Executor<'e, Database = Postgres>,
@@ -33,6 +35,7 @@ impl AttachmentRepository {
         Ok(row.map(|r| r.get("expires_at")))
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor))]
     pub async fn delete<'e, E>(&self, executor: E, id: Uuid) -> Result<()>
     where
         E: Executor<'e, Database = Postgres>,
@@ -41,6 +44,7 @@ impl AttachmentRepository {
         Ok(())
     }
 
+    #[tracing::instrument(level = "debug", skip(self, executor))]
     pub async fn fetch_expired<'e, E>(&self, executor: E, limit: i64) -> Result<Vec<Uuid>>
     where
         E: Executor<'e, Database = Postgres>,
