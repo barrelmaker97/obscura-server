@@ -52,6 +52,13 @@ async fn main() -> anyhow::Result<()> {
     // Shutdown signaling
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
+    // Set up a task to listen for the OS signal and broadcast it internally
+    let signal_tx = shutdown_tx.clone();
+    tokio::spawn(async move {
+        shutdown_signal().await;
+        let _ = signal_tx.send(true);
+    });
+
     let notifier = Arc::new(InMemoryNotifier::new(config.clone(), shutdown_rx.clone()));
 
     // Start background tasks
@@ -118,18 +125,23 @@ async fn main() -> anyhow::Result<()> {
     let api_listener = tokio::net::TcpListener::bind(addr).await?;
     let mgmt_listener = tokio::net::TcpListener::bind(mgmt_addr).await?;
 
+    let mut api_rx = shutdown_rx.clone();
     let api_server = axum::serve(api_listener, app.into_make_service_with_connect_info::<SocketAddr>())
-        .with_graceful_shutdown(shutdown_signal());
+        .with_graceful_shutdown(async move {
+            let _ = api_rx.wait_for(|&s| s).await;
+        });
 
+    let mut mgmt_rx = shutdown_rx.clone();
     let mgmt_server = axum::serve(mgmt_listener, mgmt_app.into_make_service_with_connect_info::<SocketAddr>())
-        .with_graceful_shutdown(shutdown_signal());
+        .with_graceful_shutdown(async move {
+            let _ = mgmt_rx.wait_for(|&s| s).await;
+        });
 
     if let Err(e) = tokio::try_join!(api_server, mgmt_server) {
         tracing::error!("Server error: {}", e);
     }
 
-    // Signal background tasks to shut down
-    tracing::info!("Signaling background tasks to shut down...");
+    // Ensure all background tasks are signaled to shut down
     let _ = shutdown_tx.send(true);
 
     // Wait for tasks to finish (with timeout)

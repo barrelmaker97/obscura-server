@@ -82,7 +82,7 @@ impl MessageService {
     pub async fn run_cleanup_loop(&self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
         let mut interval = tokio::time::interval(Duration::from_secs(self.config.cleanup_interval_secs));
 
-        loop {
+        while !*shutdown.borrow() {
             tokio::select! {
                 _ = interval.tick() => {
                     tracing::debug!("Running message cleanup (expiry + limits)...");
@@ -108,11 +108,9 @@ impl MessageService {
                         Err(e) => tracing::error!("Cleanup loop error (overflow): {:?}", e),
                     }
                 }
-                _ = shutdown.changed() => {
-                    tracing::info!("Message cleanup loop shutting down...");
-                    break;
-                }
+                _ = shutdown.changed() => {}
             }
         }
+        tracing::info!("Message cleanup loop shutting down...");
     }
 }

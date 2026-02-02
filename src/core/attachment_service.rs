@@ -154,7 +154,7 @@ impl AttachmentService {
         let interval = StdDuration::from_secs(3600);
         let mut next_tick = tokio::time::Instant::now() + interval;
 
-        loop {
+        while !*shutdown.borrow() {
             tokio::select! {
                 _ = tokio::time::sleep_until(next_tick) => {
                     tracing::debug!("Running attachment cleanup...");
@@ -164,12 +164,10 @@ impl AttachmentService {
                     }
                     next_tick = tokio::time::Instant::now() + interval;
                 }
-                _ = shutdown.changed() => {
-                    tracing::info!("Attachment cleanup loop shutting down...");
-                    break;
-                }
+                _ = shutdown.changed() => {}
             }
         }
+        tracing::info!("Attachment cleanup loop shutting down...");
     }
 
     async fn cleanup_batch(&self) -> Result<()> {
