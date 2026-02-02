@@ -193,6 +193,7 @@ pub struct TestApp {
     pub ws_url: String,
     pub client: Client,
     pub s3_client: aws_sdk_s3::Client,
+    pub shutdown_tx: tokio::sync::watch::Sender<bool>,
 }
 
 impl TestApp {
@@ -212,7 +213,7 @@ impl TestApp {
         let mgmt_addr = mgmt_listener.local_addr().unwrap();
         config.server.mgmt_port = mgmt_addr.port();
 
-        let (_shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
         let notifier = Arc::new(InMemoryNotifier::new(config.clone(), shutdown_rx.clone()));
 
         let region_provider = aws_config::Region::new(config.s3.region.clone());
@@ -255,7 +256,7 @@ impl TestApp {
                 .unwrap();
         });
 
-        TestApp { pool, config, server_url, mgmt_url, ws_url, client: Client::new(), s3_client }
+        TestApp { pool, config, server_url, mgmt_url, ws_url, client: Client::new(), s3_client, shutdown_tx }
     }
 
     pub async fn register_user(&self, username: &str) -> TestUser {
@@ -305,10 +306,14 @@ impl TestApp {
         let (tx_env, rx_env) = tokio::sync::mpsc::unbounded_channel();
         let (tx_status, rx_status) = tokio::sync::mpsc::unbounded_channel();
         let (tx_pong, rx_pong) = tokio::sync::mpsc::unbounded_channel();
+        let (tx_raw, rx_raw) = tokio::sync::mpsc::unbounded_channel();
 
         let mut stream = stream;
         tokio::spawn(async move {
             while let Some(msg) = stream.next().await {
+                if let Ok(m) = &msg {
+                    let _ = tx_raw.send(Ok(m.clone()));
+                }
                 match msg {
                     Ok(Message::Binary(bin)) => {
                         if let Ok(frame) = WebSocketFrame::decode(bin.as_ref()) {
@@ -331,7 +336,7 @@ impl TestApp {
             }
         });
 
-        TestWsClient { sink, rx_env, rx_status, rx_pong }
+        TestWsClient { sink, rx_env, rx_status, rx_pong, rx_raw }
     }
 
     pub async fn wait_until<F, Fut>(&self, mut condition: F, timeout: Duration) -> bool
@@ -381,6 +386,7 @@ pub struct TestWsClient {
     pub rx_env: tokio::sync::mpsc::UnboundedReceiver<Envelope>,
     pub rx_status: tokio::sync::mpsc::UnboundedReceiver<PreKeyStatus>,
     pub rx_pong: tokio::sync::mpsc::UnboundedReceiver<tokio_tungstenite::tungstenite::Bytes>,
+    pub rx_raw: tokio::sync::mpsc::UnboundedReceiver<Result<Message, tokio_tungstenite::tungstenite::Error>>,
 }
 
 impl TestWsClient {
@@ -402,6 +408,13 @@ impl TestWsClient {
 
     pub async fn receive_prekey_status_timeout(&mut self, timeout: Duration) -> Option<PreKeyStatus> {
         tokio::time::timeout(timeout, self.rx_status.recv()).await.ok().flatten()
+    }
+
+    pub async fn receive_raw_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> Option<Result<Message, tokio_tungstenite::tungstenite::Error>> {
+        tokio::time::timeout(timeout, self.rx_raw.recv()).await.ok().flatten()
     }
 
     pub async fn send_ack(&mut self, message_id: String) {

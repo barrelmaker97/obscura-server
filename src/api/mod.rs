@@ -20,7 +20,7 @@ use axum::{
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
-use tower_http::request_id::SetRequestIdLayer;
+use tower_http::request_id::{PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::trace::{DefaultOnResponse, TraceLayer};
 use tracing::Level;
 
@@ -146,6 +146,9 @@ pub fn app_router(
         .route("/openapi.yaml", get(docs::openapi_yaml))
         .nest("/v1", auth_routes.merge(api_routes))
         .layer(from_fn(log_rate_limit_events))
+        .layer(PropagateRequestIdLayer::new(
+            axum::http::HeaderName::from_static("x-request-id"),
+        ))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(move |request: &Request<Body>| {
