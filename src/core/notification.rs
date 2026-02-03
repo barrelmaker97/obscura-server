@@ -89,8 +89,11 @@ mod tests {
                 host: "0.0.0.0".to_string(),
                 port: 3000,
                 mgmt_port: 9000,
-                log_format: crate::config::LogFormat::Text,
                 trusted_proxies: vec!["127.0.0.1/32".parse().unwrap()],
+            },
+            telemetry: crate::config::TelemetryConfig {
+                otlp_endpoint: None,
+                log_format: crate::config::LogFormat::Text,
             },
             auth: crate::config::AuthConfig {
                 jwt_secret: "".to_string(),

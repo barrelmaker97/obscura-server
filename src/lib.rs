@@ -4,3 +4,4 @@ pub mod core;
 pub mod error;
 pub mod proto;
 pub mod storage;
+pub mod telemetry;

@@ -73,6 +73,9 @@ pub fn get_test_config() -> Config {
             port: 0,
             mgmt_port: 0,
             trusted_proxies: vec!["127.0.0.1/32".parse().unwrap(), "::1/128".parse().unwrap()],
+        },
+        telemetry: obscura_server::config::TelemetryConfig {
+            otlp_endpoint: None,
             log_format: obscura_server::config::LogFormat::Text,
         },
         auth: obscura_server::config::AuthConfig {

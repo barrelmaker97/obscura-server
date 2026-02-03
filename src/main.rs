@@ -1,27 +1,13 @@
-use obscura_server::{api, config::Config, core::notification::InMemoryNotifier, storage};
+use obscura_server::{api, config::Config, core::notification::InMemoryNotifier, storage, telemetry};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::watch;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let config = Config::load();
 
-    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "info".into())
-        .add_directive("sqlx=warn".parse().unwrap())
-        .add_directive("hyper=warn".parse().unwrap());
-    let registry = tracing_subscriber::registry().with(filter);
-
-    match config.server.log_format {
-        obscura_server::config::LogFormat::Text => {
-            registry.with(tracing_subscriber::fmt::layer()).init();
-        }
-        obscura_server::config::LogFormat::Json => {
-            registry.with(tracing_subscriber::fmt::layer().json()).init();
-        }
-    }
+    telemetry::init_telemetry(config.telemetry.clone())?;
 
     std::panic::set_hook(Box::new(|panic_info| {
         let payload = panic_info.payload();
@@ -159,6 +145,7 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    telemetry::shutdown_telemetry();
     Ok(())
 }
 
