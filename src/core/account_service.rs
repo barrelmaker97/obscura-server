@@ -40,7 +40,7 @@ impl AccountService {
     #[tracing::instrument(
         err,
         skip(self, username, password, identity_key, signed_pre_key, one_time_pre_keys),
-        fields(user.username = %username, user.id = tracing::field::Empty)
+        fields(user.id = tracing::field::Empty)
     )]
     pub async fn register(
         &self,
@@ -108,7 +108,7 @@ impl AccountService {
     #[tracing::instrument(
         err,
         skip(self, username, password),
-        fields(user.username = %username, user.id = tracing::field::Empty)
+        fields(user.id = tracing::field::Empty)
     )]
     pub async fn login(&self, username: String, password: String) -> Result<AuthResponse> {
         let user = match self.user_repo.find_by_username(&self.pool, &username).await? {
