@@ -1,43 +1,77 @@
 # Design Doc 005: Observability & Metrics
 
 ## 1. Overview
-We need visibility into the runtime health and performance of the server. This document covers **Application Metrics** exposed via a Prometheus-compatible `/metrics` endpoint.
+We have adopted an **OpenTelemetry-native** observability strategy. Instead of exposing local endpoints for scraping (the legacy Prometheus model), the server **pushes** telemetry data (Traces and Metrics) via the OTLP protocol to a central collector.
 
-### 1.1 Security
--   The `/metrics` endpoint **MUST** be exposed **ONLY on the Management Port** (default: 9090).
--   It **MUST NOT** be accessible via the public API port (3000) or the public internet.
--   This prevents leakage of business intelligence (user counts, traffic patterns) to attackers.
+This provides:
+1.  **Unified Pipeline:** Traces and Metrics travel together.
+2.  **Vendor Agnosticism:** We can switch backends (Tempo, Jaeger, Datadog, Honeycomb) by reconfiguring the Collector, not the app.
+3.  **Security:** No need to expose management ports or sensitive metrics to the public network or sidecars.
 
-## 2. Technology Stack
--   **Crate:** `metrics` (facade)
--   **Exporter:** `metrics-exporter-prometheus` (axum integration)
+## 2. Architecture
 
-## 3. Metrics to Instrument
+### 2.1 The Pipeline
+```
+[Obscura Server]  --(OTLP/HTTP)-->  [OTel Collector]  --> [Prometheus / Mimir] (Metrics)
+                                                      --> [Tempo / Jaeger]     (Traces)
+                                                      --> [Loki]               (Logs - via Promtail)
+```
 
-### 3.1 HTTP Layer (Middleware)
--   `http_requests_total` (Counter): Labels: `method`, `route`, `status`.
--   `http_request_duration_seconds` (Histogram): Latency distribution.
+### 2.2 Configuration
+-   **Env Var:** `OBSCURA_OTLP_ENDPOINT` (e.g., `http://otel-collector:4318`).
+-   **Behavior:**
+    -   If set: Telemetry is fully initialized (Traces + Metrics pushed).
+    -   If unset: Runs in "Logs Only" mode (safe default for local dev/testing).
+-   **Log Format:** `OBSCURA_LOG_FORMAT=json` for production (links logs to traces via `trace_id`), `text` for dev.
 
-### 3.2 WebSocket / Gateway
--   `active_connections` (Gauge): Current number of connected clients.
--   `ws_messages_sent_total` (Counter): Outbound traffic.
--   `ws_messages_received_total` (Counter): Inbound traffic (ACKs, etc).
+## 3. Metrics Catalog
 
-### 3.3 Internal Queues (Backpressure Detection)
-Crucial for diagnosing performance bottlenecks.
--   `channel_queue_depth` (Gauge): Labels: `type="outbound"`, `type="ack"`.
--   `channel_dropped_messages` (Counter): Messages dropped due to full buffers.
+We distinguish between **Application Metrics** (Is the engine running?) and **Business Metrics** (Is the product working?).
 
-### 3.4 Infrastructure Latency
--   **Database**:
-    -   `db_pool_wait_duration_seconds` (Histogram): Time spent waiting for a connection.
-    -   `db_query_duration_seconds` (Histogram): Time spent executing queries.
--   **S3 (Attachments)**:
-    -   `s3_upload_duration_seconds` (Histogram).
-    -   `s3_download_duration_seconds` (Histogram).
+### 3.1 Business Metrics (Product Health)
 
-## 4. Implementation Plan
-1.  **Setup**: Initialize `PrometheusBuilder` in `main.rs` and attach the handle to the `/metrics` route in `health.rs`.
-2.  **Middleware**: Create a `TraceLayer` or custom middleware to record HTTP metrics.
-3.  **DB Wrapper**: Add a transparent wrapper or interceptor around `db.acquire()` to measure pool wait times.
-4.  **Channel Instrumentation**: Update `gateway.rs` to emit metrics when pushing/popping from `mpsc` channels.
+| Metric Name | Type | Labels | Description | Service |
+| :--- | :--- | :--- | :--- | :--- |
+| `messages_sent_total` | Counter | `status=success\|failure` | Total messages successfully processed. Primary growth KPI. | `MessageService` |
+| `attachments_uploaded_bytes` | Counter | - | Total volume of data stored. Primary cost driver. | `AttachmentService` |
+| `websocket_active_connections` | Gauge | - | Number of currently connected clients. Engagement KPI. | `Gateway` |
+| `websocket_session_duration_seconds` | Histogram | - | How long users stay connected. Indicates client stability. | `Gateway` |
+| `keys_takeover_events_total` | Counter | - | Number of device takeovers. Spike = Security Incident. | `KeyService` |
+| `users_registered_total` | Counter | `status` | New user signups. Growth KPI. | `AccountService` |
+
+### 3.2 Application Metrics (Operational Health)
+
+| Metric Name | Type | Labels | Description | Source |
+| :--- | :--- | :--- | :--- | :--- |
+| `http_requests_total` | Counter | `method`, `route`, `status` | Volume and Error Rate. | `TraceLayer` (Middleware) |
+| `http_request_duration_seconds` | Histogram | `method`, `route` | Latency distribution (P95, P99). | `TraceLayer` (Middleware) |
+| `db_pool_active_connections` | Gauge | - | Database saturation. | `sqlx` (Future) |
+| `rate_limit_hits_total` | Counter | `route`, `source_type` | Throttling events. Indicates abuse or capacity limits. | `RateLimit` Middleware |
+
+## 4. Tracing Strategy
+
+### 4.1 Philosophy
+-   **Privacy First:** Do NOT trace PII (IP addresses, User Agents) to avoid building a permanent location history.
+-   **Correlation:** Every log line in JSON mode MUST include `trace_id` and `span_id`.
+-   **Structure:** Follow OTel Semantic Conventions (`http.request.method`, `url.path`, `otel.kind`).
+
+### 4.2 Key Spans
+-   **Root Span:** HTTP Request or WebSocket Session.
+-   **Service Layer:** `#[instrument(err)]` on `MessageService`, `KeyService`.
+-   **Repository Layer:** Database queries (Debug level to avoid noise).
+
+## 5. Implementation Roadmap
+
+1.  **Phase 1: Plumbing (DONE)**
+    -   Add OTel crates (`opentelemetry`, `tracing-opentelemetry`).
+    -   Implement `telemetry.rs` initialization logic.
+    -   Make OTLP endpoint configurable.
+
+2.  **Phase 2: Business Metrics (NEXT)**
+    -   Instrument `MessageService` (`messages_sent_total`).
+    -   Instrument `AttachmentService` (`attachments_uploaded_bytes`).
+    -   Instrument `Gateway` (`websocket_active_connections`).
+
+3.  **Phase 3: Infrastructure**
+    -   Deploy LGTM Stack (Loki, Grafana, Tempo, Mimir) or Jaeger/Prometheus via Helm.
+    -   Update `docker-compose.yml` for local testing.
