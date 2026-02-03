@@ -8,7 +8,10 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 async fn main() -> anyhow::Result<()> {
     let config = Config::load();
 
-    let filter = tracing_subscriber::EnvFilter::new(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()));
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "info".into())
+        .add_directive("sqlx=warn".parse().unwrap())
+        .add_directive("hyper=warn".parse().unwrap());
     let registry = tracing_subscriber::registry().with(filter);
 
     match config.server.log_format {
