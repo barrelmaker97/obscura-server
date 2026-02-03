@@ -125,7 +125,6 @@ impl KeyRepository {
         .await?;
 
         let Some(identity_row) = identity_row else {
-            tracing::debug!("Missing identity key");
             return Ok(None);
         };
         let identity_key_bytes: Vec<u8> = identity_row.get("identity_key");
@@ -148,7 +147,6 @@ impl KeyRepository {
         .await?;
 
         let Some(signed_row) = signed_row else {
-            tracing::debug!("Missing signed pre-key");
             return Ok(None);
         };
         let pk_bytes: Vec<u8> = signed_row.get("public_key");

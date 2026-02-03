@@ -19,8 +19,7 @@ use axum::{
 use std::sync::Arc;
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tower_http::request_id::{PropagateRequestIdLayer, SetRequestIdLayer};
-use tower_http::trace::{DefaultOnResponse, TraceLayer};
-use tracing::Level;
+use tower_http::trace::TraceLayer;
 
 pub mod attachments;
 pub mod auth;
@@ -156,12 +155,25 @@ pub fn app_router(
                     tracing::info_span!(
                         "request",
                         request_id = %request_id,
-                        method = %request.method(),
-                        path = %request.uri().path(),
+                        "http.request.method" = %request.method(),
+                        "url.path" = %request.uri().path(),
+                        "http.response.status_code" = tracing::field::Empty,
+                        otel.kind = "server",
                         user_id = tracing::field::Empty,
                     )
                 })
-                .on_response(DefaultOnResponse::new().level(Level::INFO)),
+                .on_response(
+                    |response: &axum::http::Response<_>, latency: std::time::Duration, _span: &tracing::Span| {
+                        let status = response.status();
+                        tracing::Span::current().record("http.response.status_code", status.as_u16());
+
+                        tracing::info!(
+                            latency_ms = %latency.as_millis(),
+                            status = %status.as_u16(),
+                            "request completed"
+                        );
+                    },
+                ),
         )
         .layer(SetRequestIdLayer::new(
             axum::http::HeaderName::from_static("x-request-id"),
@@ -171,9 +183,5 @@ pub fn app_router(
 }
 
 pub fn mgmt_router(state: MgmtState) -> Router {
-    Router::new()
-        .route("/livez", get(health::livez))
-        .route("/readyz", get(health::readyz))
-        .route("/metrics", get(health::metrics))
-        .with_state(state)
+    Router::new().route("/livez", get(health::livez)).route("/readyz", get(health::readyz)).with_state(state)
 }

@@ -15,15 +15,6 @@ async fn test_livez() {
 }
 
 #[tokio::test]
-async fn test_metrics_placeholder() {
-    let app = common::TestApp::spawn().await;
-
-    let resp = app.client.get(format!("{}/metrics", app.mgmt_url)).send().await.unwrap();
-
-    assert_eq!(resp.status(), StatusCode::NOT_IMPLEMENTED);
-}
-
-#[tokio::test]
 async fn test_readyz_happy_path() {
     let app = common::TestApp::spawn().await;
 

@@ -55,17 +55,23 @@ impl AttachmentService {
         Self { pool, repo, s3_client, config, ttl_days }
     }
 
-    #[tracing::instrument(skip(self, body))]
+    #[tracing::instrument(
+        err,
+        skip(self, body),
+        fields(attachment.id = tracing::field::Empty, attachment.size = tracing::field::Empty)
+    )]
     pub async fn upload(&self, content_len: Option<usize>, body: Body) -> Result<(Uuid, i64)> {
         // 1. Check Content-Length (Early rejection)
-        if let Some(len) = content_len
-            && len > self.config.attachment_max_size_bytes
-        {
-            return Err(AppError::BadRequest("Attachment too large".into()));
+        if let Some(len) = content_len {
+            tracing::Span::current().record("attachment.size", len);
+            if len > self.config.attachment_max_size_bytes {
+                return Err(AppError::BadRequest("Attachment too large".into()));
+            }
         }
 
         let id = Uuid::new_v4();
         let key = id.to_string();
+        tracing::Span::current().record("attachment.id", tracing::field::display(id));
 
         // 2. Bridge Axum Body -> SyncBody with Size Limit enforcement
         let limit = self.config.attachment_max_size_bytes;
@@ -128,7 +134,11 @@ impl AttachmentService {
         Ok((id, expires_at.unix_timestamp()))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(
+        err,
+        skip(self),
+        fields(attachment.id = %id, attachment.size = tracing::field::Empty)
+    )]
     pub async fn download(&self, id: Uuid) -> Result<(u64, ByteStream)> {
         // 1. Check Existence & Expiry
         match self.repo.get_expires_at(&self.pool, id).await? {
@@ -148,7 +158,9 @@ impl AttachmentService {
         })?;
 
         let content_length = output.content_length.unwrap_or(0);
-        tracing::debug!(size = %content_length, "Attachment download successful");
+        tracing::Span::current().record("attachment.size", content_length);
+
+        tracing::debug!("Attachment download successful");
         Ok((content_length as u64, output.body))
     }
 
@@ -174,6 +186,11 @@ impl AttachmentService {
         tracing::info!("Attachment cleanup loop shutting down...");
     }
 
+    #[tracing::instrument(
+        err,
+        skip(self),
+        fields(batch.count = tracing::field::Empty)
+    )]
     async fn cleanup_batch(&self) -> Result<()> {
         loop {
             // Fetch expired attachments (Limit 100 per cycle to avoid blocking)
@@ -183,6 +200,7 @@ impl AttachmentService {
                 break;
             }
 
+            tracing::Span::current().record("batch.count", ids.len());
             tracing::info!(count = %ids.len(), "Found expired attachments to delete");
 
             for id in ids {

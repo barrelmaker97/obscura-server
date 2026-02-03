@@ -27,30 +27,12 @@ pub type Result<T> = std::result::Result<T, AppError>;
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
-            AppError::Database(e) => {
-                tracing::error!(error = %e, "Database error");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
-            }
-            AppError::AuthError => {
-                tracing::debug!("Authentication failed");
-                (StatusCode::UNAUTHORIZED, "Unauthorized".to_string())
-            }
-            AppError::NotFound => {
-                tracing::debug!("Resource not found");
-                (StatusCode::NOT_FOUND, "Not found".to_string())
-            }
-            AppError::BadRequest(msg) => {
-                tracing::debug!(message = %msg, "Bad request");
-                (StatusCode::BAD_REQUEST, msg)
-            }
-            AppError::Conflict(msg) => {
-                tracing::debug!(message = %msg, "Conflict");
-                (StatusCode::CONFLICT, msg)
-            }
-            AppError::Internal => {
-                tracing::error!("Internal server error occurred");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
-            }
+            AppError::Database(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()),
+            AppError::AuthError => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
+            AppError::NotFound => (StatusCode::NOT_FOUND, "Not found".to_string()),
+            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
+            AppError::Conflict(msg) => (StatusCode::CONFLICT, msg),
+            AppError::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()),
         };
 
         let body = Json(json!({

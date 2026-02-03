@@ -37,7 +37,11 @@ impl AccountService {
         Self { pool, config, key_service, user_repo, refresh_repo }
     }
 
-    #[tracing::instrument(skip(self, username, password, identity_key, signed_pre_key, one_time_pre_keys))]
+    #[tracing::instrument(
+        err,
+        skip(self, username, password, identity_key, signed_pre_key, one_time_pre_keys),
+        fields(user.id = tracing::field::Empty)
+    )]
     pub async fn register(
         &self,
         username: String,
@@ -54,15 +58,10 @@ impl AccountService {
         // 0. Uniqueness check (CPU only, outside transaction)
         KeyService::validate_otpk_uniqueness(&one_time_pre_keys)?;
 
-        let password_hash: Result<String> =
-            tokio::task::spawn_blocking(move || auth::hash_password(&password)).await.map_err(|e| {
-                tracing::error!(error = %e, "Failed to spawn password hashing task");
-                AppError::Internal
-            })?;
-        let password_hash = password_hash.map_err(|e| {
-            tracing::error!(error = %e, "Password hashing failed");
-            e
-        })?;
+        let password_hash: Result<String> = tokio::task::spawn_blocking(move || auth::hash_password(&password))
+            .await
+            .map_err(|_| AppError::Internal)?;
+        let password_hash = password_hash?;
 
         let mut tx = self.pool.begin().await?;
 
@@ -74,6 +73,8 @@ impl AccountService {
             }
             e
         })?;
+
+        tracing::Span::current().record("user.id", tracing::field::display(user.id));
 
         let key_params = KeyUploadParams {
             user_id: user.id,
@@ -103,7 +104,11 @@ impl AccountService {
         Ok(AuthResponse { token, refresh_token, expires_at })
     }
 
-    #[tracing::instrument(skip(self, username, password))]
+    #[tracing::instrument(
+        err,
+        skip(self, username, password),
+        fields(user.id = tracing::field::Empty)
+    )]
     pub async fn login(&self, username: String, password: String) -> Result<AuthResponse> {
         let user = match self.user_repo.find_by_username(&self.pool, &username).await? {
             Some(u) => u,
@@ -113,19 +118,15 @@ impl AccountService {
             }
         };
 
+        tracing::Span::current().record("user.id", tracing::field::display(user.id));
+
         let password_hash = user.password_hash.clone();
 
         let is_valid: Result<bool> =
-            tokio::task::spawn_blocking(move || auth::verify_password(&password, &password_hash)).await.map_err(
-                |e| {
-                    tracing::error!(error = %e, "Failed to spawn password verification task");
-                    AppError::Internal
-                },
-            )?;
-        let is_valid = is_valid.map_err(|e| {
-            tracing::error!(error = %e, "Password verification failed");
-            e
-        })?;
+            tokio::task::spawn_blocking(move || auth::verify_password(&password, &password_hash))
+                .await
+                .map_err(|_| AppError::Internal)?;
+        let is_valid = is_valid?;
 
         if !is_valid {
             tracing::info!("Login failed: Invalid password");
@@ -150,7 +151,11 @@ impl AccountService {
         Ok(AuthResponse { token, refresh_token, expires_at })
     }
 
-    #[tracing::instrument(skip(self, refresh_token))]
+    #[tracing::instrument(
+        err,
+        skip(self, refresh_token),
+        fields(user.id = tracing::field::Empty)
+    )]
     pub async fn refresh(&self, refresh_token: String) -> Result<AuthResponse> {
         // 1. Hash the incoming token to look it up
         let hash = auth::hash_token(&refresh_token);
@@ -159,6 +164,8 @@ impl AccountService {
         let mut tx = self.pool.begin().await?;
 
         let user_id = self.refresh_repo.verify_and_consume(&mut tx, &hash).await?.ok_or(AppError::AuthError)?;
+
+        tracing::Span::current().record("user.id", tracing::field::display(user_id));
 
         // 3. Generate New Pair
         let new_access_token = create_jwt(user_id, &self.config.jwt_secret, self.config.access_token_ttl_secs)?;
@@ -179,7 +186,7 @@ impl AccountService {
         Ok(AuthResponse { token: new_access_token, refresh_token: new_refresh_token, expires_at })
     }
 
-    #[tracing::instrument(skip(self, refresh_token))]
+    #[tracing::instrument(err, skip(self, refresh_token), fields(user.id = %user_id))]
     pub async fn logout(&self, user_id: Uuid, refresh_token: String) -> Result<()> {
         let hash = auth::hash_token(&refresh_token);
 

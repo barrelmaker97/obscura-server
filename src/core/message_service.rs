@@ -30,13 +30,15 @@ impl MessageService {
         Self { pool, repo, notifier, config, ttl_days }
     }
 
-    #[tracing::instrument(skip(self, body, sender_id, recipient_id))]
+    #[tracing::instrument(
+        err,
+        skip(self, body, sender_id, recipient_id),
+        fields(sender.id = %sender_id, recipient.id = %recipient_id)
+    )]
     pub async fn send_message(&self, sender_id: Uuid, recipient_id: Uuid, body: Bytes) -> Result<()> {
         // 1. Decode the EncryptedMessage protobuf to get type and content
-        let msg = EncryptedMessage::decode(body).map_err(|e| {
-            tracing::warn!(error = %e, "Failed to decode EncryptedMessage protobuf");
-            AppError::BadRequest("Invalid EncryptedMessage protobuf".into())
-        })?;
+        let msg = EncryptedMessage::decode(body)
+            .map_err(|e| AppError::BadRequest(format!("Invalid EncryptedMessage protobuf: {}", e)))?;
 
         // 2. Store raw body directly (blind relay)
         // Optimization: We no longer check limits synchronously.
@@ -51,7 +53,11 @@ impl MessageService {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self, content))]
+    #[tracing::instrument(
+        err,
+        skip(self, content),
+        fields(sender.id = %sender_id, recipient.id = %recipient_id, message.type = %message_type)
+    )]
     pub async fn enqueue_message(
         &self,
         sender_id: Uuid,
@@ -63,7 +69,11 @@ impl MessageService {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(
+        err,
+        skip(self),
+        fields(recipient.id = %recipient_id, batch.limit = %limit)
+    )]
     pub async fn fetch_pending_batch(
         &self,
         recipient_id: Uuid,
@@ -73,7 +83,11 @@ impl MessageService {
         self.repo.fetch_pending_batch(&self.pool, recipient_id, cursor, limit).await
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(
+        err,
+        skip(self),
+        fields(batch.count = message_ids.len())
+    )]
     pub async fn delete_batch(&self, message_ids: &[Uuid]) -> Result<()> {
         self.repo.delete_batch(&self.pool, message_ids).await
     }

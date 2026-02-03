@@ -58,8 +58,3 @@ pub async fn readyz(State(state): State<MgmtState>) -> impl IntoResponse {
         })),
     )
 }
-
-/// Placeholder for future metrics endpoint.
-pub async fn metrics() -> impl IntoResponse {
-    (StatusCode::NOT_IMPLEMENTED, "Metrics endpoint not implemented yet")
-}
