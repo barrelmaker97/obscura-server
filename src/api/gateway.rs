@@ -81,13 +81,15 @@ impl GatewaySession {
         let batch_limit = self.message_service.batch_limit();
 
         // Initial fetch
-        if !self.flush_messages(batch_limit, &mut cursor).await {
-            return;
+        match self.flush_messages(batch_limit, &mut cursor).await {
+            Ok(false) | Err(_) => return,
+            Ok(true) => {}
         }
 
         while fetch_signal.recv().await.is_some() {
-            if !self.flush_messages(batch_limit, &mut cursor).await {
-                break;
+            match self.flush_messages(batch_limit, &mut cursor).await {
+                Ok(true) => {}
+                Ok(false) | Err(_) => break,
             }
         }
     }
@@ -130,7 +132,7 @@ impl GatewaySession {
         skip(self, cursor),
         fields(user.id = %self.user_id, batch.count = tracing::field::Empty)
     )]
-    async fn flush_messages(&self, limit: i64, cursor: &mut Option<(time::OffsetDateTime, Uuid)>) -> bool {
+    async fn flush_messages(&self, limit: i64, cursor: &mut Option<(time::OffsetDateTime, Uuid)>) -> crate::error::Result<bool> {
         loop {
             match self.message_service.fetch_pending_batch(self.user_id, *cursor, limit).await {
                 Ok(messages) => {
@@ -166,7 +168,7 @@ impl GatewaySession {
                         if frame.encode(&mut buf).is_ok()
                             && self.outbound_tx.send(WsMessage::Binary(buf.into())).await.is_err()
                         {
-                            return false;
+                            return Ok(false);
                         }
                     }
 
@@ -175,12 +177,11 @@ impl GatewaySession {
                     }
                 }
                 Err(e) => {
-                    error!(error = %e, "Failed to fetch pending messages");
-                    return false;
+                    return Err(e);
                 }
             }
         }
-        true
+        Ok(true)
     }
 }
 
