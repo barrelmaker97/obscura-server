@@ -125,6 +125,11 @@ impl GatewaySession {
         }
     }
 
+    #[tracing::instrument(
+        err,
+        skip(self, cursor),
+        fields(user.id = %self.user_id, batch.count = tracing::field::Empty)
+    )]
     async fn flush_messages(&self, limit: i64, cursor: &mut Option<(time::OffsetDateTime, Uuid)>) -> bool {
         loop {
             match self.message_service.fetch_pending_batch(self.user_id, *cursor, limit).await {
@@ -134,6 +139,7 @@ impl GatewaySession {
                     }
 
                     let batch_size = messages.len();
+                    tracing::Span::current().record("batch.count", batch_size);
 
                     if let Some(last_msg) = messages.last()
                         && let Some(ts) = last_msg.created_at
@@ -179,7 +185,13 @@ impl GatewaySession {
 }
 
 async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid, request_id: String) {
-    let span = tracing::info_span!("websocket", request_id = %request_id, user_id = %user_id);
+    let span = tracing::info_span!(
+        "websocket_session",
+        request_id = %request_id,
+        user_id = %user_id,
+        otel.kind = "server",
+        ws.session_id = %Uuid::new_v4()
+    );
 
     async move {
         tracing::info!("WebSocket connected");

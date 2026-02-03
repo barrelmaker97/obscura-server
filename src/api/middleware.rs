@@ -16,28 +16,19 @@ pub struct AuthUser {
 impl FromRequestParts<AppState> for AuthUser {
     type Rejection = AppError;
 
+    #[tracing::instrument(err, skip(parts, state))]
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
-        let auth_header = parts.headers.get(header::AUTHORIZATION).ok_or_else(|| {
-            tracing::debug!("Missing Authorization header");
-            AppError::AuthError
-        })?;
+        let auth_header = parts.headers.get(header::AUTHORIZATION).ok_or(AppError::AuthError)?;
 
-        let auth_str = auth_header.to_str().map_err(|_| {
-            tracing::debug!("Invalid Authorization header encoding");
-            AppError::AuthError
-        })?;
+        let auth_str = auth_header.to_str().map_err(|_| AppError::AuthError)?;
 
         if !auth_str.starts_with("Bearer ") {
-            tracing::debug!("Authorization header does not start with 'Bearer '");
             return Err(AppError::AuthError);
         }
 
         let token = &auth_str[7..];
 
-        let claims = verify_jwt(token, &state.config.auth.jwt_secret).map_err(|e| {
-            tracing::debug!(error = %e, "JWT verification failed");
-            e
-        })?;
+        let claims = verify_jwt(token, &state.config.auth.jwt_secret).map_err(|_| AppError::AuthError)?;
 
         tracing::Span::current().record("user_id", tracing::field::display(claims.sub));
 
