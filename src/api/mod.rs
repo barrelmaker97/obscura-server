@@ -184,6 +184,5 @@ pub fn mgmt_router(state: MgmtState) -> Router {
     Router::new()
         .route("/livez", get(health::livez))
         .route("/readyz", get(health::readyz))
-        .route("/metrics", get(health::metrics))
         .with_state(state)
 }
