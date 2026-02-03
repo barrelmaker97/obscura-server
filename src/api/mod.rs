@@ -162,16 +162,18 @@ pub fn app_router(
                         user_id = tracing::field::Empty,
                     )
                 })
-                .on_response(|response: &axum::http::Response<_>, latency: std::time::Duration, _span: &tracing::Span| {
-                    let status = response.status();
-                    tracing::Span::current().record("http.response.status_code", status.as_u16());
-                    
-                    tracing::info!(
-                        latency_ms = %latency.as_millis(), 
-                        status = %status.as_u16(),
-                        "request completed"
-                    );
-                }),
+                .on_response(
+                    |response: &axum::http::Response<_>, latency: std::time::Duration, _span: &tracing::Span| {
+                        let status = response.status();
+                        tracing::Span::current().record("http.response.status_code", status.as_u16());
+
+                        tracing::info!(
+                            latency_ms = %latency.as_millis(),
+                            status = %status.as_u16(),
+                            "request completed"
+                        );
+                    },
+                ),
         )
         .layer(SetRequestIdLayer::new(
             axum::http::HeaderName::from_static("x-request-id"),
@@ -181,8 +183,5 @@ pub fn app_router(
 }
 
 pub fn mgmt_router(state: MgmtState) -> Router {
-    Router::new()
-        .route("/livez", get(health::livez))
-        .route("/readyz", get(health::readyz))
-        .with_state(state)
+    Router::new().route("/livez", get(health::livez)).route("/readyz", get(health::readyz)).with_state(state)
 }

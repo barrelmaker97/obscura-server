@@ -132,7 +132,11 @@ impl GatewaySession {
         skip(self, cursor),
         fields(user.id = %self.user_id, batch.count = tracing::field::Empty)
     )]
-    async fn flush_messages(&self, limit: i64, cursor: &mut Option<(time::OffsetDateTime, Uuid)>) -> crate::error::Result<bool> {
+    async fn flush_messages(
+        &self,
+        limit: i64,
+        cursor: &mut Option<(time::OffsetDateTime, Uuid)>,
+    ) -> crate::error::Result<bool> {
         loop {
             match self.message_service.fetch_pending_batch(self.user_id, *cursor, limit).await {
                 Ok(messages) => {

@@ -32,9 +32,8 @@ pub fn create_jwt(user_id: Uuid, secret: &str, ttl_secs: u64) -> Result<String> 
 
 #[tracing::instrument(level = "debug", err, skip(secret))]
 pub fn verify_jwt(token: &str, secret: &str) -> Result<Claims> {
-    let token_data =
-        decode::<Claims>(token, &DecodingKey::from_secret(secret.as_bytes()), &Validation::default())
-            .map_err(|_| AppError::AuthError)?;
+    let token_data = decode::<Claims>(token, &DecodingKey::from_secret(secret.as_bytes()), &Validation::default())
+        .map_err(|_| AppError::AuthError)?;
     Ok(token_data.claims)
 }
 
@@ -42,8 +41,7 @@ pub fn verify_jwt(token: &str, secret: &str) -> Result<Claims> {
 pub fn hash_password(password: &str) -> Result<String> {
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
-    let password_hash =
-        argon2.hash_password(password.as_bytes(), &salt).map_err(|_| AppError::Internal)?.to_string();
+    let password_hash = argon2.hash_password(password.as_bytes(), &salt).map_err(|_| AppError::Internal)?.to_string();
     Ok(password_hash)
 }
 
