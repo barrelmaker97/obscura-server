@@ -5,6 +5,7 @@ use crate::proto::obscura::v1::EncryptedMessage;
 use crate::storage::DbPool;
 use crate::storage::message_repo::MessageRepository;
 use axum::body::Bytes;
+use opentelemetry::{global, KeyValue};
 use prost::Message;
 use std::sync::Arc;
 use std::time::Duration;
@@ -36,6 +37,9 @@ impl MessageService {
         fields(sender.id = %sender_id, recipient.id = %recipient_id)
     )]
     pub async fn send_message(&self, sender_id: Uuid, recipient_id: Uuid, body: Bytes) -> Result<()> {
+        let meter = global::meter("obscura-server");
+        let counter = meter.u64_counter("messages_sent_total").with_description("Total messages successfully sent").build();
+
         // 1. Decode the EncryptedMessage protobuf to get type and content
         let msg = EncryptedMessage::decode(body)
             .map_err(|e| AppError::BadRequest(format!("Invalid EncryptedMessage protobuf: {}", e)))?;
@@ -43,14 +47,20 @@ impl MessageService {
         // 2. Store raw body directly (blind relay)
         // Optimization: We no longer check limits synchronously.
         // The background cleanup loop handles overflow.
-        self.repo.create(&self.pool, sender_id, recipient_id, msg.r#type, msg.content, self.ttl_days).await?;
-
-        tracing::debug!("Message stored for delivery");
-
-        // 3. Notify the user if they are connected
-        self.notifier.notify(recipient_id, UserEvent::MessageReceived);
-
-        Ok(())
+        match self.repo.create(&self.pool, sender_id, recipient_id, msg.r#type, msg.content, self.ttl_days).await {
+            Ok(_) => {
+                tracing::debug!("Message stored for delivery");
+                counter.add(1, &[KeyValue::new("status", "success")]);
+                
+                // 3. Notify the user if they are connected
+                self.notifier.notify(recipient_id, UserEvent::MessageReceived);
+                Ok(())
+            }
+            Err(e) => {
+                counter.add(1, &[KeyValue::new("status", "failure")]);
+                Err(e)
+            }
+        }
     }
 
     #[tracing::instrument(
@@ -80,7 +90,13 @@ impl MessageService {
         cursor: Option<(time::OffsetDateTime, Uuid)>,
         limit: i64,
     ) -> Result<Vec<crate::core::message::Message>> {
-        self.repo.fetch_pending_batch(&self.pool, recipient_id, cursor, limit).await
+        let messages = self.repo.fetch_pending_batch(&self.pool, recipient_id, cursor, limit).await?;
+        
+        let meter = global::meter("obscura-server");
+        let histogram = meter.u64_histogram("messaging_fetch_batch_size").with_description("Number of messages fetched in a single batch").build();
+        histogram.record(messages.len() as u64, &[]);
+
+        Ok(messages)
     }
 
     #[tracing::instrument(
@@ -100,6 +116,8 @@ impl MessageService {
     #[tracing::instrument(skip(self, shutdown), name = "message_cleanup_task")]
     pub async fn run_cleanup_loop(&self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
         let mut interval = tokio::time::interval(Duration::from_secs(self.config.cleanup_interval_secs));
+        let meter = global::meter("obscura-server");
+        let overflow_counter = meter.u64_counter("messaging_inbox_full_events_total").with_description("Total messages deleted due to inbox overflow").build();
 
         while !*shutdown.borrow() {
             tokio::select! {
@@ -122,6 +140,7 @@ impl MessageService {
                         Ok(count) => {
                             if count > 0 {
                                 tracing::info!(count = %count, "Pruned overflow messages");
+                                overflow_counter.add(count, &[]);
                             }
                         }
                         Err(e) => tracing::error!(error = %e, "Cleanup loop error (overflow)"),

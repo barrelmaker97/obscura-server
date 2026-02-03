@@ -4,6 +4,7 @@ use axum::http::{Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
 use ipnetwork::IpNetwork;
+use opentelemetry::{global, KeyValue};
 use std::net::{IpAddr, SocketAddr};
 use tower_governor::GovernorError;
 use tower_governor::key_extractor::KeyExtractor;
@@ -64,7 +65,12 @@ pub async fn log_rate_limit_events(req: Request<Body>, next: Next) -> Response {
     // We must extract information BEFORE calling next.run(req), as that consumes the request.
     let mut response = next.run(req).await;
 
+    let meter = global::meter("obscura-server");
+    let counter = meter.u64_counter("rate_limit_decisions_total").with_description("Rate limit decisions (allowed/throttled)").build();
+
     if response.status() == StatusCode::TOO_MANY_REQUESTS {
+        counter.add(1, &[KeyValue::new("status", "throttled")]);
+
         // Map the internal x-ratelimit-after to the standard Retry-After header
         // for better compatibility with standard HTTP clients.
         let retry_after = if let Some(after) = response.headers().get("x-ratelimit-after") {
@@ -76,6 +82,8 @@ pub async fn log_rate_limit_events(req: Request<Body>, next: Next) -> Response {
         };
 
         warn!("Rate limit exceeded (retry allowed after {}s)", retry_after);
+    } else {
+        counter.add(1, &[KeyValue::new("status", "allowed")]);
     }
 
     response

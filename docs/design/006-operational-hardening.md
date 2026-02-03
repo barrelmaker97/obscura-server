@@ -45,3 +45,12 @@ This plan details "low-hanging fruit" improvements to enhance the operational ma
 -   **Main:** Register `std::panic::set_hook` at the start of `main.rs`.
 -   **Logic:** Capture panic info (payload + location) and log via `tracing::error!`.
 **Testing:** Verified via manual trigger and code review of `main.rs`.
+
+## 6. OpenTelemetry Integration
+**Goal:** Establish a high-fidelity observability pipeline for traces, metrics, and logs.
+**Status:** COMPLETED
+**Implementation:**
+-   **Dependencies:** Integrated OTel 0.31 SDK and `tracing-opentelemetry`.
+-   **Config:** Added `otlp_endpoint` to support the "Push" model.
+-   **Metrics:** Instrumented Business KPIs (messages sent, connection counts) and Tuning metrics (batch efficiency, health check latency).
+**Testing:** Verified via `cargo check` and integration test suite stability.

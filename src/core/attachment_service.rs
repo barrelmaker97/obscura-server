@@ -6,6 +6,7 @@ use aws_sdk_s3::Client;
 use aws_sdk_s3::primitives::ByteStream;
 use axum::body::{Body, Bytes};
 use http_body_util::{BodyExt, LengthLimitError, Limited};
+use opentelemetry::global;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
@@ -130,6 +131,15 @@ impl AttachmentService {
         self.repo.create(&self.pool, id, expires_at).await?;
 
         tracing::debug!(attachment_id = %id, expires_at = %expires_at, "Attachment uploaded");
+
+        if let Some(len) = content_len {
+            let meter = global::meter("obscura-server");
+            let counter = meter.u64_counter("attachments_uploaded_bytes").with_description("Total bytes of attachments uploaded").build();
+            counter.add(len as u64, &[]);
+            
+            let histogram = meter.u64_histogram("attachments_upload_size_bytes").with_description("Distribution of attachment upload sizes").build();
+            histogram.record(len as u64, &[]);
+        }
 
         Ok((id, expires_at.unix_timestamp()))
     }

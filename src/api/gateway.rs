@@ -12,6 +12,7 @@ use axum::{
     response::IntoResponse,
 };
 use futures::{SinkExt, StreamExt};
+use opentelemetry::{global, KeyValue};
 use prost::Message as ProstMessage;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -119,10 +120,14 @@ impl GatewaySession {
                 }
             }
 
-            if !batch.is_empty()
-                && let Err(e) = self.message_service.delete_batch(&batch).await
-            {
-                error!(error = %e, "Failed to process ACK batch");
+            if !batch.is_empty() {
+                let meter = global::meter("obscura-server");
+                let histogram = meter.u64_histogram("websocket_ack_batch_size").with_description("Size of ACK batches processed").build();
+                histogram.record(batch.len() as u64, &[]);
+
+                if let Err(e) = self.message_service.delete_batch(&batch).await {
+                    error!(error = %e, "Failed to process ACK batch");
+                }
             }
         }
     }
@@ -172,6 +177,10 @@ impl GatewaySession {
                         if frame.encode(&mut buf).is_ok()
                             && self.outbound_tx.send(WsMessage::Binary(buf.into())).await.is_err()
                         {
+                            let meter = global::meter("obscura-server");
+                            let counter = meter.u64_counter("websocket_outbound_dropped_total").with_description("Total messages dropped due to full outbound buffer").build();
+                            counter.add(1, &[KeyValue::new("reason", "buffer_full")]);
+                            
                             return Ok(false);
                         }
                     }
@@ -199,6 +208,11 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid, re
     );
 
     async move {
+        // Increment connection gauge
+        let meter = global::meter("obscura-server");
+        let active_connections = meter.i64_up_down_counter("websocket_active_connections").with_description("Number of active WebSocket connections").build();
+        active_connections.add(1, &[]);
+
         tracing::info!("WebSocket connected");
         let mut rx = state.notifier.subscribe(user_id);
 
@@ -207,11 +221,13 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid, re
             Ok(None) => {
                 warn!("User connected but has no identity key");
                 let _ = socket.close().await;
+                active_connections.add(-1, &[]);
                 return;
             }
             Err(e) => {
                 error!(error = %e, "Failed to fetch identity key");
                 let _ = socket.close().await;
+                active_connections.add(-1, &[]);
                 return;
             }
         }
@@ -274,6 +290,8 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid, re
                                              Ok(msg_id) => {
                                                  if ack_tx.try_send(msg_id).is_err() {
                                                      warn!(message_id = %msg_id, "Dropped ACK due to full buffer");
+                                                     let counter = meter.u64_counter("websocket_ack_queue_dropped_total").with_description("Total ACKs dropped due to full buffer").build();
+                                                     counter.add(1, &[]);
                                                  }
                                              }
                                              Err(_) => {
@@ -340,6 +358,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user_id: Uuid, re
         let _ = ws_sink.close().await;
         db_poller_task.abort();
         ack_processor_task.abort();
+        active_connections.add(-1, &[]);
         tracing::info!("WebSocket disconnected");
     }
     .instrument(span)

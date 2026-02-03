@@ -48,6 +48,18 @@ We distinguish between **Application Metrics** (Is the engine running?) and **Bu
 | `db_pool_active_connections` | Gauge | - | Database saturation. | `sqlx` (Future) |
 | `rate_limit_hits_total` | Counter | `route`, `source_type` | Throttling events. Indicates abuse or capacity limits. | `RateLimit` Middleware |
 
+### 3.3 Tuning & Optimization Metrics (Config Feedback Loop)
+
+These metrics exist specifically to help tune `src/config.rs` parameters.
+
+| Metric Name | Type | Related Config | Why measure it? |
+| :--- | :--- | :--- | :--- |
+| `rate_limit_decisions_total` | Counter (`status=throttled\|allowed`) | `RateLimitConfig.per_second` | If legitimate users are throttled, limits are too tight. |
+| `websocket_ack_batch_size` | Histogram | `WsConfig.ack_batch_size`, `ack_flush_interval_ms` | If batches are small, interval is too short. If full, interval is too long. |
+| `keys_prekey_low_events_total` | Counter | `MessagingConfig.pre_key_refill_threshold` | Frequent low events mean the threshold is too high or clients are buggy. |
+| `notification_channel_full_total` | Counter | `NotificationConfig.channel_capacity` | Drops here mean the capacity (16) is too small for the burst rate. |
+| `health_check_duration_seconds` | Histogram | `HealthConfig.db_timeout_ms` | If duration nears timeout, the check is too aggressive or DB is slow. |
+
 ## 4. Tracing Strategy
 
 ### 4.1 Philosophy

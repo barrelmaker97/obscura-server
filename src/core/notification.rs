@@ -1,5 +1,6 @@
 use crate::config::Config;
 use dashmap::DashMap;
+use opentelemetry::{global, KeyValue};
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
@@ -69,8 +70,14 @@ impl Notifier for InMemoryNotifier {
 
     fn notify(&self, user_id: Uuid, event: UserEvent) {
         if let Some(tx) = self.channels.get(&user_id) {
+            let meter = global::meter("obscura-server");
+            let counter = meter.u64_counter("notification_send_attempts_total").with_description("Total notification send attempts").build();
+            
             // We ignore errors (e.g., if no one is listening)
-            let _ = tx.send(event);
+            match tx.send(event) {
+                Ok(_) => counter.add(1, &[KeyValue::new("status", "sent")]),
+                Err(_) => counter.add(1, &[KeyValue::new("status", "no_receivers")]),
+            }
         }
     }
 }

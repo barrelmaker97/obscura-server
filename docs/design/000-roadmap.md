@@ -7,7 +7,7 @@ This document serves as the master index for planned work and architectural visi
 ### 📊 Phase 1: Operational Maturity
 *Establishing a stable, measurable foundation before adding complexity.*
 - [x] **[006: Operational Hardening](006-operational-hardening.md)**: Request tracing, structured logging, and graceful shutdowns.
-- [ ] **[005: Observability](005-observability.md)**: Prometheus instrumentation for runtime health, queue depths, and connection tracking. **(High Priority)**
+- [x] **[005: Observability](005-observability.md)**: OpenTelemetry-native pipeline for traces, metrics, and business KPIs.
 
 ### 📱 Phase 2: Mobile Essentials
 *Features required for a functional mobile application experience.*

@@ -7,6 +7,7 @@ use crate::error::{AppError, Result};
 use crate::proto::obscura::v1::PreKeyStatus;
 use crate::storage::key_repo::KeyRepository;
 use crate::storage::message_repo::MessageRepository;
+use opentelemetry::global;
 use sqlx::{PgConnection, PgPool};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -64,6 +65,10 @@ impl KeyService {
     pub async fn check_pre_key_status(&self, user_id: Uuid) -> Result<Option<PreKeyStatus>> {
         let count = self.key_repo.count_one_time_pre_keys(&self.pool, user_id).await?;
         if count < self.config.pre_key_refill_threshold as i64 {
+            let meter = global::meter("obscura-server");
+            let counter = meter.u64_counter("keys_prekey_low_events_total").with_description("Events where users dipped below prekey threshold").build();
+            counter.add(1, &[]);
+
             Ok(Some(PreKeyStatus {
                 one_time_pre_key_count: count as i32,
                 min_threshold: self.config.pre_key_refill_threshold,
@@ -93,6 +98,10 @@ impl KeyService {
 
         if is_takeover {
             tracing::warn!("Device takeover detected");
+            let meter = global::meter("obscura-server");
+            let counter = meter.u64_counter("keys_takeover_events_total").with_description("Total number of device takeover events").build();
+            counter.add(1, &[]);
+
             self.notifier.notify(user_id, UserEvent::Disconnect);
         }
 
