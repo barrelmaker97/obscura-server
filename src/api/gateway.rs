@@ -12,7 +12,7 @@ use axum::{
     response::IntoResponse,
 };
 use futures::{SinkExt, StreamExt};
-use opentelemetry::{global, KeyValue};
+use opentelemetry::{KeyValue, global};
 use prost::Message as ProstMessage;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -122,7 +122,10 @@ impl GatewaySession {
 
             if !batch.is_empty() {
                 let meter = global::meter("obscura-server");
-                let histogram = meter.u64_histogram("websocket_ack_batch_size").with_description("Size of ACK batches processed").build();
+                let histogram = meter
+                    .u64_histogram("websocket_ack_batch_size")
+                    .with_description("Size of ACK batches processed")
+                    .build();
                 histogram.record(batch.len() as u64, &[]);
 
                 if let Err(e) = self.message_service.delete_batch(&batch).await {
@@ -178,9 +181,12 @@ impl GatewaySession {
                             && self.outbound_tx.send(WsMessage::Binary(buf.into())).await.is_err()
                         {
                             let meter = global::meter("obscura-server");
-                            let counter = meter.u64_counter("websocket_outbound_dropped_total").with_description("Total messages dropped due to full outbound buffer").build();
+                            let counter = meter
+                                .u64_counter("websocket_outbound_dropped_total")
+                                .with_description("Total messages dropped due to full outbound buffer")
+                                .build();
                             counter.add(1, &[KeyValue::new("reason", "buffer_full")]);
-                            
+
                             return Ok(false);
                         }
                     }

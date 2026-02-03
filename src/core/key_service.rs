@@ -66,7 +66,10 @@ impl KeyService {
         let count = self.key_repo.count_one_time_pre_keys(&self.pool, user_id).await?;
         if count < self.config.pre_key_refill_threshold as i64 {
             let meter = global::meter("obscura-server");
-            let counter = meter.u64_counter("keys_prekey_low_events_total").with_description("Events where users dipped below prekey threshold").build();
+            let counter = meter
+                .u64_counter("keys_prekey_low_events_total")
+                .with_description("Events where users dipped below prekey threshold")
+                .build();
             counter.add(1, &[]);
 
             Ok(Some(PreKeyStatus {
@@ -99,7 +102,10 @@ impl KeyService {
         if is_takeover {
             tracing::warn!("Device takeover detected");
             let meter = global::meter("obscura-server");
-            let counter = meter.u64_counter("keys_takeover_events_total").with_description("Total number of device takeover events").build();
+            let counter = meter
+                .u64_counter("keys_takeover_events_total")
+                .with_description("Total number of device takeover events")
+                .build();
             counter.add(1, &[]);
 
             self.notifier.notify(user_id, UserEvent::Disconnect);

@@ -1,6 +1,6 @@
 use crate::api::MgmtState;
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
-use opentelemetry::{global, KeyValue};
+use opentelemetry::{KeyValue, global};
 use serde_json::json;
 use std::time::{Duration, Instant};
 use tokio::time::timeout;
@@ -15,7 +15,8 @@ pub async fn readyz(State(state): State<MgmtState>) -> impl IntoResponse {
     let db_timeout = Duration::from_millis(state.health_config.db_timeout_ms);
     let s3_timeout = Duration::from_millis(state.health_config.s3_timeout_ms);
     let meter = global::meter("obscura-server");
-    let histogram = meter.f64_histogram("health_check_duration_seconds").with_description("Duration of health checks").build();
+    let histogram =
+        meter.f64_histogram("health_check_duration_seconds").with_description("Duration of health checks").build();
 
     let db_check = async {
         let start = Instant::now();

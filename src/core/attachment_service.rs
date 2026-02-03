@@ -134,10 +134,16 @@ impl AttachmentService {
 
         if let Some(len) = content_len {
             let meter = global::meter("obscura-server");
-            let counter = meter.u64_counter("attachments_uploaded_bytes").with_description("Total bytes of attachments uploaded").build();
+            let counter = meter
+                .u64_counter("attachments_uploaded_bytes")
+                .with_description("Total bytes of attachments uploaded")
+                .build();
             counter.add(len as u64, &[]);
-            
-            let histogram = meter.u64_histogram("attachments_upload_size_bytes").with_description("Distribution of attachment upload sizes").build();
+
+            let histogram = meter
+                .u64_histogram("attachments_upload_size_bytes")
+                .with_description("Distribution of attachment upload sizes")
+                .build();
             histogram.record(len as u64, &[]);
         }
 

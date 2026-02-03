@@ -1,15 +1,15 @@
 use crate::config::{LogFormat, TelemetryConfig};
-use opentelemetry::{global, KeyValue};
+use opentelemetry::{KeyValue, global};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{
+    Resource,
     metrics::{PeriodicReader, SdkMeterProvider},
     propagation::TraceContextPropagator,
     trace::SdkTracerProvider,
-    Resource,
 };
 use opentelemetry_semantic_conventions::resource::{SERVICE_NAME, SERVICE_VERSION};
 use tracing_opentelemetry::OpenTelemetryLayer;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
+use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 
 /// Initializes the OpenTelemetry tracing and metrics providers and hooks them into the tracing subscriber.
 pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<()> {
@@ -47,7 +47,7 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<()> {
                     .build()?,
             )
             .build();
-        
+
         let tracer = opentelemetry::trace::TracerProvider::tracer(&tracer_provider, service_name);
         global::set_tracer_provider(tracer_provider);
 
@@ -58,10 +58,7 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<()> {
             .build()?;
 
         let reader = PeriodicReader::builder(exporter).build();
-        let meter_provider = SdkMeterProvider::builder()
-            .with_resource(resource)
-            .with_reader(reader)
-            .build();
+        let meter_provider = SdkMeterProvider::builder().with_resource(resource).with_reader(reader).build();
         global::set_meter_provider(meter_provider);
 
         Some(OpenTelemetryLayer::new(tracer))

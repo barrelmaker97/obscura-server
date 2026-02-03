@@ -5,7 +5,7 @@ use crate::proto::obscura::v1::EncryptedMessage;
 use crate::storage::DbPool;
 use crate::storage::message_repo::MessageRepository;
 use axum::body::Bytes;
-use opentelemetry::{global, KeyValue};
+use opentelemetry::{KeyValue, global};
 use prost::Message;
 use std::sync::Arc;
 use std::time::Duration;
@@ -38,7 +38,8 @@ impl MessageService {
     )]
     pub async fn send_message(&self, sender_id: Uuid, recipient_id: Uuid, body: Bytes) -> Result<()> {
         let meter = global::meter("obscura-server");
-        let counter = meter.u64_counter("messages_sent_total").with_description("Total messages successfully sent").build();
+        let counter =
+            meter.u64_counter("messages_sent_total").with_description("Total messages successfully sent").build();
 
         // 1. Decode the EncryptedMessage protobuf to get type and content
         let msg = EncryptedMessage::decode(body)
@@ -51,7 +52,7 @@ impl MessageService {
             Ok(_) => {
                 tracing::debug!("Message stored for delivery");
                 counter.add(1, &[KeyValue::new("status", "success")]);
-                
+
                 // 3. Notify the user if they are connected
                 self.notifier.notify(recipient_id, UserEvent::MessageReceived);
                 Ok(())
@@ -91,9 +92,12 @@ impl MessageService {
         limit: i64,
     ) -> Result<Vec<crate::core::message::Message>> {
         let messages = self.repo.fetch_pending_batch(&self.pool, recipient_id, cursor, limit).await?;
-        
+
         let meter = global::meter("obscura-server");
-        let histogram = meter.u64_histogram("messaging_fetch_batch_size").with_description("Number of messages fetched in a single batch").build();
+        let histogram = meter
+            .u64_histogram("messaging_fetch_batch_size")
+            .with_description("Number of messages fetched in a single batch")
+            .build();
         histogram.record(messages.len() as u64, &[]);
 
         Ok(messages)
@@ -117,7 +121,10 @@ impl MessageService {
     pub async fn run_cleanup_loop(&self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
         let mut interval = tokio::time::interval(Duration::from_secs(self.config.cleanup_interval_secs));
         let meter = global::meter("obscura-server");
-        let overflow_counter = meter.u64_counter("messaging_inbox_full_events_total").with_description("Total messages deleted due to inbox overflow").build();
+        let overflow_counter = meter
+            .u64_counter("messaging_inbox_full_events_total")
+            .with_description("Total messages deleted due to inbox overflow")
+            .build();
 
         while !*shutdown.borrow() {
             tokio::select! {

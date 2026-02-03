@@ -4,7 +4,7 @@ use axum::http::{Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
 use ipnetwork::IpNetwork;
-use opentelemetry::{global, KeyValue};
+use opentelemetry::{KeyValue, global};
 use std::net::{IpAddr, SocketAddr};
 use tower_governor::GovernorError;
 use tower_governor::key_extractor::KeyExtractor;
@@ -66,7 +66,10 @@ pub async fn log_rate_limit_events(req: Request<Body>, next: Next) -> Response {
     let mut response = next.run(req).await;
 
     let meter = global::meter("obscura-server");
-    let counter = meter.u64_counter("rate_limit_decisions_total").with_description("Rate limit decisions (allowed/throttled)").build();
+    let counter = meter
+        .u64_counter("rate_limit_decisions_total")
+        .with_description("Rate limit decisions (allowed/throttled)")
+        .build();
 
     if response.status() == StatusCode::TOO_MANY_REQUESTS {
         counter.add(1, &[KeyValue::new("status", "throttled")]);
