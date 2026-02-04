@@ -21,6 +21,7 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<()> {
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "info".into())
         .add_directive("sqlx=warn".parse().unwrap())
+        .add_directive("tower_http=warn".parse().unwrap())
         .add_directive("hyper=warn".parse().unwrap());
 
     let registry = Registry::default().with(filter);

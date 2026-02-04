@@ -148,7 +148,10 @@ pub fn app_router(
                             "request completed"
                         );
                     },
-                ),
+                )
+                .on_failure(|_error, _latency, _span: &tracing::Span| {
+                    // Failures are already logged via on_response with their status code
+                }),
         )
         .layer(SetRequestIdLayer::new(
             axum::http::HeaderName::from_static("x-request-id"),
