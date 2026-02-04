@@ -57,6 +57,10 @@ pub struct TelemetryConfig {
     /// Log format (text or json)
     #[arg(long, env = "OBSCURA_LOG_FORMAT", default_value = "text")]
     pub log_format: LogFormat,
+
+    /// Trace sampling ratio (0.0 to 1.0)
+    #[arg(long, env = "OBSCURA_TRACE_SAMPLING_RATIO", default_value_t = 1.0)]
+    pub trace_sampling_ratio: f64,
 }
 
 #[derive(Clone, Debug, Args)]

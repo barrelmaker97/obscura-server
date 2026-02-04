@@ -1,25 +1,24 @@
-use crate::api::rate_limit::{IpKeyExtractor, log_rate_limit_events};
-use crate::config::{Config, HealthConfig};
+use crate::api::rate_limit::log_rate_limit_events;
+use crate::config::Config;
 use crate::core::account_service::AccountService;
 use crate::core::attachment_service::AttachmentService;
+use crate::core::gateway_service::GatewayService;
+use crate::core::health_service::HealthService;
 use crate::core::key_service::KeyService;
 use crate::core::message_service::MessageService;
-use crate::core::notification::Notifier;
-use crate::storage::{
-    DbPool, attachment_repo::AttachmentRepository, key_repo::KeyRepository, message_repo::MessageRepository,
-    refresh_token_repo::RefreshTokenRepository, user_repo::UserRepository,
-};
+use crate::core::rate_limit_service::RateLimitService;
 use axum::body::Body;
 use axum::http::Request;
 use axum::{
     Router,
-    middleware::from_fn,
+    middleware::from_fn_with_state,
     routing::{get, post},
 };
-use std::sync::Arc;
-use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
+use tower_governor::GovernorLayer;
+use tower_governor::governor::GovernorConfigBuilder;
 use tower_http::request_id::{PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::trace::TraceLayer;
+use std::sync::Arc;
 
 pub mod attachments;
 pub mod auth;
@@ -33,64 +32,42 @@ pub mod rate_limit;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub pool: DbPool,
     pub config: Config,
-    pub notifier: Arc<dyn Notifier>,
-    pub extractor: IpKeyExtractor,
-    pub s3_client: aws_sdk_s3::Client,
     pub key_service: KeyService,
     pub attachment_service: AttachmentService,
     pub account_service: AccountService,
     pub message_service: MessageService,
+    pub gateway_service: GatewayService,
+    pub rate_limit_service: RateLimitService,
     pub shutdown_rx: tokio::sync::watch::Receiver<bool>,
 }
 
 #[derive(Clone)]
 pub struct MgmtState {
-    pub pool: DbPool,
-    pub health_config: HealthConfig,
-    pub s3_bucket: String,
-    pub s3_client: aws_sdk_s3::Client,
+    pub health_service: HealthService,
+}
+
+pub struct ServiceContainer {
+    pub key_service: KeyService,
+    pub attachment_service: AttachmentService,
+    pub account_service: AccountService,
+    pub message_service: MessageService,
+    pub gateway_service: GatewayService,
+    pub rate_limit_service: RateLimitService,
 }
 
 pub fn app_router(
-    pool: DbPool,
     config: Config,
-    notifier: Arc<dyn Notifier>,
-    s3_client: aws_sdk_s3::Client,
+    services: ServiceContainer,
     shutdown_rx: tokio::sync::watch::Receiver<bool>,
 ) -> Router {
-    let extractor = IpKeyExtractor::new(config.server.trusted_proxies.clone());
-
-    // Initialize Repositories
-    let key_repo = KeyRepository::new();
-    let message_repo = MessageRepository::new();
-    let user_repo = UserRepository::new();
-    let refresh_repo = RefreshTokenRepository::new();
-    let attachment_repo = AttachmentRepository::new();
-
-    // Initialize Services
-    let key_service =
-        KeyService::new(pool.clone(), key_repo, message_repo.clone(), notifier.clone(), config.messaging.clone());
-    let attachment_service =
-        AttachmentService::new(pool.clone(), attachment_repo, s3_client.clone(), config.s3.clone(), config.ttl_days);
-    let account_service =
-        AccountService::new(pool.clone(), config.auth.clone(), key_service.clone(), user_repo, refresh_repo);
-    let message_service = MessageService::new(
-        pool.clone(),
-        message_repo.clone(),
-        notifier.clone(),
-        config.messaging.clone(),
-        config.ttl_days,
-    );
-
     // Standard Tier: For general API usage
     let std_interval_ns = 1_000_000_000 / config.rate_limit.per_second.max(1);
     let standard_conf = Arc::new(
         GovernorConfigBuilder::default()
             .per_nanosecond(std_interval_ns as u64)
             .burst_size(config.rate_limit.burst)
-            .key_extractor(extractor.clone())
+            .key_extractor(services.rate_limit_service.extractor.clone())
             .finish()
             .unwrap(),
     );
@@ -101,21 +78,19 @@ pub fn app_router(
         GovernorConfigBuilder::default()
             .per_nanosecond(auth_interval_ns as u64)
             .burst_size(config.rate_limit.auth_burst)
-            .key_extractor(extractor.clone())
+            .key_extractor(services.rate_limit_service.extractor.clone())
             .finish()
             .unwrap(),
     );
 
     let state = AppState {
-        pool,
         config,
-        notifier,
-        extractor,
-        s3_client,
-        key_service,
-        attachment_service,
-        account_service,
-        message_service,
+        key_service: services.key_service,
+        attachment_service: services.attachment_service,
+        account_service: services.account_service,
+        message_service: services.message_service,
+        gateway_service: services.gateway_service,
+        rate_limit_service: services.rate_limit_service,
         shutdown_rx,
     };
 
@@ -140,7 +115,7 @@ pub fn app_router(
     Router::new()
         .route("/openapi.yaml", get(docs::openapi_yaml))
         .nest("/v1", auth_routes.merge(api_routes))
-        .layer(from_fn(log_rate_limit_events))
+        .layer(from_fn_with_state(state.clone(), log_rate_limit_events))
         .layer(PropagateRequestIdLayer::new(axum::http::HeaderName::from_static("x-request-id")))
         .layer(
             TraceLayer::new_for_http()

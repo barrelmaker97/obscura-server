@@ -1,8 +1,25 @@
 use crate::config::Config;
 use dashmap::DashMap;
-use opentelemetry::{KeyValue, global};
+use opentelemetry::{KeyValue, global, metrics::Counter};
 use tokio::sync::broadcast;
 use uuid::Uuid;
+
+#[derive(Clone)]
+struct NotificationMetrics {
+    notification_send_attempts_total: Counter<u64>,
+}
+
+impl NotificationMetrics {
+    fn new() -> Self {
+        let meter = global::meter("obscura-server");
+        Self {
+            notification_send_attempts_total: meter
+                .u64_counter("notification_send_attempts_total")
+                .with_description("Total notification send attempts")
+                .build(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum UserEvent {
@@ -24,6 +41,7 @@ pub struct InMemoryNotifier {
     // Wrapped in Arc to share with background GC task.
     channels: std::sync::Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
     channel_capacity: usize,
+    metrics: NotificationMetrics,
 }
 
 impl InMemoryNotifier {
@@ -48,7 +66,11 @@ impl InMemoryNotifier {
             }
         });
 
-        Self { channels, channel_capacity: config.notifications.channel_capacity }
+        Self {
+            channels,
+            channel_capacity: config.notifications.channel_capacity,
+            metrics: NotificationMetrics::new(),
+        }
     }
 }
 
@@ -70,16 +92,12 @@ impl Notifier for InMemoryNotifier {
 
     fn notify(&self, user_id: Uuid, event: UserEvent) {
         if let Some(tx) = self.channels.get(&user_id) {
-            let meter = global::meter("obscura-server");
-            let counter = meter
-                .u64_counter("notification_send_attempts_total")
-                .with_description("Total notification send attempts")
-                .build();
-
             // We ignore errors (e.g., if no one is listening)
             match tx.send(event) {
-                Ok(_) => counter.add(1, &[KeyValue::new("status", "sent")]),
-                Err(_) => counter.add(1, &[KeyValue::new("status", "no_receivers")]),
+                Ok(_) => self.metrics.notification_send_attempts_total.add(1, &[KeyValue::new("status", "sent")]),
+                Err(_) => {
+                    self.metrics.notification_send_attempts_total.add(1, &[KeyValue::new("status", "no_receivers")])
+                }
             }
         }
     }
@@ -104,6 +122,7 @@ mod tests {
             telemetry: crate::config::TelemetryConfig {
                 otlp_endpoint: None,
                 log_format: crate::config::LogFormat::Text,
+                trace_sampling_ratio: 1.0,
             },
             auth: crate::config::AuthConfig {
                 jwt_secret: "".to_string(),

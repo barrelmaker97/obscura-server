@@ -6,7 +6,7 @@ use aws_sdk_s3::Client;
 use aws_sdk_s3::primitives::ByteStream;
 use axum::body::{Body, Bytes};
 use http_body_util::{BodyExt, LengthLimitError, Limited};
-use opentelemetry::global;
+use opentelemetry::{global, metrics::{Counter, Histogram}};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
@@ -14,6 +14,28 @@ use std::time::Duration as StdDuration;
 use time::{Duration, OffsetDateTime};
 use tokio::sync::mpsc;
 use uuid::Uuid;
+
+#[derive(Clone)]
+struct AttachmentMetrics {
+    attachments_uploaded_bytes: Counter<u64>,
+    attachments_upload_size_bytes: Histogram<u64>,
+}
+
+impl AttachmentMetrics {
+    fn new() -> Self {
+        let meter = global::meter("obscura-server");
+        Self {
+            attachments_uploaded_bytes: meter
+                .u64_counter("attachments_uploaded_bytes")
+                .with_description("Total bytes of attachments uploaded")
+                .build(),
+            attachments_upload_size_bytes: meter
+                .u64_histogram("attachments_upload_size_bytes")
+                .with_description("Distribution of attachment upload sizes")
+                .build(),
+        }
+    }
+}
 
 type AttachmentStreamReceiver =
     mpsc::Receiver<std::result::Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>;
@@ -49,11 +71,19 @@ pub struct AttachmentService {
     s3_client: Client,
     config: S3Config,
     ttl_days: i64,
+    metrics: AttachmentMetrics,
 }
 
 impl AttachmentService {
     pub fn new(pool: DbPool, repo: AttachmentRepository, s3_client: Client, config: S3Config, ttl_days: i64) -> Self {
-        Self { pool, repo, s3_client, config, ttl_days }
+        Self {
+            pool,
+            repo,
+            s3_client,
+            config,
+            ttl_days,
+            metrics: AttachmentMetrics::new(),
+        }
     }
 
     #[tracing::instrument(
@@ -133,18 +163,8 @@ impl AttachmentService {
         tracing::debug!(attachment_id = %id, expires_at = %expires_at, "Attachment uploaded");
 
         if let Some(len) = content_len {
-            let meter = global::meter("obscura-server");
-            let counter = meter
-                .u64_counter("attachments_uploaded_bytes")
-                .with_description("Total bytes of attachments uploaded")
-                .build();
-            counter.add(len as u64, &[]);
-
-            let histogram = meter
-                .u64_histogram("attachments_upload_size_bytes")
-                .with_description("Distribution of attachment upload sizes")
-                .build();
-            histogram.record(len as u64, &[]);
+            self.metrics.attachments_uploaded_bytes.add(len as u64, &[]);
+            self.metrics.attachments_upload_size_bytes.record(len as u64, &[]);
         }
 
         Ok((id, expires_at.unix_timestamp()))

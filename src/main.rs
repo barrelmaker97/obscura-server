@@ -1,4 +1,19 @@
-use obscura_server::{api, config::Config, core::notification::InMemoryNotifier, storage, telemetry};
+use obscura_server::api::{self, ServiceContainer};
+use obscura_server::config::Config;
+use obscura_server::core::account_service::AccountService;
+use obscura_server::core::attachment_service::AttachmentService;
+use obscura_server::core::gateway_service::GatewayService;
+use obscura_server::core::health_service::HealthService;
+use obscura_server::core::key_service::KeyService;
+use obscura_server::core::message_service::MessageService;
+use obscura_server::core::notification::InMemoryNotifier;
+use obscura_server::core::rate_limit_service::RateLimitService;
+use obscura_server::storage::attachment_repo::AttachmentRepository;
+use obscura_server::storage::key_repo::KeyRepository;
+use obscura_server::storage::message_repo::MessageRepository;
+use obscura_server::storage::refresh_token_repo::RefreshTokenRepository;
+use obscura_server::storage::user_repo::UserRepository;
+use obscura_server::{storage, telemetry};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::watch;
@@ -38,6 +53,7 @@ async fn main() -> anyhow::Result<()> {
     // Run migrations
     tracing::info!("Running migrations...");
     sqlx::migrate!().run(&pool).await?;
+
     // Shutdown signaling
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
@@ -49,20 +65,6 @@ async fn main() -> anyhow::Result<()> {
     });
 
     let notifier = Arc::new(InMemoryNotifier::new(config.clone(), shutdown_rx.clone()));
-
-    // Start background tasks
-    let message_service = obscura_server::core::message_service::MessageService::new(
-        pool.clone(),
-        obscura_server::storage::message_repo::MessageRepository::new(),
-        notifier.clone(),
-        config.messaging.clone(),
-        config.ttl_days,
-    );
-    let message_cleanup = message_service.clone();
-    let message_cleanup_rx = shutdown_rx.clone();
-    let message_task = tokio::spawn(async move {
-        message_cleanup.run_cleanup_loop(message_cleanup_rx).await;
-    });
 
     // S3 Setup
     let region_provider = aws_config::Region::new(config.s3.region.clone());
@@ -81,25 +83,92 @@ async fn main() -> anyhow::Result<()> {
     let s3_config_builder = aws_sdk_s3::config::Builder::from(&sdk_config).force_path_style(config.s3.force_path_style);
     let s3_client = aws_sdk_s3::Client::from_conf(s3_config_builder.build());
 
-    let attachment_service = obscura_server::core::attachment_service::AttachmentService::new(
+    // Initialize Repositories
+    let key_repo = KeyRepository::new();
+    let message_repo = MessageRepository::new();
+    let user_repo = UserRepository::new();
+    let refresh_repo = RefreshTokenRepository::new();
+    let attachment_repo = AttachmentRepository::new();
+
+    // Initialize Services
+    let key_service = KeyService::new(
         pool.clone(),
-        obscura_server::storage::attachment_repo::AttachmentRepository::new(),
+        key_repo,
+        message_repo.clone(),
+        notifier.clone(),
+        config.messaging.clone(),
+    );
+
+    let attachment_service = AttachmentService::new(
+        pool.clone(),
+        attachment_repo,
         s3_client.clone(),
         config.s3.clone(),
         config.ttl_days,
     );
+
+    let account_service = AccountService::new(
+        pool.clone(),
+        config.auth.clone(),
+        key_service.clone(),
+        user_repo,
+        refresh_repo,
+    );
+
+    let message_service = MessageService::new(
+        pool.clone(),
+        message_repo.clone(),
+        notifier.clone(),
+        config.messaging.clone(),
+        config.ttl_days,
+    );
+
+    let gateway_service = GatewayService::new(
+        message_service.clone(),
+        key_service.clone(),
+        notifier.clone(),
+        config.websocket.clone(),
+    );
+
+    let rate_limit_service = RateLimitService::new(config.server.trusted_proxies.clone());
+    
+    let health_service = HealthService::new(
+        pool.clone(),
+        s3_client.clone(),
+        config.s3.bucket.clone(),
+        config.health.clone()
+    );
+
+    // Start background tasks
+    let message_cleanup = message_service.clone();
+    let message_cleanup_rx = shutdown_rx.clone();
+    let message_task = tokio::spawn(async move {
+        message_cleanup.run_cleanup_loop(message_cleanup_rx).await;
+    });
+
     let cleanup_service = attachment_service.clone();
     let attachment_cleanup_rx = shutdown_rx.clone();
     let attachment_task = tokio::spawn(async move {
         cleanup_service.run_cleanup_loop(attachment_cleanup_rx).await;
     });
 
-    let app = api::app_router(pool.clone(), config.clone(), notifier.clone(), s3_client.clone(), shutdown_rx.clone());
+    let services = ServiceContainer {
+        key_service,
+        attachment_service,
+        account_service,
+        message_service,
+        gateway_service,
+        rate_limit_service,
+    };
+
+    let app = api::app_router(
+        config.clone(),
+        services,
+        shutdown_rx.clone(),
+    );
+
     let mgmt_state = obscura_server::api::MgmtState {
-        pool: pool.clone(),
-        health_config: config.health.clone(),
-        s3_bucket: config.s3.bucket.clone(),
-        s3_client: s3_client.clone(),
+        health_service,
     };
     let mgmt_app = api::mgmt_router(mgmt_state);
 

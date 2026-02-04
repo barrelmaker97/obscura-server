@@ -2,13 +2,25 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use futures::{SinkExt, StreamExt};
 use obscura_server::{
-    api::app_router,
+    api::{ServiceContainer, app_router},
     config::Config,
-    core::notification::InMemoryNotifier,
+    core::{
+        account_service::AccountService,
+        attachment_service::AttachmentService,
+        gateway_service::GatewayService,
+        health_service::HealthService,
+        key_service::KeyService,
+        message_service::MessageService,
+        notification::InMemoryNotifier,
+        rate_limit_service::RateLimitService,
+    },
     proto::obscura::v1::{
         AckMessage, EncryptedMessage, Envelope, PreKeyStatus, WebSocketFrame, web_socket_frame::Payload,
     },
-    storage,
+    storage::{
+        self, attachment_repo::AttachmentRepository, key_repo::KeyRepository, message_repo::MessageRepository,
+        refresh_token_repo::RefreshTokenRepository, user_repo::UserRepository,
+    },
 };
 use prost::Message as ProstMessage;
 use rand::RngCore;
@@ -28,6 +40,7 @@ static INIT: Once = Once::new();
 
 pub fn setup_tracing() {
     INIT.call_once(|| {
+        obscura_server::telemetry::init_test_telemetry();
         let filter = tracing_subscriber::EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| "warn".into())
             .add_directive("tower=warn".parse().unwrap())
@@ -77,6 +90,7 @@ pub fn get_test_config() -> Config {
         telemetry: obscura_server::config::TelemetryConfig {
             otlp_endpoint: None,
             log_format: obscura_server::config::LogFormat::Text,
+            trace_sampling_ratio: 1.0,
         },
         auth: obscura_server::config::AuthConfig {
             jwt_secret: "test_secret".to_string(),
@@ -246,12 +260,79 @@ impl TestApp {
             aws_sdk_s3::config::Builder::from(&sdk_config).force_path_style(config.s3.force_path_style);
         let s3_client = aws_sdk_s3::Client::from_conf(s3_config_builder.build());
 
-        let app = app_router(pool.clone(), config.clone(), notifier.clone(), s3_client.clone(), shutdown_rx.clone());
+        // Initialize Repositories
+        let key_repo = KeyRepository::new();
+        let message_repo = MessageRepository::new();
+        let user_repo = UserRepository::new();
+        let refresh_repo = RefreshTokenRepository::new();
+        let attachment_repo = AttachmentRepository::new();
+
+        // Initialize Services
+        let key_service = KeyService::new(
+            pool.clone(),
+            key_repo,
+            message_repo.clone(),
+            notifier.clone(),
+            config.messaging.clone(),
+        );
+
+        let attachment_service = AttachmentService::new(
+            pool.clone(),
+            attachment_repo,
+            s3_client.clone(),
+            config.s3.clone(),
+            config.ttl_days,
+        );
+
+        let account_service = AccountService::new(
+            pool.clone(),
+            config.auth.clone(),
+            key_service.clone(),
+            user_repo,
+            refresh_repo,
+        );
+
+        let message_service = MessageService::new(
+            pool.clone(),
+            message_repo.clone(),
+            notifier.clone(),
+            config.messaging.clone(),
+            config.ttl_days,
+        );
+
+        let gateway_service = GatewayService::new(
+            message_service.clone(),
+            key_service.clone(),
+            notifier.clone(),
+            config.websocket.clone(),
+        );
+
+        let rate_limit_service = RateLimitService::new(config.server.trusted_proxies.clone());
+
+        let health_service = HealthService::new(
+            pool.clone(),
+            s3_client.clone(),
+            config.s3.bucket.clone(),
+            config.health.clone()
+        );
+
+        let services = ServiceContainer {
+            key_service,
+            attachment_service,
+            account_service,
+            message_service,
+            gateway_service,
+            rate_limit_service,
+        };
+
+        let app = app_router(
+            config.clone(),
+            services,
+            shutdown_rx.clone(),
+        );
+
         let mgmt_state = obscura_server::api::MgmtState {
-            pool: pool.clone(),
-            health_config: config.health.clone(),
-            s3_bucket: config.s3.bucket.clone(),
-            s3_client: s3_client.clone(),
+            health_service,
         };
         let mgmt_app = obscura_server::api::mgmt_router(mgmt_state);
 

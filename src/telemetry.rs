@@ -7,8 +7,7 @@ use opentelemetry_sdk::{
     logs::SdkLoggerProvider,
     metrics::SdkMeterProvider,
     propagation::TraceContextPropagator,
-    trace::SdkTracerProvider,
-    trace::BatchSpanProcessor,
+    trace::{SdkTracerProvider, BatchSpanProcessor, Sampler},
     metrics::PeriodicReader,
     logs::BatchLogProcessor,
 };
@@ -51,6 +50,9 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<()> {
 
         let tracer_provider = SdkTracerProvider::builder()
             .with_resource(resource.clone())
+            .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
+                config.trace_sampling_ratio,
+            ))))
             .with_span_processor(
                 BatchSpanProcessor::builder(exporter).build()
             )
@@ -111,4 +113,10 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<()> {
 /// Shuts down the telemetry providers, ensuring all remaining spans and metrics are flushed.
 pub fn shutdown_telemetry() {
     // In OTel 0.28, global shutdown is handled differently or unnecessary if providers are dropped.
+}
+
+/// Initializes a no-op telemetry provider for tests to silence warnings.
+pub fn init_test_telemetry() {
+    let provider = SdkMeterProvider::builder().build();
+    global::set_meter_provider(provider);
 }
