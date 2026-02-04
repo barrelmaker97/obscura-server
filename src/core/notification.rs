@@ -149,7 +149,7 @@ mod tests {
         
         let mut success = false;
         for _ in 0..10 {
-            if notifier.channels.len() == 0 {
+            if notifier.channels.is_empty() {
                 success = true;
                 break;
             }

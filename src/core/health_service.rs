@@ -51,7 +51,7 @@ impl HealthService {
     pub async fn check_db(&self) -> Result<(), String> {
         let db_timeout = Duration::from_millis(self.config.db_timeout_ms);
         
-        let res = match timeout(db_timeout, sqlx::query("SELECT 1").execute(&self.pool)).await {
+        match timeout(db_timeout, sqlx::query("SELECT 1").execute(&self.pool)).await {
             Ok(Ok(_)) => {
                 self.metrics.health_status.record(1, &[KeyValue::new("component", "database")]);
                 Ok(())
@@ -64,15 +64,13 @@ impl HealthService {
                 self.metrics.health_status.record(0, &[KeyValue::new("component", "database")]);
                 Err("Database connection timed out".to_string())
             }
-        };
-
-        res
+        }
     }
 
     pub async fn check_storage(&self) -> Result<(), String> {
         let storage_timeout = Duration::from_millis(self.config.storage_timeout_ms);
 
-        let res = match timeout(storage_timeout, self.s3_client.head_bucket().bucket(&self.storage_bucket).send()).await {
+        match timeout(storage_timeout, self.s3_client.head_bucket().bucket(&self.storage_bucket).send()).await {
             Ok(Ok(_)) => {
                 self.metrics.health_status.record(1, &[KeyValue::new("component", "storage")]);
                 Ok(())
@@ -85,8 +83,6 @@ impl HealthService {
                 self.metrics.health_status.record(0, &[KeyValue::new("component", "storage")]);
                 Err("Storage connection timed out".to_string())
             }
-        };
-
-        res
+        }
     }
 }

@@ -24,15 +24,15 @@ pub struct TelemetryGuard {
 
 impl TelemetryGuard {
     pub fn shutdown(self) {
-        if let Some(provider) = self.tracer_provider {
-            if let Err(err) = provider.shutdown() {
-                eprintln!("Error shutting down tracer provider: {:?}", err);
-            }
+        if let Some(provider) = self.tracer_provider
+            && let Err(err) = provider.shutdown()
+        {
+            eprintln!("Error shutting down tracer provider: {:?}", err);
         }
-        if let Some(provider) = self.meter_provider {
-            if let Err(err) = provider.shutdown() {
-                eprintln!("Error shutting down meter provider: {:?}", err);
-            }
+        if let Some(provider) = self.meter_provider
+            && let Err(err) = provider.shutdown()
+        {
+            eprintln!("Error shutting down meter provider: {:?}", err);
         }
         if let Some(provider) = self.logger_provider {
             // SdkLoggerProvider::shutdown returns a CompletableResultCode in some versions,

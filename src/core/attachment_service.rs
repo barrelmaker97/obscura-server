@@ -111,34 +111,38 @@ impl AttachmentService {
         let (tx, rx) = mpsc::channel(2);
         let mut data_stream = limited_body.into_data_stream();
 
-        tokio::spawn(async move {
-            use futures::StreamExt;
-            while let Some(item) = data_stream.next().await {
-                match item {
-                    Ok(bytes) => {
-                        let frame_res = Ok(bytes);
-                        if tx.send(frame_res).await.is_err() {
-                            tracing::debug!(
-                                "Attachment upload stream closed by receiver (S3 client likely finished or failed early)"
-                            );
+        use tracing::Instrument;
+        tokio::spawn(
+            async move {
+                use futures::StreamExt;
+                while let Some(item) = data_stream.next().await {
+                    match item {
+                        Ok(bytes) => {
+                            let frame_res = Ok(bytes);
+                            if tx.send(frame_res).await.is_err() {
+                                tracing::debug!(
+                                    "Attachment upload stream closed by receiver (S3 client likely finished or failed early)"
+                                );
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            let is_limit = e.downcast_ref::<LengthLimitError>().is_some();
+
+                            let err_to_send: Box<dyn std::error::Error + Send + Sync> = if is_limit {
+                                Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, "Body too large"))
+                            } else {
+                                e
+                            };
+
+                            let _ = tx.send(Err(err_to_send)).await;
                             break;
                         }
                     }
-                    Err(e) => {
-                        let is_limit = e.downcast_ref::<LengthLimitError>().is_some();
-
-                        let err_to_send: Box<dyn std::error::Error + Send + Sync> = if is_limit {
-                            Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, "Body too large"))
-                        } else {
-                            e
-                        };
-
-                        let _ = tx.send(Err(err_to_send)).await;
-                        break;
-                    }
                 }
             }
-        });
+            .instrument(tracing::info_span!("attachment_stream_bridge")),
+        );
 
         let sync_body = SyncBody { rx: Arc::new(Mutex::new(rx)) };
         let byte_stream = ByteStream::from_body_1_x(sync_body);
