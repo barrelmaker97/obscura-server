@@ -39,7 +39,7 @@ We distinguish between **Application Metrics** (Is the engine running?) and **Bu
 | `pending_messages_total` | Gauge | - | Messages waiting for delivery. | DB Poller | *Planned* |
 | `attachments_total_count` | Gauge | - | Total non-expired attachments. | DB Poller | *Planned* |
 | `attachments_total_bytes` | Gauge | - | Total size of stored data. | DB Poller | *Planned* |
-| `keys_takeover_events_total` | Counter | - | Security incidents. | Event | **Implemented** |
+| `keys_takeovers_total` | Counter | - | Security incidents. | Event | **Implemented** |
 
 ### 3.2 Application Metrics (Operational Health)
 
@@ -72,8 +72,8 @@ These metrics exist specifically to help tune `src/config.rs` parameters.
 | :--- | :--- | :--- | :--- | :--- |
 | `websocket_ack_batch_size` | Histogram | `WsConfig.ack_batch_size` | If batches are small, interval is too short. | **Implemented** |
 | `keys_prekey_low_events_total` | Counter | `MessagingConfig.pre_key_refill_threshold` | Frequent low events mean threshold is high. | **Implemented** |
-| `messaging_inbox_full_events_total` | Counter | `MessagingConfig.max_inbox_size` | Global inbox overflow count. | **Implemented** |
-| `notification_send_attempts_total` | Counter | `status` | Internal notification success rate. | **Implemented** |
+| `messaging_inbox_overflow_total` | Counter | `MessagingConfig.max_inbox_size` | Global inbox overflow count. | **Implemented** |
+| `notification_sends_total` | Counter | `status` | Internal notification success rate. | **Implemented** |
 
 ## 4. Tracing Strategy
 

@@ -200,7 +200,6 @@ impl AttachmentService {
         Ok((content_length as u64, output.body))
     }
 
-    #[tracing::instrument(skip(self, shutdown), name = "attachment_cleanup_task")]
     pub async fn run_cleanup_loop(&self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
         let interval = StdDuration::from_secs(self.config.cleanup_interval_secs);
         let mut next_tick = tokio::time::Instant::now() + interval;
@@ -208,6 +207,9 @@ impl AttachmentService {
         while !*shutdown.borrow() {
             tokio::select! {
                 _ = tokio::time::sleep_until(next_tick) => {
+                    let span = tracing::info_span!("attachment_cleanup_iteration");
+                    let _enter = span.enter();
+
                     tracing::debug!("Running attachment cleanup...");
 
                     if let Err(e) = self.cleanup_batch().await {

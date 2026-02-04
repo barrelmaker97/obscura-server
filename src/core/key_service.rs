@@ -15,7 +15,7 @@ use uuid::Uuid;
 #[derive(Clone)]
 struct KeyMetrics {
     keys_prekey_low_events_total: Counter<u64>,
-    keys_takeover_events_total: Counter<u64>,
+    keys_takeovers_total: Counter<u64>,
 }
 
 impl KeyMetrics {
@@ -26,8 +26,8 @@ impl KeyMetrics {
                 .u64_counter("keys_prekey_low_events_total")
                 .with_description("Events where users dipped below prekey threshold")
                 .build(),
-            keys_takeover_events_total: meter
-                .u64_counter("keys_takeover_events_total")
+            keys_takeovers_total: meter
+                .u64_counter("keys_takeovers_total")
                 .with_description("Total number of device takeover events")
                 .build(),
         }
@@ -126,7 +126,7 @@ impl KeyService {
 
         if is_takeover {
             tracing::warn!("Device takeover detected");
-            self.metrics.keys_takeover_events_total.add(1, &[]);
+            self.metrics.keys_takeovers_total.add(1, &[]);
 
             self.notifier.notify(user_id, UserEvent::Disconnect);
         }

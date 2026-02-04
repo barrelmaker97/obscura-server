@@ -6,15 +6,15 @@ use uuid::Uuid;
 
 #[derive(Clone)]
 struct NotificationMetrics {
-    notification_send_attempts_total: Counter<u64>,
+    notification_sends_total: Counter<u64>,
 }
 
 impl NotificationMetrics {
     fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
-            notification_send_attempts_total: meter
-                .u64_counter("notification_send_attempts_total")
+            notification_sends_total: meter
+                .u64_counter("notification_sends_total")
                 .with_description("Total notification send attempts")
                 .build(),
         }
@@ -52,11 +52,11 @@ impl InMemoryNotifier {
 
         // Spawn background GC task
         tokio::spawn(async move {
-            let span = tracing::info_span!("notifier_gc_task");
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
             while !*shutdown.borrow() {
                 tokio::select! {
                     _ = interval.tick() => {
+                        let span = tracing::info_span!("notifier_gc_iteration");
                         let _enter = span.enter();
                         // Atomic cleanup: Remove entries with 0 receivers
                         map_ref.retain(|_, sender: &mut broadcast::Sender<UserEvent>| sender.receiver_count() > 0);
@@ -94,9 +94,9 @@ impl Notifier for InMemoryNotifier {
         if let Some(tx) = self.channels.get(&user_id) {
             // We ignore errors (e.g., if no one is listening)
             match tx.send(event) {
-                Ok(_) => self.metrics.notification_send_attempts_total.add(1, &[KeyValue::new("status", "sent")]),
+                Ok(_) => self.metrics.notification_sends_total.add(1, &[KeyValue::new("status", "sent")]),
                 Err(_) => {
-                    self.metrics.notification_send_attempts_total.add(1, &[KeyValue::new("status", "no_receivers")])
+                    self.metrics.notification_sends_total.add(1, &[KeyValue::new("status", "no_receivers")])
                 }
             }
         }

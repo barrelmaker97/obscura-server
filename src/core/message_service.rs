@@ -15,7 +15,7 @@ use uuid::Uuid;
 struct MessageMetrics {
     messages_sent_total: Counter<u64>,
     messaging_fetch_batch_size: Histogram<u64>,
-    messaging_inbox_full_events_total: Counter<u64>,
+    messaging_inbox_overflow_total: Counter<u64>,
 }
 
 impl MessageMetrics {
@@ -30,8 +30,8 @@ impl MessageMetrics {
                 .u64_histogram("messaging_fetch_batch_size")
                 .with_description("Number of messages fetched in a single batch")
                 .build(),
-            messaging_inbox_full_events_total: meter
-                .u64_counter("messaging_inbox_full_events_total")
+            messaging_inbox_overflow_total: meter
+                .u64_counter("messaging_inbox_overflow_total")
                 .with_description("Total messages deleted due to inbox overflow")
                 .build(),
         }
@@ -143,13 +143,15 @@ impl MessageService {
     }
 
     /// Periodically cleans up expired messages and enforces inbox limits.
-    #[tracing::instrument(skip(self, shutdown), name = "message_cleanup_task")]
     pub async fn run_cleanup_loop(&self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
         let mut interval = tokio::time::interval(Duration::from_secs(self.config.cleanup_interval_secs));
 
         while !*shutdown.borrow() {
             tokio::select! {
                 _ = interval.tick() => {
+                    let span = tracing::info_span!("message_cleanup_iteration");
+                    let _enter = span.enter();
+                    
                     tracing::debug!("Running message cleanup (expiry + limits)...");
 
                     // 1. Delete Expired (TTL)
@@ -168,7 +170,7 @@ impl MessageService {
                         Ok(count) => {
                             if count > 0 {
                                 tracing::info!(count = %count, "Pruned overflow messages");
-                                self.metrics.messaging_inbox_full_events_total.add(count, &[]);
+                                self.metrics.messaging_inbox_overflow_total.add(count, &[]);
                             }
                         }
                         Err(e) => tracing::error!(error = %e, "Cleanup loop error (overflow)"),
