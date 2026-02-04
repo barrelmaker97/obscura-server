@@ -29,35 +29,51 @@ We distinguish between **Application Metrics** (Is the engine running?) and **Bu
 
 ### 3.1 Business Metrics (Product Health)
 
-| Metric Name | Type | Labels | Description | Service |
-| :--- | :--- | :--- | :--- | :--- |
-| `messages_sent_total` | Counter | `status=success\|failure` | Total messages successfully processed. Primary growth KPI. | `MessageService` |
-| `attachments_uploaded_bytes` | Counter | - | Total volume of data stored. Primary cost driver. | `AttachmentService` |
-| `websocket_active_connections` | Gauge | - | Number of currently connected clients. Engagement KPI. | `Gateway` |
-| `websocket_session_duration_seconds` | Histogram | - | How long users stay connected. Indicates client stability. | `Gateway` |
-| `keys_takeover_events_total` | Counter | - | Number of device takeovers. Spike = Security Incident. | `KeyService` |
-| `users_registered_total` | Counter | `status` | New user signups. Growth KPI. | `AccountService` |
+| Metric Name | Type | Labels | Description | Source | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `messages_sent_total` | Counter | `status` | Total messages processed. | Event | **Implemented** |
+| `attachments_uploaded_bytes` | Counter | - | Total volume of data stored. | Event | **Implemented** |
+| `websocket_active_connections` | UpDownCounter | - | Active clients. | Event | **Implemented** |
+| `users_total` | Gauge | - | Total registered users. | DB Poller | *Planned* |
+| `users_registered_total` | Counter | - | Rate of new signups. | Event | **Implemented** |
+| `pending_messages_total` | Gauge | - | Messages waiting for delivery. | DB Poller | *Planned* |
+| `attachments_total_count` | Gauge | - | Total non-expired attachments. | DB Poller | *Planned* |
+| `attachments_total_bytes` | Gauge | - | Total size of stored data. | DB Poller | *Planned* |
+| `keys_takeover_events_total` | Counter | - | Security incidents. | Event | **Implemented** |
 
 ### 3.2 Application Metrics (Operational Health)
 
-| Metric Name | Type | Labels | Description | Source |
-| :--- | :--- | :--- | :--- | :--- |
-| `http_requests_total` | Counter | `method`, `route`, `status` | Volume and Error Rate. | `TraceLayer` (Middleware) |
-| `http_request_duration_seconds` | Histogram | `method`, `route` | Latency distribution (P95, P99). | `TraceLayer` (Middleware) |
-| `db_pool_active_connections` | Gauge | - | Database saturation. | `sqlx` (Future) |
-| `rate_limit_hits_total` | Counter | `route`, `source_type` | Throttling events. Indicates abuse or capacity limits. | `RateLimit` Middleware |
+| Metric Name | Type | Labels | Description | Source | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `attachments_upload_size_bytes` | Histogram | - | Distribution of upload sizes. | `AttachmentService` | **Implemented** |
+| `messaging_fetch_batch_size` | Histogram | - | Efficiency of message polling. | `MessageService` | **Implemented** |
+| `rate_limit_decisions_total` | Counter | `status` | Throttling events. | `RateLimit` Middleware | **Implemented** |
+| `health_status` | Gauge | `component` | Binary status (1=OK, 0=Error). | `HealthService` | **Implemented** |
+| `db_pool_active_connections` | Gauge | - | SQLx pool saturation. | `sqlx` (Future) | *Planned* |
+| `websocket_outbound_dropped_total` | Counter | `reason` | Drops due to backpressure. | `Gateway` | **Implemented** |
+| `websocket_ack_queue_dropped_total` | Counter | - | ACKs dropped due to backpressure. | `Gateway` | **Implemented** |
 
-### 3.3 Tuning & Optimization Metrics (Config Feedback Loop)
+### 3.3 State vs. Activity Metrics (The "DB-Backed" Strategy)
+
+We distinguish between **Activity** (what is happening now) and **State** (the current inventory of the system). For state metrics like `users_total`, we choose **Option A: Application-Level Polling** over direct SQL data sources in Grafana.
+
+**Why Polling?**
+- **Time-Series History:** Prometheus records growth curves that DBs usually don't track natively.
+- **Unified Alerting:** Alerts for "DB growth" use the same syntax as "CPU spikes".
+- **Performance:** Protects the production DB from heavy dashboard-driven aggregate queries.
+
+**Implementation:** A background "Metric Poller" task will run aggregate SQL (e.g., `SELECT COUNT(*)`) every 5-10 minutes and record the result into OTel Gauges.
+
+### 3.4 Tuning & Optimization Metrics (Config Feedback Loop)
 
 These metrics exist specifically to help tune `src/config.rs` parameters.
 
-| Metric Name | Type | Related Config | Why measure it? |
-| :--- | :--- | :--- | :--- |
-| `rate_limit_decisions_total` | Counter (`status=throttled\|allowed`) | `RateLimitConfig.per_second` | If legitimate users are throttled, limits are too tight. |
-| `websocket_ack_batch_size` | Histogram | `WsConfig.ack_batch_size`, `ack_flush_interval_ms` | If batches are small, interval is too short. If full, interval is too long. |
-| `keys_prekey_low_events_total` | Counter | `MessagingConfig.pre_key_refill_threshold` | Frequent low events mean the threshold is too high or clients are buggy. |
-| `notification_channel_full_total` | Counter | `NotificationConfig.channel_capacity` | Drops here mean the capacity (16) is too small for the burst rate. |
-| `health_check_duration_seconds` | Histogram | `HealthConfig.db_timeout_ms` | If duration nears timeout, the check is too aggressive or DB is slow. |
+| Metric Name | Type | Related Config | Why measure it? | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| `websocket_ack_batch_size` | Histogram | `WsConfig.ack_batch_size` | If batches are small, interval is too short. | **Implemented** |
+| `keys_prekey_low_events_total` | Counter | `MessagingConfig.pre_key_refill_threshold` | Frequent low events mean threshold is high. | **Implemented** |
+| `messaging_inbox_full_events_total` | Counter | `MessagingConfig.max_inbox_size` | Global inbox overflow count. | **Implemented** |
+| `notification_send_attempts_total` | Counter | `status` | Internal notification success rate. | **Implemented** |
 
 ## 4. Tracing Strategy
 
@@ -67,9 +83,9 @@ These metrics exist specifically to help tune `src/config.rs` parameters.
 -   **Structure:** Follow OTel Semantic Conventions (`http.request.method`, `url.path`, `otel.kind`).
 
 ### 4.2 Key Spans
--   **Root Span:** HTTP Request or WebSocket Session.
--   **Service Layer:** `#[instrument(err)]` on `MessageService`, `KeyService`.
--   **Repository Layer:** Database queries (Debug level to avoid noise).
+-   **Root Span:** HTTP Request (`request_id` injected) or WebSocket Session (`user_id` and `request_id` injected).
+-   **Service Layer:** `#[instrument(err)]` on `MessageService`, `KeyService`, `AccountService`, and `AttachmentService`.
+-   **Repository Layer:** Database queries (via `tracing` at debug level).
 
 ## 5. Implementation Roadmap
 
@@ -78,13 +94,20 @@ These metrics exist specifically to help tune `src/config.rs` parameters.
     -   Implement `telemetry.rs` initialization logic.
     -   Make OTLP endpoint configurable.
 
-2.  **Phase 2: Business Metrics (NEXT)**
-    -   Instrument `MessageService` (`messages_sent_total`).
-    -   Instrument `AttachmentService` (`attachments_uploaded_bytes`).
-    -   Instrument `Gateway` (`websocket_active_connections`).
+2.  **Phase 2: Core Metrics (DONE)**
+    -   Instrument `MessageService`, `AttachmentService`, `KeyService`, and `Gateway`.
+    -   Implement `health_status` binary gauge.
 
-3.  **Phase 3: Infrastructure (IN PROGRESS)**
+3.  **Phase 3: Infrastructure (DONE)**
+    -   Update `docker-compose.yml` with `grafana/otel-lgtm` for simplified local testing.
 
-    -   Deploy LGTM Stack (Loki, Grafana, Tempo, Mimir) or Jaeger/Prometheus via Helm for Production.
+4.  **Phase 4: Advanced Instrumentation (PLANNED)**
+    -   **State Metric Poller:** Implement a background service to query and push DB-backed gauges (`users_total`, `pending_messages_total`, etc.).
+    -   **RED Metrics:** Implement explicit Axum middleware for `http_requests_total` and `http_request_duration_seconds` using `MatchedPath`.
+    -   **Resource Auto-Instrumentation:** Enable `sqlx` (pool metrics) and `aws-sdk` telemetry to capture internal dependency performance automatically.
+    -   **Registration Metrics:** Add `users_registered_total` counter to `AccountService` to track signup velocity (DONE).
+    -   **Session Metrics:** Add `websocket_session_duration_seconds` to `Gateway`.
 
-    -   Update `docker-compose.yml` with `grafana/otel-lgtm` for simplified local testing (DONE).
+5.  **Phase 5: Semantic Enrichment (PLANNED)**
+    -   **User Context:** Inject `user_id` into spans after successful JWT authentication (implemented in `AuthUser` middleware and WebSocket handler).
+    -   **Error Classification:** Use OTel semantic conventions to categorize errors (e.g., `db.error.condition`).

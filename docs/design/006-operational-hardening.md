@@ -52,5 +52,5 @@ This plan details "low-hanging fruit" improvements to enhance the operational ma
 **Implementation:**
 -   **Dependencies:** Integrated OTel 0.31 SDK and `tracing-opentelemetry`.
 -   **Config:** Added `otlp_endpoint` to support the "Push" model.
--   **Metrics:** Instrumented Business KPIs (messages sent, connection counts) and Tuning metrics (batch efficiency, health check latency).
+-   **Metrics:** Instrumented Business KPIs (messages sent, connection counts) and Tuning metrics (batch efficiency, health check status).
 **Testing:** Verified via `cargo check` and integration test suite stability.
