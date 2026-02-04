@@ -246,6 +246,8 @@ impl AttachmentService {
 
             for id in ids {
                 let key = id.to_string();
+                let item_span = tracing::info_span!("delete_attachment", attachment.id = %id);
+                let _enter = item_span.enter();
 
                 // 1. Delete from S3
                 let res = self.s3_client.delete_object().bucket(&self.config.bucket).key(&key).send().await;
