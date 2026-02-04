@@ -32,17 +32,17 @@ impl Default for HealthMetrics {
 pub struct HealthService {
     pool: DbPool,
     s3_client: Client,
-    s3_bucket: String,
+    storage_bucket: String,
     config: HealthConfig,
     metrics: HealthMetrics,
 }
 
 impl HealthService {
-    pub fn new(pool: DbPool, s3_client: Client, s3_bucket: String, config: HealthConfig) -> Self {
+    pub fn new(pool: DbPool, s3_client: Client, storage_bucket: String, config: HealthConfig) -> Self {
         Self {
             pool,
             s3_client,
-            s3_bucket,
+            storage_bucket,
             config,
             metrics: HealthMetrics::new(),
         }
@@ -65,19 +65,19 @@ impl HealthService {
         res
     }
 
-    pub async fn check_s3(&self) -> Result<(), String> {
-        let s3_timeout = Duration::from_millis(self.config.s3_timeout_ms);
+    pub async fn check_storage(&self) -> Result<(), String> {
+        let storage_timeout = Duration::from_millis(self.config.storage_timeout_ms);
         let start = Instant::now();
 
-        let res = match timeout(s3_timeout, self.s3_client.head_bucket().bucket(&self.s3_bucket).send()).await {
+        let res = match timeout(storage_timeout, self.s3_client.head_bucket().bucket(&self.storage_bucket).send()).await {
             Ok(Ok(_)) => Ok(()),
-            Ok(Err(e)) => Err(format!("S3 connection failed for bucket {}: {:?}", self.s3_bucket, e)),
-            Err(_) => Err("S3 connection timed out".to_string()),
+            Ok(Err(e)) => Err(format!("Storage connection failed for bucket {}: {:?}", self.storage_bucket, e)),
+            Err(_) => Err("Storage connection timed out".to_string()),
         };
 
         self.metrics.health_check_duration_seconds.record(
             start.elapsed().as_secs_f64(),
-            &[KeyValue::new("component", "s3")],
+            &[KeyValue::new("component", "storage")],
         );
         res
     }

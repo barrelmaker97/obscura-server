@@ -1,6 +1,5 @@
 use crate::config::{LogFormat, TelemetryConfig};
 use opentelemetry::{KeyValue, global};
-use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::{WithExportConfig, WithHttpConfig};
 use opentelemetry_sdk::{
     Resource,
@@ -14,6 +13,7 @@ use opentelemetry_sdk::{
 use opentelemetry_semantic_conventions::resource::{SERVICE_NAME, SERVICE_VERSION};
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
+use opentelemetry::logs::{LogRecord, Logger, LoggerProvider, Severity, AnyValue};
 
 /// Initializes the OpenTelemetry tracing, metrics, and logging providers and hooks them into the tracing subscriber.
 pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<()> {
@@ -47,6 +47,7 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<()> {
             .with_http()
             .with_http_client(reqwest::blocking::Client::new())
             .with_endpoint(format!("{}/v1/traces", endpoint))
+            .with_timeout(std::time::Duration::from_secs(config.export_timeout_secs))
             .build()?;
 
         let tracer_provider = SdkTracerProvider::builder()
@@ -67,10 +68,11 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<()> {
             .with_http()
             .with_http_client(reqwest::blocking::Client::new())
             .with_endpoint(format!("{}/v1/metrics", endpoint))
+            .with_timeout(std::time::Duration::from_secs(config.export_timeout_secs))
             .build()?;
 
         let reader = PeriodicReader::builder(exporter)
-            .with_interval(std::time::Duration::from_secs(5))
+            .with_interval(std::time::Duration::from_secs(config.metrics_export_interval_secs))
             .build();
         let meter_provider = SdkMeterProvider::builder().with_resource(resource.clone()).with_reader(reader).build();
         global::set_meter_provider(meter_provider);
@@ -80,6 +82,7 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<()> {
             .with_http()
             .with_http_client(reqwest::blocking::Client::new())
             .with_endpoint(format!("{}/v1/logs", endpoint))
+            .with_timeout(std::time::Duration::from_secs(config.export_timeout_secs))
             .build()?;
 
         let logger_provider = SdkLoggerProvider::builder()
@@ -89,7 +92,8 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<()> {
             )
             .build();
         
-        let layer = OpenTelemetryTracingBridge::new(&logger_provider);
+        let logger = logger_provider.logger("obscura-server");
+        let layer = OtelLogLayer::new(logger);
 
         (Some(OpenTelemetryLayer::new(tracer)), Some(layer))
     } else {
@@ -120,4 +124,104 @@ pub fn shutdown_telemetry() {
 pub fn init_test_telemetry() {
     let provider = SdkMeterProvider::builder().build();
     global::set_meter_provider(provider);
+}
+
+/// A custom tracing layer that bridges tracing events to OpenTelemetry logs.
+/// It specifically handles the "empty message" issue by promoting the 'error' field
+/// to the log body if the message is empty (common when using #[instrument(err)]).
+struct OtelLogLayer<L: Logger> {
+    logger: L,
+}
+
+impl<L: Logger> OtelLogLayer<L> {
+    fn new(logger: L) -> Self {
+        Self { logger }
+    }
+}
+
+impl<L, S> tracing_subscriber::Layer<S> for OtelLogLayer<L>
+where
+    L: Logger + 'static,
+    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
+{
+    fn on_event(&self, event: &tracing::Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+        let mut visitor = OtelLogVisitor::default();
+        event.record(&mut visitor);
+
+        let mut record = self.logger.create_log_record();
+
+        let meta = event.metadata();
+        
+        // Map Severity
+        let severity = match *meta.level() {
+            tracing::Level::ERROR => Severity::Error,
+            tracing::Level::WARN => Severity::Warn,
+            tracing::Level::INFO => Severity::Info,
+            tracing::Level::DEBUG => Severity::Debug,
+            tracing::Level::TRACE => Severity::Trace,
+        };
+        record.set_severity_number(severity);
+        record.set_severity_text(meta.level().as_str());
+        record.set_target(meta.target().to_string());
+
+        // Correlation: OTel global state handles trace/span IDs if the context is active
+        let context = opentelemetry::Context::current();
+        let span = opentelemetry::trace::TraceContextExt::span(&context); let span_context = span.span_context();
+        if span_context.is_valid() {
+            // These methods exist in the LogRecord trait for SdkLogRecord (which we are using)
+            // If they don't, we can add them as attributes
+            record.add_attribute("trace_id", AnyValue::from(span_context.trace_id().to_string()));
+            record.add_attribute("span_id", AnyValue::from(span_context.span_id().to_string()));
+        }
+
+        // The Fix: Promote 'error' to Body if 'message' is empty
+        let body = if visitor.message.is_empty() && !visitor.error.is_empty() {
+            visitor.error.clone()
+        } else {
+            visitor.message
+        };
+        record.set_body(AnyValue::from(body));
+
+        // Add other fields as attributes
+        for (key, value) in visitor.attributes {
+            record.add_attribute(key, AnyValue::from(value));
+        }
+        if !visitor.error.is_empty() {
+            record.add_attribute("error", AnyValue::from(visitor.error));
+        }
+
+        self.logger.emit(record);
+    }
+}
+
+#[derive(Default)]
+struct OtelLogVisitor {
+    message: String,
+    error: String,
+    attributes: Vec<(String, String)>,
+}
+
+impl tracing::field::Visit for OtelLogVisitor {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        let name = field.name();
+        let val = format!("{:?}", value);
+        if name == "message" {
+            self.message = val;
+        } else if name == "error" {
+            self.error = val;
+        } else {
+            self.attributes.push((name.to_string(), val));
+        }
+    }
+
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        let name = field.name();
+        if name == "message" {
+            self.message = value.to_string();
+        } else if name == "error" {
+            self.error = value.to_string();
+        } else {
+            self.attributes.push((name.to_string(), value.to_string()));
+        }
+    }
 }

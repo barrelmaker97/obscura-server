@@ -9,9 +9,9 @@ pub async fn livez() -> impl IntoResponse {
 
 /// Readiness probe: checks connectivity to the database and S3.
 pub async fn readyz(State(state): State<MgmtState>) -> impl IntoResponse {
-    let (db_res, s3_res) = tokio::join!(
+    let (db_res, storage_res) = tokio::join!(
         state.health_service.check_db(),
-        state.health_service.check_s3()
+        state.health_service.check_storage()
     );
 
     let mut status_code = StatusCode::OK;
@@ -23,8 +23,8 @@ pub async fn readyz(State(state): State<MgmtState>) -> impl IntoResponse {
         "ok"
     };
 
-    let s3_status = if let Err(e) = s3_res {
-        tracing::warn!(error = %e, component = "s3", "Readiness probe failed");
+    let storage_status = if let Err(e) = storage_res {
+        tracing::warn!(error = %e, component = "storage", "Readiness probe failed");
         status_code = StatusCode::SERVICE_UNAVAILABLE;
         "error"
     } else {
@@ -36,7 +36,7 @@ pub async fn readyz(State(state): State<MgmtState>) -> impl IntoResponse {
         Json(json!({
             "status": if status_code == StatusCode::OK { "ok" } else { "error" },
             "database": db_status,
-            "s3": s3_status,
+            "storage": storage_status,
         })),
     )
 }

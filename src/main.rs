@@ -66,21 +66,21 @@ async fn main() -> anyhow::Result<()> {
 
     let notifier = Arc::new(InMemoryNotifier::new(config.clone(), shutdown_rx.clone()));
 
-    // S3 Setup
-    let region_provider = aws_config::Region::new(config.s3.region.clone());
+    // Storage Setup
+    let region_provider = aws_config::Region::new(config.storage.region.clone());
     let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider);
 
-    if let Some(ref endpoint) = config.s3.endpoint {
+    if let Some(ref endpoint) = config.storage.endpoint {
         config_loader = config_loader.endpoint_url(endpoint);
     }
 
-    if let (Some(ak), Some(sk)) = (&config.s3.access_key, &config.s3.secret_key) {
+    if let (Some(ak), Some(sk)) = (&config.storage.access_key, &config.storage.secret_key) {
         let creds = aws_credential_types::Credentials::new(ak.clone(), sk.clone(), None, None, "static");
         config_loader = config_loader.credentials_provider(creds);
     }
 
     let sdk_config = config_loader.load().await;
-    let s3_config_builder = aws_sdk_s3::config::Builder::from(&sdk_config).force_path_style(config.s3.force_path_style);
+    let s3_config_builder = aws_sdk_s3::config::Builder::from(&sdk_config).force_path_style(config.storage.force_path_style);
     let s3_client = aws_sdk_s3::Client::from_conf(s3_config_builder.build());
 
     // Initialize Repositories
@@ -103,7 +103,7 @@ async fn main() -> anyhow::Result<()> {
         pool.clone(),
         attachment_repo,
         s3_client.clone(),
-        config.s3.clone(),
+        config.storage.clone(),
         config.ttl_days,
     );
 
@@ -135,7 +135,7 @@ async fn main() -> anyhow::Result<()> {
     let health_service = HealthService::new(
         pool.clone(),
         s3_client.clone(),
-        config.s3.bucket.clone(),
+        config.storage.bucket.clone(),
         config.health.clone()
     );
 
@@ -209,7 +209,7 @@ async fn main() -> anyhow::Result<()> {
         } => {
             tracing::info!("Background tasks finished.");
         }
-        _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
+        _ = tokio::time::sleep(std::time::Duration::from_secs(config.server.shutdown_timeout_secs)) => {
             tracing::warn!("Timeout waiting for background tasks to finish.");
         }
     }

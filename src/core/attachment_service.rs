@@ -1,4 +1,4 @@
-use crate::config::S3Config;
+use crate::config::StorageConfig;
 use crate::error::{AppError, Result};
 use crate::storage::DbPool;
 use crate::storage::attachment_repo::AttachmentRepository;
@@ -69,13 +69,13 @@ pub struct AttachmentService {
     pool: DbPool,
     repo: AttachmentRepository,
     s3_client: Client,
-    config: S3Config,
+    config: StorageConfig,
     ttl_days: i64,
     metrics: AttachmentMetrics,
 }
 
 impl AttachmentService {
-    pub fn new(pool: DbPool, repo: AttachmentRepository, s3_client: Client, config: S3Config, ttl_days: i64) -> Self {
+    pub fn new(pool: DbPool, repo: AttachmentRepository, s3_client: Client, config: StorageConfig, ttl_days: i64) -> Self {
         Self {
             pool,
             repo,
@@ -202,8 +202,7 @@ impl AttachmentService {
 
     #[tracing::instrument(skip(self, shutdown), name = "attachment_cleanup_task")]
     pub async fn run_cleanup_loop(&self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
-        // Run every hour
-        let interval = StdDuration::from_secs(3600);
+        let interval = StdDuration::from_secs(self.config.cleanup_interval_secs);
         let mut next_tick = tokio::time::Instant::now() + interval;
 
         while !*shutdown.borrow() {
@@ -229,8 +228,8 @@ impl AttachmentService {
     )]
     async fn cleanup_batch(&self) -> Result<()> {
         loop {
-            // Fetch expired attachments (Limit 100 per cycle to avoid blocking)
-            let ids = self.repo.fetch_expired(&self.pool, 100).await?;
+            // Fetch expired attachments
+            let ids = self.repo.fetch_expired(&self.pool, self.config.cleanup_batch_size as i64).await?;
 
             if ids.is_empty() {
                 break;
