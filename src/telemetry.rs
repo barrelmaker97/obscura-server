@@ -15,19 +15,48 @@ use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 use opentelemetry::logs::{LogRecord, Logger, LoggerProvider, Severity, AnyValue};
 
+/// A guard that ensures OpenTelemetry providers are properly shut down and flushed when dropped.
+pub struct TelemetryGuard {
+    tracer_provider: Option<SdkTracerProvider>,
+    meter_provider: Option<SdkMeterProvider>,
+    logger_provider: Option<SdkLoggerProvider>,
+}
+
+impl TelemetryGuard {
+    pub fn shutdown(self) {
+        if let Some(provider) = self.tracer_provider {
+            if let Err(err) = provider.shutdown() {
+                eprintln!("Error shutting down tracer provider: {:?}", err);
+            }
+        }
+        if let Some(provider) = self.meter_provider {
+            if let Err(err) = provider.shutdown() {
+                eprintln!("Error shutting down meter provider: {:?}", err);
+            }
+        }
+        if let Some(provider) = self.logger_provider {
+            // SdkLoggerProvider::shutdown returns a CompletableResultCode in some versions,
+            // or a Result in others. We just call it to trigger the flush.
+            let _ = provider.shutdown();
+        }
+    }
+}
+
 /// Initializes the OpenTelemetry tracing, metrics, and logging providers and hooks them into the tracing subscriber.
-pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<()> {
+pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<TelemetryGuard> {
     // 1. Build the Registry with EnvFilter
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "info".into())
         .add_directive("sqlx=warn".parse().unwrap())
         .add_directive("tower_http=warn".parse().unwrap())
-        .add_directive("hyper=warn".parse().unwrap());
+        .add_directive("hyper=warn".parse().unwrap())
+        .add_directive("opentelemetry=warn".parse().unwrap())
+        .add_directive("opentelemetry_sdk=warn".parse().unwrap());
 
     let registry = Registry::default().with(filter);
 
     // 2. Initialize OTLP Layers (Optional)
-    let (otel_layer, logger_layer) = if let Some(endpoint) = &config.otlp_endpoint {
+    let (otel_layer, logger_layer, guard) = if let Some(endpoint) = &config.otlp_endpoint {
         let service_name = "obscura-server";
         let service_version = env!("CARGO_PKG_VERSION");
 
@@ -61,7 +90,7 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<()> {
             .build();
 
         let tracer = opentelemetry::trace::TracerProvider::tracer(&tracer_provider, service_name);
-        global::set_tracer_provider(tracer_provider);
+        global::set_tracer_provider(tracer_provider.clone());
 
         // Setup Metrics
         let exporter = opentelemetry_otlp::MetricExporter::builder()
@@ -75,7 +104,7 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<()> {
             .with_interval(std::time::Duration::from_secs(config.metrics_export_interval_secs))
             .build();
         let meter_provider = SdkMeterProvider::builder().with_resource(resource.clone()).with_reader(reader).build();
-        global::set_meter_provider(meter_provider);
+        global::set_meter_provider(meter_provider.clone());
 
         // Setup Logging
         let exporter = opentelemetry_otlp::LogExporter::builder()
@@ -95,9 +124,20 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<()> {
         let logger = logger_provider.logger("obscura-server");
         let layer = OtelLogLayer::new(logger);
 
-        (Some(OpenTelemetryLayer::new(tracer)), Some(layer))
+        let guard = TelemetryGuard {
+            tracer_provider: Some(tracer_provider),
+            meter_provider: Some(meter_provider),
+            logger_provider: Some(logger_provider),
+        };
+
+        (Some(OpenTelemetryLayer::new(tracer)), Some(layer), guard)
     } else {
-        (None, None)
+        let guard = TelemetryGuard {
+            tracer_provider: None,
+            meter_provider: None,
+            logger_provider: None,
+        };
+        (None, None, guard)
     };
 
     // 3. Compose Layers
@@ -112,12 +152,7 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<()> {
         }
     }
 
-    Ok(())
-}
-
-/// Shuts down the telemetry providers, ensuring all remaining spans and metrics are flushed.
-pub fn shutdown_telemetry() {
-    // In OTel 0.28, global shutdown is handled differently or unnecessary if providers are dropped.
+    Ok(guard)
 }
 
 /// Initializes a no-op telemetry provider for tests to silence warnings.

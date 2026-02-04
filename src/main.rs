@@ -22,7 +22,7 @@ use tokio::sync::watch;
 async fn main() -> anyhow::Result<()> {
     let config = Config::load();
 
-    telemetry::init_telemetry(config.telemetry.clone())?;
+    let telemetry_guard = telemetry::init_telemetry(config.telemetry.clone())?;
 
     std::panic::set_hook(Box::new(|panic_info| {
         let payload = panic_info.payload();
@@ -214,7 +214,7 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    telemetry::shutdown_telemetry();
+    telemetry_guard.shutdown();
     Ok(())
 }
 
