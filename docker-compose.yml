@@ -27,3 +27,39 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  obscura-server:
+    build: .
+    ports:
+      - "3000:3000"
+      - "9090:9090"
+    environment:
+      OBSCURA_DATABASE_URL: postgres://user:password@db:5432/signal_server
+      OBSCURA_JWT_SECRET: test_secret
+      OBSCURA_S3_BUCKET: test-bucket
+      OBSCURA_S3_ENDPOINT: http://minio:9000
+      OBSCURA_S3_ACCESS_KEY: minioadmin
+      OBSCURA_S3_SECRET_KEY: minioadmin
+      OBSCURA_S3_FORCE_PATH_STYLE: "true"
+      OBSCURA_LOG_FORMAT: json
+      OBSCURA_OTLP_ENDPOINT: http://lgtm:4318
+      RUST_LOG: debug
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      lgtm:
+        condition: service_started
+
+
+  lgtm:
+    image: grafana/otel-lgtm:latest
+    ports:
+      - "3001:3000" # Grafana
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+      - "3100:3100" # Loki
+    environment:
+      - OTEL_METRIC_EXPORT_INTERVAL=5000
+    

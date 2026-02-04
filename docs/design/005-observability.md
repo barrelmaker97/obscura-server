@@ -12,13 +12,12 @@ This provides:
 
 ### 2.1 The Pipeline
 ```
-[Obscura Server]  --(OTLP/HTTP)-->  [OTel Collector]  --> [Prometheus / Mimir] (Metrics)
-                                                      --> [Tempo / Jaeger]     (Traces)
-                                                      --> [Loki]               (Logs - via Promtail)
+[Obscura Server]  --(OTLP/HTTP)-->  [OTel LGTM Stack] (Loki, Grafana, Tempo, Prometheus)
 ```
 
 ### 2.2 Configuration
--   **Env Var:** `OBSCURA_OTLP_ENDPOINT` (e.g., `http://otel-collector:4318`).
+-   **Env Var:** `OBSCURA_OTLP_ENDPOINT` (e.g., `http://lgtm:4318`).
+-   **Local Development:** We use the `grafana/otel-lgtm` all-in-one image to simplify the local observability stack. This image includes Grafana, Prometheus, Loki, and Tempo with an OTLP-compatible ingestion endpoint.
 -   **Behavior:**
     -   If set: Telemetry is fully initialized (Traces + Metrics pushed).
     -   If unset: Runs in "Logs Only" mode (safe default for local dev/testing).
@@ -84,6 +83,8 @@ These metrics exist specifically to help tune `src/config.rs` parameters.
     -   Instrument `AttachmentService` (`attachments_uploaded_bytes`).
     -   Instrument `Gateway` (`websocket_active_connections`).
 
-3.  **Phase 3: Infrastructure**
-    -   Deploy LGTM Stack (Loki, Grafana, Tempo, Mimir) or Jaeger/Prometheus via Helm.
-    -   Update `docker-compose.yml` for local testing.
+3.  **Phase 3: Infrastructure (IN PROGRESS)**
+
+    -   Deploy LGTM Stack (Loki, Grafana, Tempo, Mimir) or Jaeger/Prometheus via Helm for Production.
+
+    -   Update `docker-compose.yml` with `grafana/otel-lgtm` for simplified local testing (DONE).

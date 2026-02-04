@@ -45,16 +45,17 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
 uuid = { version = "1.19.0", features = ["v4", "serde"] }
 tower-http = { version = "0.6.8", features = ["trace", "request-id", "util"] }
-opentelemetry = { version = "0.31", features = ["metrics"] }
-opentelemetry_sdk = { version = "0.31", features = ["rt-tokio", "metrics"] }
-opentelemetry-otlp = { version = "0.31", features = ["http-proto", "reqwest-client", "metrics"] }
+opentelemetry = { version = "0.31", features = ["metrics", "logs"] }
+opentelemetry_sdk = { version = "0.31", features = ["metrics", "logs"] }
+opentelemetry-otlp = { version = "0.31", features = ["http-proto", "reqwest-blocking-client", "metrics", "logs"] }
+opentelemetry-appender-tracing = "0.31"
 tracing-opentelemetry = "0.32"
 opentelemetry-semantic-conventions = "0.31"
+reqwest = { version = "0.12.28", features = ["json", "stream", "blocking"] }
 
 [build-dependencies]
 prost-build = "0.14.1"
 
 [dev-dependencies]
 curve25519-dalek = "4.1"
-reqwest = { version = "0.13.1", features = ["json", "stream"] }
 tokio-tungstenite = "0.28.0"
