@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 #[derive(Clone)]
 struct KeyMetrics {
-    keys_prekey_low_events_total: Counter<u64>,
+    keys_prekey_low_total: Counter<u64>,
     keys_takeovers_total: Counter<u64>,
 }
 
@@ -22,8 +22,8 @@ impl KeyMetrics {
     fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
-            keys_prekey_low_events_total: meter
-                .u64_counter("keys_prekey_low_events_total")
+            keys_prekey_low_total: meter
+                .u64_counter("keys_prekey_low_total")
                 .with_description("Events where users dipped below prekey threshold")
                 .build(),
             keys_takeovers_total: meter
@@ -95,7 +95,7 @@ impl KeyService {
     pub async fn check_pre_key_status(&self, user_id: Uuid) -> Result<Option<PreKeyStatus>> {
         let count = self.key_repo.count_one_time_pre_keys(&self.pool, user_id).await?;
         if count < self.config.pre_key_refill_threshold as i64 {
-            self.metrics.keys_prekey_low_events_total.add(1, &[]);
+            self.metrics.keys_prekey_low_total.add(1, &[]);
 
             Ok(Some(PreKeyStatus {
                 one_time_pre_key_count: count as i32,

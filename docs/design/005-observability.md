@@ -71,7 +71,7 @@ These metrics exist specifically to help tune `src/config.rs` parameters.
 | Metric Name | Type | Related Config | Why measure it? | Status |
 | :--- | :--- | :--- | :--- | :--- |
 | `websocket_ack_batch_size` | Histogram | `WsConfig.ack_batch_size` | If batches are small, interval is too short. | **Implemented** |
-| `keys_prekey_low_events_total` | Counter | `MessagingConfig.pre_key_refill_threshold` | Frequent low events mean threshold is high. | **Implemented** |
+| `keys_prekey_low_total` | Counter | `MessagingConfig.pre_key_refill_threshold` | Frequent low events mean threshold is high. | **Implemented** |
 | `messaging_inbox_overflow_total` | Counter | `MessagingConfig.max_inbox_size` | Global inbox overflow count. | **Implemented** |
 | `notification_sends_total` | Counter | `status` | Internal notification success rate. | **Implemented** |
 
@@ -94,18 +94,19 @@ These metrics exist specifically to help tune `src/config.rs` parameters.
     -   Implement `telemetry.rs` initialization logic.
     -   Make OTLP endpoint configurable.
 
-2.  **Phase 2: Core Metrics (DONE)**
+2.  **Phase 2: Core Metrics & Tracing (DONE)**
     -   Instrument `MessageService`, `AttachmentService`, `KeyService`, and `Gateway`.
-    -   Implement `health_status` binary gauge.
+    -   Implement `health_status` binary gauge and `users_registered_total` counter.
+    -   **Granular Tracing:** Added `server_boot` spans and individual item spans for cleanup background tasks.
+    -   **Resource Events:** Verified `sqlx` and `aws-sdk` tracing events are captured.
 
 3.  **Phase 3: Infrastructure (DONE)**
     -   Update `docker-compose.yml` with `grafana/otel-lgtm` for simplified local testing.
+    -   **OTel 0.31 Compliance:** Implemented `TelemetryGuard` for proper flush/shutdown.
 
 4.  **Phase 4: Advanced Instrumentation (PLANNED)**
     -   **State Metric Poller:** Implement a background service to query and push DB-backed gauges (`users_total`, `pending_messages_total`, etc.).
     -   **RED Metrics:** Implement explicit Axum middleware for `http_requests_total` and `http_request_duration_seconds` using `MatchedPath`.
-    -   **Resource Auto-Instrumentation:** Enable `sqlx` (pool metrics) and `aws-sdk` telemetry to capture internal dependency performance automatically.
-    -   **Registration Metrics:** Add `users_registered_total` counter to `AccountService` to track signup velocity (DONE).
     -   **Session Metrics:** Add `websocket_session_duration_seconds` to `Gateway`.
 
 5.  **Phase 5: Semantic Enrichment (PLANNED)**
