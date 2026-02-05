@@ -7,9 +7,32 @@ use crate::error::{AppError, Result};
 use crate::proto::obscura::v1::PreKeyStatus;
 use crate::storage::key_repo::KeyRepository;
 use crate::storage::message_repo::MessageRepository;
+use opentelemetry::{global, metrics::Counter};
 use sqlx::{PgConnection, PgPool};
 use std::sync::Arc;
 use uuid::Uuid;
+
+#[derive(Clone)]
+struct KeyMetrics {
+    keys_prekey_low_total: Counter<u64>,
+    keys_takeovers_total: Counter<u64>,
+}
+
+impl KeyMetrics {
+    fn new() -> Self {
+        let meter = global::meter("obscura-server");
+        Self {
+            keys_prekey_low_total: meter
+                .u64_counter("keys_prekey_low_total")
+                .with_description("Events where users dipped below prekey threshold")
+                .build(),
+            keys_takeovers_total: meter
+                .u64_counter("keys_takeovers_total")
+                .with_description("Total number of device takeover events")
+                .build(),
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct KeyService {
@@ -18,6 +41,7 @@ pub struct KeyService {
     message_repo: MessageRepository,
     notifier: Arc<dyn Notifier>,
     config: MessagingConfig,
+    metrics: KeyMetrics,
 }
 
 pub struct KeyUploadParams {
@@ -36,7 +60,14 @@ impl KeyService {
         notifier: Arc<dyn Notifier>,
         config: MessagingConfig,
     ) -> Self {
-        Self { pool, key_repo, message_repo, notifier, config }
+        Self {
+            pool,
+            key_repo,
+            message_repo,
+            notifier,
+            config,
+            metrics: KeyMetrics::new(),
+        }
     }
 
     pub fn validate_otpk_uniqueness(keys: &[OneTimePreKey]) -> Result<()> {
@@ -64,6 +95,8 @@ impl KeyService {
     pub async fn check_pre_key_status(&self, user_id: Uuid) -> Result<Option<PreKeyStatus>> {
         let count = self.key_repo.count_one_time_pre_keys(&self.pool, user_id).await?;
         if count < self.config.pre_key_refill_threshold as i64 {
+            self.metrics.keys_prekey_low_total.add(1, &[]);
+
             Ok(Some(PreKeyStatus {
                 one_time_pre_key_count: count as i32,
                 min_threshold: self.config.pre_key_refill_threshold,
@@ -93,6 +126,8 @@ impl KeyService {
 
         if is_takeover {
             tracing::warn!("Device takeover detected");
+            self.metrics.keys_takeovers_total.add(1, &[]);
+
             self.notifier.notify(user_id, UserEvent::Disconnect);
         }
 

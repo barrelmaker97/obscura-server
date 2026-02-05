@@ -1,7 +1,25 @@
 use crate::config::Config;
 use dashmap::DashMap;
+use opentelemetry::{KeyValue, global, metrics::Counter};
 use tokio::sync::broadcast;
 use uuid::Uuid;
+
+#[derive(Clone)]
+struct NotificationMetrics {
+    notification_sends_total: Counter<u64>,
+}
+
+impl NotificationMetrics {
+    fn new() -> Self {
+        let meter = global::meter("obscura-server");
+        Self {
+            notification_sends_total: meter
+                .u64_counter("notification_sends_total")
+                .with_description("Total notification send attempts")
+                .build(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum UserEvent {
@@ -23,6 +41,7 @@ pub struct InMemoryNotifier {
     // Wrapped in Arc to share with background GC task.
     channels: std::sync::Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
     channel_capacity: usize,
+    metrics: NotificationMetrics,
 }
 
 impl InMemoryNotifier {
@@ -33,11 +52,11 @@ impl InMemoryNotifier {
 
         // Spawn background GC task
         tokio::spawn(async move {
-            let span = tracing::info_span!("notifier_gc_task");
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
             while !*shutdown.borrow() {
                 tokio::select! {
                     _ = interval.tick() => {
+                        let span = tracing::info_span!("notifier_gc_iteration");
                         let _enter = span.enter();
                         // Atomic cleanup: Remove entries with 0 receivers
                         map_ref.retain(|_, sender: &mut broadcast::Sender<UserEvent>| sender.receiver_count() > 0);
@@ -47,7 +66,11 @@ impl InMemoryNotifier {
             }
         });
 
-        Self { channels, channel_capacity: config.notifications.channel_capacity }
+        Self {
+            channels,
+            channel_capacity: config.notifications.channel_capacity,
+            metrics: NotificationMetrics::new(),
+        }
     }
 }
 
@@ -70,7 +93,12 @@ impl Notifier for InMemoryNotifier {
     fn notify(&self, user_id: Uuid, event: UserEvent) {
         if let Some(tx) = self.channels.get(&user_id) {
             // We ignore errors (e.g., if no one is listening)
-            let _ = tx.send(event);
+            match tx.send(event) {
+                Ok(_) => self.metrics.notification_sends_total.add(1, &[KeyValue::new("status", "sent")]),
+                Err(_) => {
+                    self.metrics.notification_sends_total.add(1, &[KeyValue::new("status", "no_receivers")])
+                }
+            }
         }
     }
 }
@@ -78,95 +106,84 @@ impl Notifier for InMemoryNotifier {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::NotificationConfig;
     use std::time::Duration;
 
-    // Helper to create a dummy config for tests
-    fn test_config(gc_interval: u64, capacity: usize) -> Config {
+    fn test_config(gc_interval: u64) -> Config {
         Config {
-            database_url: "".to_string(),
-            ttl_days: 30,
-            server: crate::config::ServerConfig {
-                host: "0.0.0.0".to_string(),
-                port: 3000,
-                mgmt_port: 9000,
-                log_format: crate::config::LogFormat::Text,
-                trusted_proxies: vec!["127.0.0.1/32".parse().unwrap()],
-            },
-            auth: crate::config::AuthConfig {
-                jwt_secret: "".to_string(),
-                access_token_ttl_secs: 900,
-                refresh_token_ttl_days: 30,
-            },
-            rate_limit: crate::config::RateLimitConfig { per_second: 5, burst: 10, auth_per_second: 1, auth_burst: 3 },
-            health: crate::config::HealthConfig { db_timeout_ms: 2000, s3_timeout_ms: 2000 },
-            messaging: crate::config::MessagingConfig {
-                max_inbox_size: 1000,
-                cleanup_interval_secs: 300,
-                batch_limit: 50,
-                pre_key_refill_threshold: 20,
-                max_pre_keys: 100,
-            },
-            notifications: crate::config::NotificationConfig {
+            notifications: NotificationConfig {
                 gc_interval_secs: gc_interval,
-                channel_capacity: capacity,
+                ..Default::default()
             },
-            websocket: crate::config::WsConfig {
-                outbound_buffer_size: 32,
-                ack_buffer_size: 100,
-                ack_batch_size: 50,
-                ack_flush_interval_ms: 500,
-            },
-            s3: crate::config::S3Config {
-                bucket: "".to_string(),
-                region: "us-east-1".to_string(),
-                endpoint: None,
-                access_key: None,
-                secret_key: None,
-                force_path_style: false,
-                attachment_max_size_bytes: 52_428_800,
-            },
+            ..Default::default()
         }
     }
 
     #[tokio::test]
-    async fn test_notifier_gc_cleans_up_unused_channels() {
-        let config = test_config(1, 16);
-        let (_tx, rx) = tokio::sync::watch::channel(false);
-        let notifier = InMemoryNotifier::new(config, rx);
+    async fn test_notifier_subscribe_and_notify() {
+        let (_tx, rx_shutdown) = tokio::sync::watch::channel(false);
+        let notifier = InMemoryNotifier::new(test_config(60), rx_shutdown);
         let user_id = Uuid::new_v4();
 
-        // 2. Subscribe (creates entry)
-        let rx = notifier.subscribe(user_id);
-
-        // Assert entry exists
-        assert!(notifier.channels.contains_key(&user_id));
-        assert_eq!(notifier.channels.len(), 1);
-
-        // 3. Drop receiver (simulating disconnect)
-        drop(rx);
-
-        // 4. Wait for GC to run (wait 1.1s to be safe)
-        tokio::time::sleep(Duration::from_millis(1100)).await;
-
-        // 5. Assert entry is gone
-        assert!(!notifier.channels.contains_key(&user_id));
-        assert_eq!(notifier.channels.len(), 0);
+        let mut rx = notifier.subscribe(user_id);
+        notifier.notify(user_id, UserEvent::MessageReceived);
+        
+        let event = rx.recv().await.unwrap();
+        assert_eq!(event, UserEvent::MessageReceived);
     }
 
     #[tokio::test]
-    async fn test_notifier_gc_keeps_active_channels() {
-        let config = test_config(1, 16);
-        let (_tx, rx) = tokio::sync::watch::channel(false);
-        let notifier = InMemoryNotifier::new(config, rx);
+    async fn test_notifier_gc_logic() {
+        let (_tx, rx_shutdown) = tokio::sync::watch::channel(false);
+        let notifier = InMemoryNotifier::new(test_config(1), rx_shutdown);
         let user_id = Uuid::new_v4();
 
-        // Subscribe and KEEP the receiver
-        let _rx = notifier.subscribe(user_id);
+        // Subscribe and drop
+        {
+            let _rx = notifier.subscribe(user_id);
+            assert_eq!(notifier.channels.len(), 1);
+        }
 
         // Wait for GC
-        tokio::time::sleep(Duration::from_millis(1100)).await;
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        
+        let mut success = false;
+        for _ in 0..10 {
+            if notifier.channels.is_empty() {
+                success = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(success, "GC task did not clean up in time");
+    }
 
-        // Assert entry still exists
-        assert!(notifier.channels.contains_key(&user_id));
+    #[tokio::test]
+    async fn test_notifier_gc_keeps_active() {
+        let (_tx, rx_shutdown) = tokio::sync::watch::channel(false);
+        let notifier = InMemoryNotifier::new(test_config(1), rx_shutdown);
+        let user_id = Uuid::new_v4();
+
+        let _rx = notifier.subscribe(user_id);
+        
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        
+        assert_eq!(notifier.channels.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_notifier_independent_channels() {
+        let (_tx, rx_shutdown) = tokio::sync::watch::channel(false);
+        let notifier = InMemoryNotifier::new(test_config(60), rx_shutdown);
+        let user1 = Uuid::new_v4();
+        let user2 = Uuid::new_v4();
+
+        let mut rx1 = notifier.subscribe(user1);
+        let mut rx2 = notifier.subscribe(user2);
+        
+        notifier.notify(user1, UserEvent::MessageReceived);
+        
+        assert_eq!(rx1.recv().await.unwrap(), UserEvent::MessageReceived);
+        assert!(tokio::time::timeout(std::time::Duration::from_millis(50), rx2.recv()).await.is_err());
     }
 }

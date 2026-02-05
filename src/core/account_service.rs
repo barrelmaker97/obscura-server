@@ -6,6 +6,7 @@ use crate::error::{AppError, Result};
 use crate::storage::DbPool;
 use crate::storage::refresh_token_repo::RefreshTokenRepository;
 use crate::storage::user_repo::UserRepository;
+use opentelemetry::{global, metrics::Counter};
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -18,12 +19,30 @@ pub struct AuthResponse {
 }
 
 #[derive(Clone)]
+struct AccountMetrics {
+    users_registered_total: Counter<u64>,
+}
+
+impl AccountMetrics {
+    fn new() -> Self {
+        let meter = global::meter("obscura-server");
+        Self {
+            users_registered_total: meter
+                .u64_counter("users_registered_total")
+                .with_description("Total number of successful user registrations")
+                .build(),
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct AccountService {
     pool: DbPool,
     config: AuthConfig,
     key_service: KeyService,
     user_repo: UserRepository,
     refresh_repo: RefreshTokenRepository,
+    metrics: AccountMetrics,
 }
 
 impl AccountService {
@@ -34,7 +53,14 @@ impl AccountService {
         user_repo: UserRepository,
         refresh_repo: RefreshTokenRepository,
     ) -> Self {
-        Self { pool, config, key_service, user_repo, refresh_repo }
+        Self {
+            pool,
+            config,
+            key_service,
+            user_repo,
+            refresh_repo,
+            metrics: AccountMetrics::new(),
+        }
     }
 
     #[tracing::instrument(
@@ -96,6 +122,7 @@ impl AccountService {
         tx.commit().await?;
 
         tracing::info!("User registered successfully");
+        self.metrics.users_registered_total.add(1, &[]);
 
         let expires_at = (time::OffsetDateTime::now_utc()
             + time::Duration::seconds(self.config.access_token_ttl_secs as i64))

@@ -3,18 +3,14 @@ use uuid::Uuid;
 
 mod common;
 
-async fn ensure_bucket(s3_client: &aws_sdk_s3::Client, bucket: &str) {
-    let _ = s3_client.create_bucket().bucket(bucket).send().await;
-}
-
 #[tokio::test]
 async fn test_attachment_lifecycle() {
     let mut config = common::get_test_config();
-    config.s3.bucket = format!("test-bucket-{}", &Uuid::new_v4().to_string()[..8]);
-    config.s3.attachment_max_size_bytes = 100; // Small but enough for "hello"
+    config.storage.bucket = format!("test-bucket-{}", &Uuid::new_v4().to_string()[..8]);
+    config.storage.attachment_max_size_bytes = 100; // Small but enough for "hello"
 
     let app = common::TestApp::spawn_with_config(config.clone()).await;
-    ensure_bucket(&app.s3_client, &config.s3.bucket).await;
+    common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
     let user = app.register_user(&format!("att_life_{}", run_id)).await;

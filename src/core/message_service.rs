@@ -5,10 +5,38 @@ use crate::proto::obscura::v1::EncryptedMessage;
 use crate::storage::DbPool;
 use crate::storage::message_repo::MessageRepository;
 use axum::body::Bytes;
+use opentelemetry::{KeyValue, global, metrics::{Counter, Histogram}};
 use prost::Message;
 use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
+
+#[derive(Clone)]
+struct MessageMetrics {
+    messages_sent_total: Counter<u64>,
+    messaging_fetch_batch_size: Histogram<u64>,
+    messaging_inbox_overflow_total: Counter<u64>,
+}
+
+impl MessageMetrics {
+    fn new() -> Self {
+        let meter = global::meter("obscura-server");
+        Self {
+            messages_sent_total: meter
+                .u64_counter("messages_sent_total")
+                .with_description("Total messages successfully sent")
+                .build(),
+            messaging_fetch_batch_size: meter
+                .u64_histogram("messaging_fetch_batch_size")
+                .with_description("Number of messages fetched in a single batch")
+                .build(),
+            messaging_inbox_overflow_total: meter
+                .u64_counter("messaging_inbox_overflow_total")
+                .with_description("Total messages deleted due to inbox overflow")
+                .build(),
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct MessageService {
@@ -17,6 +45,7 @@ pub struct MessageService {
     notifier: Arc<dyn Notifier>,
     config: MessagingConfig,
     ttl_days: i64,
+    metrics: MessageMetrics,
 }
 
 impl MessageService {
@@ -27,7 +56,14 @@ impl MessageService {
         config: MessagingConfig,
         ttl_days: i64,
     ) -> Self {
-        Self { pool, repo, notifier, config, ttl_days }
+        Self {
+            pool,
+            repo,
+            notifier,
+            config,
+            ttl_days,
+            metrics: MessageMetrics::new(),
+        }
     }
 
     #[tracing::instrument(
@@ -43,14 +79,20 @@ impl MessageService {
         // 2. Store raw body directly (blind relay)
         // Optimization: We no longer check limits synchronously.
         // The background cleanup loop handles overflow.
-        self.repo.create(&self.pool, sender_id, recipient_id, msg.r#type, msg.content, self.ttl_days).await?;
+        match self.repo.create(&self.pool, sender_id, recipient_id, msg.r#type, msg.content, self.ttl_days).await {
+            Ok(_) => {
+                tracing::debug!("Message stored for delivery");
+                self.metrics.messages_sent_total.add(1, &[KeyValue::new("status", "success")]);
 
-        tracing::debug!("Message stored for delivery");
-
-        // 3. Notify the user if they are connected
-        self.notifier.notify(recipient_id, UserEvent::MessageReceived);
-
-        Ok(())
+                // 3. Notify the user if they are connected
+                self.notifier.notify(recipient_id, UserEvent::MessageReceived);
+                Ok(())
+            }
+            Err(e) => {
+                self.metrics.messages_sent_total.add(1, &[KeyValue::new("status", "failure")]);
+                Err(e)
+            }
+        }
     }
 
     #[tracing::instrument(
@@ -80,7 +122,11 @@ impl MessageService {
         cursor: Option<(time::OffsetDateTime, Uuid)>,
         limit: i64,
     ) -> Result<Vec<crate::core::message::Message>> {
-        self.repo.fetch_pending_batch(&self.pool, recipient_id, cursor, limit).await
+        let messages = self.repo.fetch_pending_batch(&self.pool, recipient_id, cursor, limit).await?;
+
+        self.metrics.messaging_fetch_batch_size.record(messages.len() as u64, &[]);
+
+        Ok(messages)
     }
 
     #[tracing::instrument(
@@ -97,13 +143,15 @@ impl MessageService {
     }
 
     /// Periodically cleans up expired messages and enforces inbox limits.
-    #[tracing::instrument(skip(self, shutdown), name = "message_cleanup_task")]
     pub async fn run_cleanup_loop(&self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
         let mut interval = tokio::time::interval(Duration::from_secs(self.config.cleanup_interval_secs));
 
         while !*shutdown.borrow() {
             tokio::select! {
                 _ = interval.tick() => {
+                    let span = tracing::info_span!("message_cleanup_iteration");
+                    let _enter = span.enter();
+                    
                     tracing::debug!("Running message cleanup (expiry + limits)...");
 
                     // 1. Delete Expired (TTL)
@@ -122,6 +170,7 @@ impl MessageService {
                         Ok(count) => {
                             if count > 0 {
                                 tracing::info!(count = %count, "Pruned overflow messages");
+                                self.metrics.messaging_inbox_overflow_total.add(count, &[]);
                             }
                         }
                         Err(e) => tracing::error!(error = %e, "Cleanup loop error (overflow)"),
