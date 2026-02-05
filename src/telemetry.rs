@@ -56,7 +56,7 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<TelemetryGuard>
     let registry = Registry::default().with(filter);
 
     // 2. Initialize OTLP Layers (Optional)
-    let (otel_layer, logger_layer, guard) = if let Some(endpoint) = &config.otlp_endpoint {
+    let (otel_layer, logger_layer, guard) = if let Some(endpoint) = &config.otlp_endpoint && !endpoint.is_empty() {
         let service_name = "obscura-server";
         let service_version = env!("CARGO_PKG_VERSION");
 
