@@ -42,7 +42,7 @@ services:
       OBSCURA_STORAGE_SECRET_KEY: minioadmin
       OBSCURA_STORAGE_FORCE_PATH_STYLE: "true"
       OBSCURA_LOG_FORMAT: json
-      OBSCURA_OTLP_ENDPOINT: http://lgtm:4318
+      OBSCURA_OTLP_ENDPOINT: http://lgtm:4317
       OBSCURA_TELEMETRY_METRICS_EXPORT_INTERVAL_SECS: 5
       RUST_LOG: debug
     depends_on:
