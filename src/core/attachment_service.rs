@@ -13,6 +13,7 @@ use std::task::{Context, Poll};
 use std::time::Duration as StdDuration;
 use time::{Duration, OffsetDateTime};
 use tokio::sync::mpsc;
+use tracing::Instrument;
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -211,14 +212,15 @@ impl AttachmentService {
         while !*shutdown.borrow() {
             tokio::select! {
                 _ = tokio::time::sleep_until(next_tick) => {
-                    let span = tracing::info_span!("attachment_cleanup_iteration");
-                    let _enter = span.enter();
+                    async {
+                        tracing::debug!("Running attachment cleanup...");
 
-                    tracing::debug!("Running attachment cleanup...");
-
-                    if let Err(e) = self.cleanup_batch().await {
-                        tracing::error!(error = %e, "Attachment cleanup cycle failed");
+                        if let Err(e) = self.cleanup_batch().await {
+                            tracing::error!(error = %e, "Attachment cleanup cycle failed");
+                        }
                     }
+                    .instrument(tracing::info_span!("attachment_cleanup_iteration"))
+                    .await;
                     next_tick = tokio::time::Instant::now() + interval;
                 }
                 _ = shutdown.changed() => {}
@@ -246,26 +248,39 @@ impl AttachmentService {
 
             for id in ids {
                 let key = id.to_string();
-                let item_span = tracing::info_span!("delete_attachment", attachment.id = %id);
-                let _enter = item_span.enter();
+                let res = async {
+                    // 1. Delete from S3
+                    let res = self.s3_client
+                        .delete_object()
+                        .bucket(&self.config.bucket)
+                        .key(&key)
+                        .send()
+                        .await;
 
-                // 1. Delete from S3
-                let res = self.s3_client.delete_object().bucket(&self.config.bucket).key(&key).send().await;
+                    match res {
+                        Ok(_) => {}
+                        Err(aws_sdk_s3::error::SdkError::ServiceError(e)) => {
+                            tracing::warn!(error = ?e, key = %key, "S3 delete error");
+                            return Ok(()); // Continue to DB delete (soft fail on S3 logic if we want, or skip?)
+                            // Original logic was `continue` on S3 error, so we should essentially return Ok(()) here to skip DB delete?
+                            // Wait, original logic was:
+                            // Err(ServiceError) -> warn -> continue (skip DB delete)
+                            // Err(Other) -> error -> continue (skip DB delete)
+                            // Ok -> delete DB
+                        }
+                        Err(e) => {
+                            tracing::error!(error = ?e, key = %key, "S3 network/transport error");
+                            return Ok(());
+                        }
+                    }
 
-                match res {
-                    Ok(_) => {}
-                    Err(aws_sdk_s3::error::SdkError::ServiceError(e)) => {
-                        tracing::warn!(error = ?e, key = %key, "S3 delete error");
-                        continue;
-                    }
-                    Err(e) => {
-                        tracing::error!(error = ?e, key = %key, "S3 network/transport error");
-                        continue;
-                    }
+                    // 2. Delete from DB
+                    self.repo.delete(&self.pool, id).await
                 }
+                .instrument(tracing::info_span!("delete_attachment", attachment.id = %id))
+                .await;
 
-                // 2. Delete from DB
-                self.repo.delete(&self.pool, id).await?;
+                res?;
             }
         }
         Ok(())

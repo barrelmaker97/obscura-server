@@ -9,6 +9,7 @@ use opentelemetry::{KeyValue, global, metrics::{Counter, Histogram}};
 use prost::Message;
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::Instrument;
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -149,32 +150,33 @@ impl MessageService {
         while !*shutdown.borrow() {
             tokio::select! {
                 _ = interval.tick() => {
-                    let span = tracing::info_span!("message_cleanup_iteration");
-                    let _enter = span.enter();
-                    
-                    tracing::debug!("Running message cleanup (expiry + limits)...");
+                    async {
+                        tracing::debug!("Running message cleanup (expiry + limits)...");
 
-                    // 1. Delete Expired (TTL)
-                    match self.repo.delete_expired(&self.pool).await {
-                        Ok(count) => {
-                            if count > 0 {
-                                tracing::info!(count = %count, "Deleted expired messages");
+                        // 1. Delete Expired (TTL)
+                        match self.repo.delete_expired(&self.pool).await {
+                            Ok(count) => {
+                                if count > 0 {
+                                    tracing::info!(count = %count, "Deleted expired messages");
+                                }
                             }
+                            Err(e) => tracing::error!(error = %e, "Cleanup loop error (expiry)"),
                         }
-                        Err(e) => tracing::error!(error = %e, "Cleanup loop error (expiry)"),
-                    }
 
-                    // 2. Enforce Inbox Limits (Global Overflow)
-                    // Limit to max_inbox_size messages per user
-                    match self.repo.delete_global_overflow(&self.pool, self.config.max_inbox_size).await {
-                        Ok(count) => {
-                            if count > 0 {
-                                tracing::info!(count = %count, "Pruned overflow messages");
-                                self.metrics.messaging_inbox_overflow_total.add(count, &[]);
+                        // 2. Enforce Inbox Limits (Global Overflow)
+                        // Limit to max_inbox_size messages per user
+                        match self.repo.delete_global_overflow(&self.pool, self.config.max_inbox_size).await {
+                            Ok(count) => {
+                                if count > 0 {
+                                    tracing::info!(count = %count, "Pruned overflow messages");
+                                    self.metrics.messaging_inbox_overflow_total.add(count, &[]);
+                                }
                             }
+                            Err(e) => tracing::error!(error = %e, "Cleanup loop error (overflow)"),
                         }
-                        Err(e) => tracing::error!(error = %e, "Cleanup loop error (overflow)"),
                     }
+                    .instrument(tracing::info_span!("message_cleanup_iteration"))
+                    .await;
                 }
                 _ = shutdown.changed() => {}
             }
