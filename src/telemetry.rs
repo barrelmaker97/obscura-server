@@ -1,6 +1,6 @@
 use crate::config::{LogFormat, TelemetryConfig};
 use opentelemetry::{KeyValue, global};
-use opentelemetry_otlp::{WithExportConfig, WithHttpConfig};
+use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{
     Resource,
     logs::SdkLoggerProvider,
@@ -13,9 +13,10 @@ use opentelemetry_sdk::{
 use opentelemetry_semantic_conventions::resource::{SERVICE_NAME, SERVICE_VERSION};
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
-use opentelemetry::logs::{LogRecord, Logger, LoggerProvider, Severity, AnyValue};
+use opentelemetry::logs::{Logger, Severity, AnyValue, LoggerProvider, LogRecord};
 
 /// A guard that ensures OpenTelemetry providers are properly shut down and flushed when dropped.
+// ... (TelemetryGuard implementation remains the same)
 pub struct TelemetryGuard {
     tracer_provider: Option<SdkTracerProvider>,
     meter_provider: Option<SdkMeterProvider>,
@@ -73,9 +74,8 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<TelemetryGuard>
 
         // Setup Tracing
         let exporter = opentelemetry_otlp::SpanExporter::builder()
-            .with_http()
-            .with_http_client(reqwest::blocking::Client::new())
-            .with_endpoint(format!("{}/v1/traces", endpoint))
+            .with_tonic()
+            .with_endpoint(endpoint.clone())
             .with_timeout(std::time::Duration::from_secs(config.export_timeout_secs))
             .build()?;
 
@@ -94,9 +94,8 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<TelemetryGuard>
 
         // Setup Metrics
         let exporter = opentelemetry_otlp::MetricExporter::builder()
-            .with_http()
-            .with_http_client(reqwest::blocking::Client::new())
-            .with_endpoint(format!("{}/v1/metrics", endpoint))
+            .with_tonic()
+            .with_endpoint(endpoint.clone())
             .with_timeout(std::time::Duration::from_secs(config.export_timeout_secs))
             .build()?;
 
@@ -108,9 +107,8 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<TelemetryGuard>
 
         // Setup Logging
         let exporter = opentelemetry_otlp::LogExporter::builder()
-            .with_http()
-            .with_http_client(reqwest::blocking::Client::new())
-            .with_endpoint(format!("{}/v1/logs", endpoint))
+            .with_tonic()
+            .with_endpoint(endpoint.clone())
             .with_timeout(std::time::Duration::from_secs(config.export_timeout_secs))
             .build()?;
 
@@ -201,12 +199,13 @@ where
 
         // Correlation: OTel global state handles trace/span IDs if the context is active
         let context = opentelemetry::Context::current();
-        let span = opentelemetry::trace::TraceContextExt::span(&context); let span_context = span.span_context();
+        let span = opentelemetry::trace::TraceContextExt::span(&context);
+        let span_context = span.span_context();
         if span_context.is_valid() {
-            // These methods exist in the LogRecord trait for SdkLogRecord (which we are using)
-            // If they don't, we can add them as attributes
-            record.add_attribute("trace_id", AnyValue::from(span_context.trace_id().to_string()));
-            record.add_attribute("span_id", AnyValue::from(span_context.span_id().to_string()));
+            record.add_attributes(vec![
+                ("trace_id", AnyValue::from(span_context.trace_id().to_string())),
+                ("span_id", AnyValue::from(span_context.span_id().to_string())),
+            ]);
         }
 
         // The Fix: Promote 'error' to Body if 'message' is empty
@@ -218,11 +217,10 @@ where
         record.set_body(AnyValue::from(body));
 
         // Add other fields as attributes
-        for (key, value) in visitor.attributes {
-            record.add_attribute(key, AnyValue::from(value));
-        }
+        record.add_attributes(visitor.attributes.into_iter().map(|(k, v)| (k, AnyValue::from(v))));
+
         if !visitor.error.is_empty() {
-            record.add_attribute("error", AnyValue::from(visitor.error));
+            record.add_attributes(vec![("error", AnyValue::from(visitor.error))]);
         }
 
         self.logger.emit(record);

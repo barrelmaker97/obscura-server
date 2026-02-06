@@ -9,6 +9,7 @@ use opentelemetry::{KeyValue, global, metrics::{Counter, Histogram}};
 use prost::Message;
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::Instrument;
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -72,19 +73,15 @@ impl MessageService {
         fields(sender.id = %sender_id, recipient.id = %recipient_id)
     )]
     pub async fn send_message(&self, sender_id: Uuid, recipient_id: Uuid, body: Bytes) -> Result<()> {
-        // 1. Decode the EncryptedMessage protobuf to get type and content
         let msg = EncryptedMessage::decode(body)
             .map_err(|e| AppError::BadRequest(format!("Invalid EncryptedMessage protobuf: {}", e)))?;
 
-        // 2. Store raw body directly (blind relay)
-        // Optimization: We no longer check limits synchronously.
-        // The background cleanup loop handles overflow.
+        // Limits are enforced asynchronously by the background cleanup loop to optimize the send path.
         match self.repo.create(&self.pool, sender_id, recipient_id, msg.r#type, msg.content, self.ttl_days).await {
             Ok(_) => {
                 tracing::debug!("Message stored for delivery");
                 self.metrics.messages_sent_total.add(1, &[KeyValue::new("status", "success")]);
 
-                // 3. Notify the user if they are connected
                 self.notifier.notify(recipient_id, UserEvent::MessageReceived);
                 Ok(())
             }
@@ -149,32 +146,32 @@ impl MessageService {
         while !*shutdown.borrow() {
             tokio::select! {
                 _ = interval.tick() => {
-                    let span = tracing::info_span!("message_cleanup_iteration");
-                    let _enter = span.enter();
-                    
-                    tracing::debug!("Running message cleanup (expiry + limits)...");
+                    async {
+                        tracing::debug!("Running message cleanup (expiry + limits)...");
 
-                    // 1. Delete Expired (TTL)
-                    match self.repo.delete_expired(&self.pool).await {
-                        Ok(count) => {
-                            if count > 0 {
-                                tracing::info!(count = %count, "Deleted expired messages");
+                        // Delete messages exceeding TTL
+                        match self.repo.delete_expired(&self.pool).await {
+                            Ok(count) => {
+                                if count > 0 {
+                                    tracing::info!(count = %count, "Deleted expired messages");
+                                }
                             }
+                            Err(e) => tracing::error!(error = %e, "Cleanup loop error (expiry)"),
                         }
-                        Err(e) => tracing::error!(error = %e, "Cleanup loop error (expiry)"),
-                    }
 
-                    // 2. Enforce Inbox Limits (Global Overflow)
-                    // Limit to max_inbox_size messages per user
-                    match self.repo.delete_global_overflow(&self.pool, self.config.max_inbox_size).await {
-                        Ok(count) => {
-                            if count > 0 {
-                                tracing::info!(count = %count, "Pruned overflow messages");
-                                self.metrics.messaging_inbox_overflow_total.add(count, &[]);
+                        // Enforce global inbox size limits (prune oldest messages)
+                        match self.repo.delete_global_overflow(&self.pool, self.config.max_inbox_size).await {
+                            Ok(count) => {
+                                if count > 0 {
+                                    tracing::info!(count = %count, "Pruned overflow messages");
+                                    self.metrics.messaging_inbox_overflow_total.add(count, &[]);
+                                }
                             }
+                            Err(e) => tracing::error!(error = %e, "Cleanup loop error (overflow)"),
                         }
-                        Err(e) => tracing::error!(error = %e, "Cleanup loop error (overflow)"),
                     }
+                    .instrument(tracing::info_span!("message_cleanup_iteration"))
+                    .await;
                 }
                 _ = shutdown.changed() => {}
             }

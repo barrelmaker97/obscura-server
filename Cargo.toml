@@ -47,11 +47,10 @@ uuid = { version = "1.19.0", features = ["v4", "serde"] }
 tower-http = { version = "0.6.8", features = ["trace", "request-id", "util"] }
 opentelemetry = { version = "0.31", features = ["metrics", "logs"] }
 opentelemetry_sdk = { version = "0.31", features = ["metrics", "logs"] }
-opentelemetry-otlp = { version = "0.31", features = ["http-proto", "reqwest-blocking-client", "metrics", "logs"] }
+opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic", "metrics", "logs"] }
 opentelemetry-appender-tracing = "0.31"
 tracing-opentelemetry = "0.32"
 opentelemetry-semantic-conventions = "0.31"
-reqwest = { version = "0.12.28", features = ["json", "stream", "blocking"] }
 
 [build-dependencies]
 prost-build = "0.14.1"
@@ -59,3 +58,4 @@ prost-build = "0.14.1"
 [dev-dependencies]
 curve25519-dalek = "4.1"
 tokio-tungstenite = "0.28.0"
+reqwest = { version = "0.12.28", features = ["json", "stream"] }
