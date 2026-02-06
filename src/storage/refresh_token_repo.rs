@@ -60,6 +60,7 @@ impl RefreshTokenRepository {
         if let Some(record) = row {
             // 2. Check Expiry
             if record.expires_at < OffsetDateTime::now_utc() {
+                tracing::warn!(user_id = %record.user_id, "Refresh token expired during rotation attempt");
                 // Delete expired token to clean up
                 sqlx::query("DELETE FROM refresh_tokens WHERE token_hash = $1")
                     .bind(token_hash)
@@ -76,6 +77,7 @@ impl RefreshTokenRepository {
 
             Ok(Some(record.user_id))
         } else {
+            tracing::warn!("Refresh token not found or already consumed (potential reuse attack)");
             Ok(None)
         }
     }

@@ -381,6 +381,8 @@ impl GatewaySession {
                                 .add(1, &[KeyValue::new("reason", "buffer_full")]);
 
                             return Ok(false);
+                        } else {
+                            tracing::debug!(message_id = %msg.id, "Message sent to WebSocket");
                         }
                     }
 

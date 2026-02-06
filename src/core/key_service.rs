@@ -146,9 +146,11 @@ impl KeyService {
 
             if let Some(existing_ik) = existing_ik_opt {
                 if existing_ik != new_ik {
+                    tracing::info!("Device takeover detected: identity key has changed");
                     is_takeover = true;
                 }
             } else {
+                tracing::info!("Device takeover detected: new identity key for existing user");
                 is_takeover = true;
             }
 

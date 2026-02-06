@@ -78,6 +78,7 @@ impl AccountService {
         one_time_pre_keys: Vec<OneTimePreKey>,
     ) -> Result<AuthResponse> {
         if password.len() < 12 {
+            tracing::warn!("Registration rejected: password too short");
             return Err(AppError::BadRequest("Password must be at least 12 characters long".into()));
         }
 
@@ -140,7 +141,7 @@ impl AccountService {
         let user = match self.user_repo.find_by_username(&self.pool, &username).await? {
             Some(u) => u,
             None => {
-                tracing::info!("Login failed: User not found");
+                tracing::warn!("Login failed: user not found");
                 return Err(AppError::AuthError);
             }
         };
@@ -156,7 +157,7 @@ impl AccountService {
         let is_valid = is_valid?;
 
         if !is_valid {
-            tracing::info!("Login failed: Invalid password");
+            tracing::warn!("Login failed: invalid password");
             return Err(AppError::AuthError);
         }
 
@@ -179,9 +180,9 @@ impl AccountService {
     }
 
     #[tracing::instrument(
-        err,
         skip(self, refresh_token),
-        fields(user_id = tracing::field::Empty)
+        fields(user_id = tracing::field::Empty),
+        err(level = "warn")
     )]
     pub async fn refresh(&self, refresh_token: String) -> Result<AuthResponse> {
         // 1. Hash the incoming token to look it up

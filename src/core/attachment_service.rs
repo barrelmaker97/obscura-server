@@ -244,6 +244,7 @@ impl AttachmentService {
             tracing::Span::current().record("batch.count", ids.len());
             tracing::info!(count = %ids.len(), "Found expired attachments to delete");
 
+            let count = ids.len();
             for id in ids {
                 let key = id.to_string();
                 let res = async {
@@ -275,6 +276,7 @@ impl AttachmentService {
 
                 res?;
             }
+            tracing::info!(deleted_count = %count, "Attachment cleanup batch completed successfully");
         }
         Ok(())
     }
