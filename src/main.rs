@@ -57,7 +57,6 @@ async fn main() -> anyhow::Result<()> {
         // Run migrations
         {
             let _span = tracing::info_span!("database_migrations").entered();
-            tracing::info!("Running migrations...");
             sqlx::migrate!().run(&pool).await?;
         }
 

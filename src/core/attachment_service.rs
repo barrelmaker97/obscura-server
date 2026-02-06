@@ -88,9 +88,9 @@ impl AttachmentService {
     }
 
     #[tracing::instrument(
-        err,
+        err(level = "warn"),
         skip(self, body),
-        fields(attachment.id = tracing::field::Empty, attachment.size = tracing::field::Empty)
+        fields(attachment_id = tracing::field::Empty, attachment_size = tracing::field::Empty)
     )]
     pub async fn upload(&self, content_len: Option<usize>, body: Body) -> Result<(Uuid, i64)> {
         if let Some(len) = content_len {
@@ -174,9 +174,9 @@ impl AttachmentService {
     }
 
     #[tracing::instrument(
-        err,
+        err(level = "warn"),
         skip(self),
-        fields(attachment.id = %id, attachment.size = tracing::field::Empty)
+        fields(attachment_id = %id, attachment_size = tracing::field::Empty)
     )]
     pub async fn download(&self, id: Uuid) -> Result<(u64, ByteStream)> {
         // 1. Check Existence & Expiry
@@ -230,7 +230,7 @@ impl AttachmentService {
     #[tracing::instrument(
         err,
         skip(self),
-        fields(batch.count = tracing::field::Empty)
+        fields(batch_count = tracing::field::Empty)
     )]
     async fn cleanup_batch(&self) -> Result<()> {
         loop {
@@ -244,6 +244,7 @@ impl AttachmentService {
             tracing::Span::current().record("batch.count", ids.len());
             tracing::info!(count = %ids.len(), "Found expired attachments to delete");
 
+            let count = ids.len();
             for id in ids {
                 let key = id.to_string();
                 let res = async {
@@ -270,11 +271,12 @@ impl AttachmentService {
                     // Only delete from DB if S3 deletion was successful
                     self.repo.delete(&self.pool, id).await
                 }
-                .instrument(tracing::info_span!("delete_attachment", attachment.id = %id))
+                .instrument(tracing::info_span!("delete_attachment", "attachment.id" = %id))
                 .await;
 
                 res?;
             }
+            tracing::info!(deleted_count = %count, "Attachment cleanup batch completed successfully");
         }
         Ok(())
     }

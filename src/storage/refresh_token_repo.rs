@@ -35,7 +35,7 @@ impl RefreshTokenRepository {
     /// If valid: Returns the user_id and DELETES the token from the DB.
     /// If invalid/expired: Returns None.
     /// The caller MUST commit the transaction.
-    #[tracing::instrument(level = "debug", skip(self, executor, token_hash))]
+    #[tracing::instrument(level = "debug", skip(self, executor, token_hash), fields(user_id = tracing::field::Empty))]
     pub async fn verify_and_consume(&self, executor: &mut PgConnection, token_hash: &str) -> Result<Option<Uuid>> {
         #[derive(sqlx::FromRow)]
         struct TokenRecord {
@@ -58,8 +58,11 @@ impl RefreshTokenRepository {
         .map_err(AppError::Database)?;
 
         if let Some(record) = row {
+            tracing::Span::current().record("user_id", tracing::field::display(record.user_id));
+
             // 2. Check Expiry
             if record.expires_at < OffsetDateTime::now_utc() {
+                tracing::warn!("Refresh token expired during rotation attempt");
                 // Delete expired token to clean up
                 sqlx::query("DELETE FROM refresh_tokens WHERE token_hash = $1")
                     .bind(token_hash)
@@ -76,6 +79,7 @@ impl RefreshTokenRepository {
 
             Ok(Some(record.user_id))
         } else {
+            tracing::warn!("Refresh token not found or already consumed (potential reuse attack)");
             Ok(None)
         }
     }

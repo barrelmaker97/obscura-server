@@ -129,12 +129,12 @@ pub fn app_router(
 
                     tracing::info_span!(
                         "request",
-                        request_id = %request_id,
+                        "request_id" = %request_id,
                         "http.request.method" = %request.method(),
                         "url.path" = %request.uri().path(),
                         "http.response.status_code" = tracing::field::Empty,
-                        otel.kind = "server",
-                        user_id = tracing::field::Empty,
+                        "otel.kind" = "server",
+                        "user.id" = tracing::field::Empty,
                     )
                 })
                 .on_response(
@@ -149,8 +149,8 @@ pub fn app_router(
                         );
                     },
                 )
-                .on_failure(|_error, _latency, _span: &tracing::Span| {
-                    // Failures are already logged via on_response with their status code
+                .on_failure(|error, _latency, _span: &tracing::Span| {
+                    tracing::error!(error = %error, "request failed");
                 }),
         )
         .layer(SetRequestIdLayer::new(

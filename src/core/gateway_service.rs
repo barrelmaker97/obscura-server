@@ -78,10 +78,10 @@ impl GatewayService {
     pub async fn handle_socket(&self, mut socket: WebSocket, user_id: Uuid, request_id: String, shutdown_rx: tokio::sync::watch::Receiver<bool>) {
         let span = tracing::info_span!(
             "websocket_session",
-            request_id = %request_id,
-            user_id = %user_id,
-            otel.kind = "server",
-            ws.session_id = %Uuid::new_v4()
+            "request_id" = %request_id,
+            "user.id" = %user_id,
+            "otel.kind" = "server",
+            "ws.session_id" = %Uuid::new_v4()
         );
 
         let service = self.clone(); // Clone for the async block
@@ -325,17 +325,16 @@ impl GatewaySession {
             if !batch.is_empty() {
                 self.metrics.websocket_ack_batch_size.record(batch.len() as u64, &[]);
 
-                if let Err(e) = self.message_service.delete_batch(&batch).await {
-                    error!(error = %e, "Failed to process ACK batch");
-                }
+                // delete_batch is instrumented, so it will log errors internally.
+                let _ = self.message_service.delete_batch(&batch).await;
             }
         }
     }
 
     #[tracing::instrument(
-        err,
+        err(level = "debug"),
         skip(self, cursor),
-        fields(user.id = %self.user_id, batch.count = tracing::field::Empty)
+        fields(user_id = %self.user_id, batch_count = tracing::field::Empty)
     )]
     async fn flush_messages(
         &self,
@@ -382,6 +381,8 @@ impl GatewaySession {
                                 .add(1, &[KeyValue::new("reason", "buffer_full")]);
 
                             return Ok(false);
+                        } else {
+                            tracing::debug!(message_id = %msg.id, "Message sent to WebSocket");
                         }
                     }
 

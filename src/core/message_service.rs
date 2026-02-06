@@ -68,9 +68,9 @@ impl MessageService {
     }
 
     #[tracing::instrument(
-        err,
+        err(level = "warn"),
         skip(self, body, sender_id, recipient_id),
-        fields(sender.id = %sender_id, recipient.id = %recipient_id)
+        fields(recipient_id = %recipient_id)
     )]
     pub async fn send_message(&self, sender_id: Uuid, recipient_id: Uuid, body: Bytes) -> Result<()> {
         let msg = EncryptedMessage::decode(body)
@@ -95,7 +95,7 @@ impl MessageService {
     #[tracing::instrument(
         err,
         skip(self, content),
-        fields(sender.id = %sender_id, recipient.id = %recipient_id, message.type = %message_type)
+        fields(recipient_id = %recipient_id, message_type = %message_type)
     )]
     pub async fn enqueue_message(
         &self,
@@ -109,9 +109,9 @@ impl MessageService {
     }
 
     #[tracing::instrument(
-        err,
+        err(level = "warn"),
         skip(self),
-        fields(recipient.id = %recipient_id, batch.limit = %limit)
+        fields(recipient_id = %recipient_id, batch_limit = %limit)
     )]
     pub async fn fetch_pending_batch(
         &self,
@@ -129,7 +129,7 @@ impl MessageService {
     #[tracing::instrument(
         err,
         skip(self),
-        fields(batch.count = message_ids.len())
+        fields(batch_count = message_ids.len())
     )]
     pub async fn delete_batch(&self, message_ids: &[Uuid]) -> Result<()> {
         self.repo.delete_batch(&self.pool, message_ids).await
