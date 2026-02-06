@@ -93,7 +93,6 @@ impl AttachmentService {
         fields(attachment.id = tracing::field::Empty, attachment.size = tracing::field::Empty)
     )]
     pub async fn upload(&self, content_len: Option<usize>, body: Body) -> Result<(Uuid, i64)> {
-        // 1. Check Content-Length (Early rejection)
         if let Some(len) = content_len {
             tracing::Span::current().record("attachment.size", len);
             if len > self.config.attachment_max_size_bytes {
@@ -105,7 +104,7 @@ impl AttachmentService {
         let key = id.to_string();
         tracing::Span::current().record("attachment.id", tracing::field::display(id));
 
-        // 2. Bridge Axum Body -> SyncBody with Size Limit enforcement
+        // Bridge Axum Body -> SyncBody with size limit enforcement to satisfy S3 SDK's requirements
         let limit = self.config.attachment_max_size_bytes;
         let limited_body = Limited::new(body, limit);
 
@@ -161,7 +160,6 @@ impl AttachmentService {
                 AppError::Internal
             })?;
 
-        // 3. Record Metadata
         let expires_at = OffsetDateTime::now_utc() + Duration::days(self.ttl_days);
         self.repo.create(&self.pool, id, expires_at).await?;
 
@@ -249,7 +247,7 @@ impl AttachmentService {
             for id in ids {
                 let key = id.to_string();
                 let res = async {
-                    // 1. Delete from S3
+                    // Delete object from S3 first to avoid orphaned files
                     let res = self.s3_client
                         .delete_object()
                         .bucket(&self.config.bucket)
@@ -261,12 +259,7 @@ impl AttachmentService {
                         Ok(_) => {}
                         Err(aws_sdk_s3::error::SdkError::ServiceError(e)) => {
                             tracing::warn!(error = ?e, key = %key, "S3 delete error");
-                            return Ok(()); // Continue to DB delete (soft fail on S3 logic if we want, or skip?)
-                            // Original logic was `continue` on S3 error, so we should essentially return Ok(()) here to skip DB delete?
-                            // Wait, original logic was:
-                            // Err(ServiceError) -> warn -> continue (skip DB delete)
-                            // Err(Other) -> error -> continue (skip DB delete)
-                            // Ok -> delete DB
+                            return Ok(()); // Skip DB delete if S3 failed to ensure we don't lose the reference
                         }
                         Err(e) => {
                             tracing::error!(error = ?e, key = %key, "S3 network/transport error");
@@ -274,7 +267,7 @@ impl AttachmentService {
                         }
                     }
 
-                    // 2. Delete from DB
+                    // Only delete from DB if S3 deletion was successful
                     self.repo.delete(&self.pool, id).await
                 }
                 .instrument(tracing::info_span!("delete_attachment", attachment.id = %id))

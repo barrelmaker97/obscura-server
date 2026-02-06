@@ -73,19 +73,15 @@ impl MessageService {
         fields(sender.id = %sender_id, recipient.id = %recipient_id)
     )]
     pub async fn send_message(&self, sender_id: Uuid, recipient_id: Uuid, body: Bytes) -> Result<()> {
-        // 1. Decode the EncryptedMessage protobuf to get type and content
         let msg = EncryptedMessage::decode(body)
             .map_err(|e| AppError::BadRequest(format!("Invalid EncryptedMessage protobuf: {}", e)))?;
 
-        // 2. Store raw body directly (blind relay)
-        // Optimization: We no longer check limits synchronously.
-        // The background cleanup loop handles overflow.
+        // Limits are enforced asynchronously by the background cleanup loop to optimize the send path.
         match self.repo.create(&self.pool, sender_id, recipient_id, msg.r#type, msg.content, self.ttl_days).await {
             Ok(_) => {
                 tracing::debug!("Message stored for delivery");
                 self.metrics.messages_sent_total.add(1, &[KeyValue::new("status", "success")]);
 
-                // 3. Notify the user if they are connected
                 self.notifier.notify(recipient_id, UserEvent::MessageReceived);
                 Ok(())
             }
@@ -153,7 +149,7 @@ impl MessageService {
                     async {
                         tracing::debug!("Running message cleanup (expiry + limits)...");
 
-                        // 1. Delete Expired (TTL)
+                        // Delete messages exceeding TTL
                         match self.repo.delete_expired(&self.pool).await {
                             Ok(count) => {
                                 if count > 0 {
@@ -163,8 +159,7 @@ impl MessageService {
                             Err(e) => tracing::error!(error = %e, "Cleanup loop error (expiry)"),
                         }
 
-                        // 2. Enforce Inbox Limits (Global Overflow)
-                        // Limit to max_inbox_size messages per user
+                        // Enforce global inbox size limits (prune oldest messages)
                         match self.repo.delete_global_overflow(&self.pool, self.config.max_inbox_size).await {
                             Ok(count) => {
                                 if count > 0 {
