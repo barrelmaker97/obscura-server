@@ -64,9 +64,9 @@ impl AccountService {
     }
 
     #[tracing::instrument(
-        err,
         skip(self, username, password, identity_key, signed_pre_key, one_time_pre_keys),
-        fields(user.id = tracing::field::Empty)
+        fields(user_id = tracing::field::Empty),
+        err(level = "warn")
     )]
     pub async fn register(
         &self,
@@ -132,9 +132,9 @@ impl AccountService {
     }
 
     #[tracing::instrument(
-        err,
         skip(self, username, password),
-        fields(user.id = tracing::field::Empty)
+        fields(user_id = tracing::field::Empty),
+        err(level = "warn")
     )]
     pub async fn login(&self, username: String, password: String) -> Result<AuthResponse> {
         let user = match self.user_repo.find_by_username(&self.pool, &username).await? {
@@ -181,7 +181,7 @@ impl AccountService {
     #[tracing::instrument(
         err,
         skip(self, refresh_token),
-        fields(user.id = tracing::field::Empty)
+        fields(user_id = tracing::field::Empty)
     )]
     pub async fn refresh(&self, refresh_token: String) -> Result<AuthResponse> {
         // 1. Hash the incoming token to look it up
@@ -213,7 +213,7 @@ impl AccountService {
         Ok(AuthResponse { token: new_access_token, refresh_token: new_refresh_token, expires_at })
     }
 
-    #[tracing::instrument(err, skip(self, refresh_token), fields(user.id = %user_id))]
+    #[tracing::instrument(err, skip(self, refresh_token), fields(user_id = %user_id))]
     pub async fn logout(&self, user_id: Uuid, refresh_token: String) -> Result<()> {
         let hash = auth::hash_token(&refresh_token);
 

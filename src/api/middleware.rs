@@ -30,7 +30,7 @@ impl FromRequestParts<AppState> for AuthUser {
 
         let claims = verify_jwt(token, &state.config.auth.jwt_secret).map_err(|_| AppError::AuthError)?;
 
-        tracing::Span::current().record("user_id", tracing::field::display(claims.sub));
+        tracing::Span::current().record("user.id", tracing::field::display(claims.sub));
 
         Ok(AuthUser { user_id: claims.sub })
     }

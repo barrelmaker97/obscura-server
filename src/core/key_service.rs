@@ -80,18 +80,18 @@ impl KeyService {
         Ok(())
     }
 
-    #[tracing::instrument(err, skip(self), fields(user.id = %user_id))]
+    #[tracing::instrument(err, skip(self), fields(user_id = %user_id))]
     pub async fn get_pre_key_bundle(&self, user_id: Uuid) -> Result<Option<PreKeyBundle>> {
         let mut conn = self.pool.acquire().await?;
         self.key_repo.fetch_pre_key_bundle(&mut conn, user_id).await
     }
 
-    #[tracing::instrument(err, skip(self), fields(user.id = %user_id))]
+    #[tracing::instrument(err, skip(self), fields(user_id = %user_id))]
     pub async fn fetch_identity_key(&self, user_id: Uuid) -> Result<Option<PublicKey>> {
         self.key_repo.fetch_identity_key(&self.pool, user_id).await
     }
 
-    #[tracing::instrument(err, skip(self), fields(user.id = %user_id))]
+    #[tracing::instrument(err, skip(self), fields(user_id = %user_id))]
     pub async fn check_pre_key_status(&self, user_id: Uuid) -> Result<Option<PreKeyStatus>> {
         let count = self.key_repo.count_one_time_pre_keys(&self.pool, user_id).await?;
         if count < self.config.pre_key_refill_threshold as i64 {
@@ -108,9 +108,9 @@ impl KeyService {
 
     /// Public entry point for key uploads.
     #[tracing::instrument(
-        err,
         skip(self, params),
-        fields(user.id = %params.user_id)
+        fields(user_id = %params.user_id),
+        err(level = "warn")
     )]
     pub async fn upload_keys(&self, params: KeyUploadParams) -> Result<()> {
         let user_id = params.user_id;
@@ -135,7 +135,7 @@ impl KeyService {
     }
 
     /// Internal implementation that accepts a mutable connection.
-    #[tracing::instrument(level = "debug", skip(self, conn, params))]
+    #[tracing::instrument(level = "debug", skip(self, conn, params), err(level = "debug"))]
     pub(crate) async fn upload_keys_internal(&self, conn: &mut PgConnection, params: KeyUploadParams) -> Result<bool> {
         let mut is_takeover = false;
 
@@ -246,10 +246,7 @@ fn verify_keys(ik: &PublicKey, signed_pre_key: &SignedPreKey) -> Result<()> {
         return Ok(());
     }
 
-    verify_signature(ik, raw_32, &signed_pre_key.signature).map_err(|e| {
-        tracing::warn!(error = %e, key_id = %signed_pre_key.key_id, "Signature verification failed");
-        e
-    })
+    verify_signature(ik, raw_32, &signed_pre_key.signature)
 }
 
 #[cfg(test)]
