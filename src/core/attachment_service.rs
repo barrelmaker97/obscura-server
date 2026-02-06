@@ -88,7 +88,7 @@ impl AttachmentService {
     }
 
     #[tracing::instrument(
-        err,
+        err(level = "warn"),
         skip(self, body),
         fields(attachment_id = tracing::field::Empty, attachment_size = tracing::field::Empty)
     )]
@@ -174,7 +174,7 @@ impl AttachmentService {
     }
 
     #[tracing::instrument(
-        err,
+        err(level = "warn"),
         skip(self),
         fields(attachment_id = %id, attachment_size = tracing::field::Empty)
     )]

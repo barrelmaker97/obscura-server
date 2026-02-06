@@ -68,7 +68,7 @@ impl MessageService {
     }
 
     #[tracing::instrument(
-        err,
+        err(level = "warn"),
         skip(self, body, sender_id, recipient_id),
         fields(recipient_id = %recipient_id)
     )]
@@ -109,7 +109,7 @@ impl MessageService {
     }
 
     #[tracing::instrument(
-        err,
+        err(level = "warn"),
         skip(self),
         fields(recipient_id = %recipient_id, batch_limit = %limit)
     )]

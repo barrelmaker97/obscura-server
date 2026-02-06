@@ -157,6 +157,7 @@ impl AccountService {
         let is_valid = is_valid?;
 
         if !is_valid {
+            tracing::Span::current().record("user_id", tracing::field::display(user.id));
             tracing::warn!("Login failed: invalid password");
             return Err(AppError::AuthError);
         }
