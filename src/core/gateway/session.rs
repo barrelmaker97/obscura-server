@@ -19,49 +19,51 @@ pub struct Session {
     notifier: Arc<dyn Notifier>,
     metrics: GatewayMetrics,
     shutdown_rx: tokio::sync::watch::Receiver<bool>,
-    
+
     // Components
     ack_batcher: AckBatcher,
     message_pump: MessagePump,
     outbound_rx: mpsc::Receiver<WsMessage>,
 }
 
+pub struct SessionParams {
+    pub user_id: Uuid,
+    pub request_id: String,
+    pub socket: WebSocket,
+    pub message_service: MessageService,
+    pub notifier: Arc<dyn Notifier>,
+    pub metrics: GatewayMetrics,
+    pub config: WsConfig,
+    pub shutdown_rx: tokio::sync::watch::Receiver<bool>,
+}
+
 impl Session {
-    pub fn new(
-        user_id: Uuid,
-        request_id: String,
-        socket: WebSocket,
-        message_service: MessageService,
-        notifier: Arc<dyn Notifier>,
-        metrics: GatewayMetrics,
-        config: WsConfig,
-        shutdown_rx: tokio::sync::watch::Receiver<bool>,
-    ) -> Self {
-        let (outbound_tx, outbound_rx) = mpsc::channel(config.outbound_buffer_size);
+    pub fn new(params: SessionParams) -> Self {
+        let (outbound_tx, outbound_rx) = mpsc::channel(params.config.outbound_buffer_size);
 
         let ack_batcher = AckBatcher::new(
-            message_service.clone(),
-            metrics.clone(),
-            config.ack_buffer_size,
-            config.ack_batch_size,
-            config.ack_flush_interval_ms,
+            params.message_service.clone(),
+            params.metrics.clone(),
+            params.config.ack_buffer_size,
+            params.config.ack_batch_size,
+            params.config.ack_flush_interval_ms,
         );
 
         let message_pump = MessagePump::new(
-            user_id,
-            message_service.clone(),
+            params.user_id,
+            params.message_service.clone(),
             outbound_tx,
-            metrics.clone(),
-            message_service.batch_limit(),
+            params.metrics.clone(),
+            params.message_service.batch_limit(),
         );
 
         Self {
-            user_id,
-            request_id,
-            socket,
-            notifier,
-            metrics,
-            shutdown_rx,
+            user_id: params.user_id,
+            request_id: params.request_id,
+            socket: params.socket,
+            notifier: params.notifier,
+            metrics: params.metrics,
+            shutdown_rx: params.shutdown_rx,
             ack_batcher,
             message_pump,
             outbound_rx,
@@ -175,7 +177,7 @@ impl Session {
 struct AckBatcher {
     tx: mpsc::Sender<Uuid>,
     metrics: GatewayMetrics,
-    _task: tokio::task::JoinHandle<()>, 
+    _task: tokio::task::JoinHandle<()>,
 }
 
 impl AckBatcher {
@@ -187,7 +189,7 @@ impl AckBatcher {
         flush_interval_ms: u64,
     ) -> Self {
         let (tx, rx) = mpsc::channel(buffer_size);
-        
+
         let batcher_metrics = metrics.clone();
         let task = tokio::spawn(async move {
             Self::run_background(rx, message_service, batcher_metrics, batch_size, flush_interval_ms).await;
@@ -275,12 +277,7 @@ impl MessagePump {
         let mut cursor: Option<(time::OffsetDateTime, Uuid)> = None;
 
         while rx.recv().await.is_some() {
-            loop {
-                match Self::flush_batch(user_id, &message_service, &outbound_tx, &metrics, limit, &mut cursor).await {
-                    Ok(true) => {} 
-                    Ok(false) | Err(_) => break,
-                }
-            }
+            while let Ok(true) = Self::flush_batch(user_id, &message_service, &outbound_tx, &metrics, limit, &mut cursor).await {}
         }
     }
 
@@ -324,12 +321,11 @@ impl MessagePump {
 
             let frame = WebSocketFrame { payload: Some(Payload::Envelope(envelope)) };
             let mut buf = Vec::new();
-            
-            if frame.encode(&mut buf).is_ok() {
-                 if outbound_tx.send(WsMessage::Binary(buf.into())).await.is_err() {
+
+            if frame.encode(&mut buf).is_ok()
+                 && outbound_tx.send(WsMessage::Binary(buf.into())).await.is_err() {
                     metrics.websocket_outbound_dropped_total.add(1, &[KeyValue::new("reason", "buffer_full")]);
                     return Ok(false);
-                 }
             }
         }
 

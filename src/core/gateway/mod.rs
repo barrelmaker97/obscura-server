@@ -109,16 +109,18 @@ impl GatewayService {
         }
 
         // 3. Hand over to Session
-        let session = Session::new(
+        let params = crate::core::gateway::session::SessionParams {
             user_id,
             request_id,
             socket,
-            self.message_service.clone(),
-            self.notifier.clone(),
-            self.metrics.clone(),
-            self.config.clone(),
+            message_service: self.message_service.clone(),
+            notifier: self.notifier.clone(),
+            metrics: self.metrics.clone(),
+            config: self.config.clone(),
             shutdown_rx,
-        );
+        };
+
+        let session = Session::new(params);
 
         session.run().await;
     }
