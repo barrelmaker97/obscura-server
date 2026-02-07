@@ -2,7 +2,7 @@ pub mod account_service;
 pub mod attachment_service;
 pub mod auth;
 pub mod crypto_types;
-pub mod gateway_service;
+pub mod gateway;
 pub mod health_service;
 pub mod key_service;
 pub mod message;

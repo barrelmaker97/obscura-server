@@ -7,7 +7,7 @@ use obscura_server::{
     core::{
         account_service::AccountService,
         attachment_service::AttachmentService,
-        gateway_service::GatewayService,
+        gateway::GatewayService,
         health_service::HealthService,
         key_service::KeyService,
         message_service::MessageService,
