@@ -1,18 +1,18 @@
 use crate::domain::user::User;
 use crate::error::{AppError, Result};
-use crate::storage::user_repo::UserRepository;
 use sqlx::{Executor, Postgres};
 
 #[derive(Clone)]
 pub struct IdentityService {
-    repo: UserRepository,
+    repo: crate::storage::user_repo::UserRepository,
 }
 
 impl IdentityService {
-    pub fn new(repo: UserRepository) -> Self {
+    pub fn new(repo: crate::storage::user_repo::UserRepository) -> Self {
         Self { repo }
     }
 
+    #[tracing::instrument(err, skip(self, executor, password_hash))]
     pub async fn create_user<'e, E>(&self, executor: E, username: &str, password_hash: &str) -> Result<User>
     where
         E: Executor<'e, Database = Postgres>,
@@ -27,6 +27,7 @@ impl IdentityService {
         })
     }
 
+    #[tracing::instrument(err, skip(self, executor))]
     pub async fn find_by_username<'e, E>(&self, executor: E, username: &str) -> Result<Option<User>>
     where
         E: Executor<'e, Database = Postgres>,

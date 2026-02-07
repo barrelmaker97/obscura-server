@@ -18,6 +18,7 @@ impl AuthService {
         Self { config, refresh_repo }
     }
 
+    #[tracing::instrument(err, skip(self, password))]
     pub async fn hash_password(&self, password: &str) -> Result<String> {
         let password = password.to_string();
         tokio::task::spawn_blocking(move || Password::hash(&password))
@@ -25,6 +26,7 @@ impl AuthService {
             .map_err(|_| AppError::Internal)?
     }
 
+    #[tracing::instrument(err, skip(self, password, password_hash))]
     pub async fn verify_password(&self, password: &str, password_hash: &str) -> Result<bool> {
         let password = password.to_string();
         let password_hash = password_hash.to_string();
@@ -33,6 +35,7 @@ impl AuthService {
             .map_err(|_| AppError::Internal)?
     }
 
+    #[tracing::instrument(err, skip(self, executor), fields(user_id = %user_id))]
     pub async fn create_session<'e, E>(&self, executor: E, user_id: Uuid) -> Result<Session>
     where
         E: Executor<'e, Database = Postgres>,
@@ -50,6 +53,7 @@ impl AuthService {
         Ok(Session { token, refresh_token, expires_at })
     }
 
+    #[tracing::instrument(err, skip(self, refresh_token))]
     pub async fn refresh_session(&self, pool: &DbPool, refresh_token: String) -> Result<Session> {
         // 1. Hash the incoming token to look it up
         let hash = OpaqueToken::hash(&refresh_token);
@@ -80,6 +84,7 @@ impl AuthService {
         Ok(Session { token: new_access_token, refresh_token: new_refresh_token, expires_at })
     }
 
+    #[tracing::instrument(err, skip(self, refresh_token), fields(user_id = %user_id))]
     pub async fn logout(&self, pool: &DbPool, user_id: Uuid, refresh_token: String) -> Result<()> {
         let hash = OpaqueToken::hash(&refresh_token);
         self.refresh_repo.delete_owned(pool, &hash, user_id).await?;

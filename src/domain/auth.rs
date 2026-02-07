@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Claims {
     pub sub: Uuid,
     pub exp: usize,
@@ -24,7 +24,7 @@ impl Claims {
             .unwrap_or(std::time::Duration::from_secs(0))
             .as_secs() as usize
             + ttl_secs as usize;
-
+        
         Self { sub: user_id, exp: expiration }
     }
 
@@ -44,7 +44,7 @@ impl Claims {
             &Validation::default(),
         )
         .map_err(|_| AppError::AuthError)?;
-
+        
         Ok(token_data.claims)
     }
 }
@@ -52,6 +52,7 @@ impl Claims {
 pub struct Password;
 
 impl Password {
+    #[tracing::instrument(skip(password), level = "debug")]
     pub fn hash(password: &str) -> Result<String> {
         let salt = SaltString::generate(&mut OsRng);
         let argon2 = Argon2::default();
@@ -80,5 +81,60 @@ impl OpaqueToken {
         let mut hasher = Sha256::new();
         hasher.update(token.as_bytes());
         hex::encode(hasher.finalize())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_claims_roundtrip() {
+        let user_id = Uuid::new_v4();
+        let secret = "test_secret";
+        let claims = Claims::new(user_id, 3600);
+        
+        let token = claims.encode(secret).unwrap();
+        let decoded = Claims::decode(&token, secret).unwrap();
+        
+        assert_eq!(claims, decoded);
+    }
+
+    #[test]
+    fn test_claims_invalid_secret() {
+        let user_id = Uuid::new_v4();
+        let claims = Claims::new(user_id, 3600);
+        let token = claims.encode("secret1").unwrap();
+        
+        let result = Claims::decode(&token, "secret2");
+        assert!(matches!(result, Err(AppError::AuthError)));
+    }
+
+    #[test]
+    fn test_password_hashing() {
+        let password = "password12345";
+        let hash = Password::hash(password).unwrap();
+        
+        assert!(Password::verify(password, &hash).unwrap());
+        assert!(!Password::verify("wrong_password", &hash).unwrap());
+    }
+
+    #[test]
+    fn test_opaque_token_generation() {
+        let token1 = OpaqueToken::generate();
+        let token2 = OpaqueToken::generate();
+        
+        assert_ne!(token1, token2);
+        assert_eq!(token1.len(), 43); // 32 bytes Base64 no pad
+    }
+
+    #[test]
+    fn test_opaque_token_hashing() {
+        let token = "my_token";
+        let hash1 = OpaqueToken::hash(token);
+        let hash2 = OpaqueToken::hash(token);
+        
+        assert_eq!(hash1, hash2);
+        assert_ne!(token, hash1);
     }
 }

@@ -242,7 +242,7 @@ mod tests {
         let spk_pub = PublicKey::new(spk_pub_wire);
 
         // Sign the 33-byte wire format (prefix + raw X25519)
-        let signature_bytes: [u8; 64] = ik.sign(spk_pub.as_bytes(), OsRng);
+        let signature_bytes: [u8; 64] = ik.sign(spk_pub_wire.as_slice(), OsRng);
         let signature = Signature::new(signature_bytes);
 
         (ik, ik_pub, spk, spk_pub, signature)
@@ -254,5 +254,21 @@ mod tests {
         let spk = SignedPreKey { key_id: 1, public_key: spk_pub, signature };
 
         assert!(verify_keys(&ik_pub, &spk).is_ok());
+    }
+
+    #[test]
+    fn test_validate_otpk_uniqueness() {
+        let pk = PublicKey::new([0x05; 33]);
+        let keys = vec![
+            OneTimePreKey { key_id: 1, public_key: pk.clone() },
+            OneTimePreKey { key_id: 2, public_key: pk.clone() },
+        ];
+        assert!(KeyService::validate_otpk_uniqueness(&keys).is_ok());
+
+        let duplicate_keys = vec![
+            OneTimePreKey { key_id: 1, public_key: pk.clone() },
+            OneTimePreKey { key_id: 1, public_key: pk.clone() },
+        ];
+        assert!(KeyService::validate_otpk_uniqueness(&duplicate_keys).is_err());
     }
 }

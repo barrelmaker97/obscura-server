@@ -43,6 +43,7 @@ impl PublicKey {
     /// XEdDSA is used to verify Ed25519 signatures against Curve25519 (Montgomery) public keys.
     /// Because a Montgomery X-coordinate corresponds to two Edwards points (sign bit 0 and 1),
     /// we try both to ensure compatibility with various client implementations and environments.
+    #[tracing::instrument(skip(self, message, signature), level = "debug")]
     pub fn verify(&self, message: &[u8], signature: &Signature) -> Result<()> {
         let pk = xeddsa::xed25519::PublicKey(*self.as_crypto_bytes());
 
