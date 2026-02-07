@@ -9,24 +9,10 @@ use opentelemetry::KeyValue;
 use prost::Message as ProstMessage;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
-use tracing::warn;
+use tracing::{warn, Instrument};
 use uuid::Uuid;
 
 pub struct Session {
-    user_id: Uuid,
-    request_id: String,
-    socket: WebSocket,
-    notifier: Arc<dyn Notifier>,
-    metrics: GatewayMetrics,
-    shutdown_rx: tokio::sync::watch::Receiver<bool>,
-
-    // Components
-    ack_batcher: AckBatcher,
-    message_pump: MessagePump,
-    outbound_rx: mpsc::Receiver<WsMessage>,
-}
-
-pub struct SessionParams {
     pub user_id: Uuid,
     pub request_id: String,
     pub socket: WebSocket,
@@ -38,38 +24,6 @@ pub struct SessionParams {
 }
 
 impl Session {
-    pub fn new(params: SessionParams) -> Self {
-        let (outbound_tx, outbound_rx) = mpsc::channel(params.config.outbound_buffer_size);
-
-        let ack_batcher = AckBatcher::new(
-            params.message_service.clone(),
-            params.metrics.clone(),
-            params.config.ack_buffer_size,
-            params.config.ack_batch_size,
-            params.config.ack_flush_interval_ms,
-        );
-
-        let message_pump = MessagePump::new(
-            params.user_id,
-            params.message_service.clone(),
-            outbound_tx,
-            params.metrics.clone(),
-            params.message_service.batch_limit(),
-        );
-
-        Self {
-            user_id: params.user_id,
-            request_id: params.request_id,
-            socket: params.socket,
-            notifier: params.notifier,
-            metrics: params.metrics,
-            shutdown_rx: params.shutdown_rx,
-            ack_batcher,
-            message_pump,
-            outbound_rx,
-        }
-    }
-
     #[tracing::instrument(
         name = "websocket_session",
         skip(self),
@@ -81,15 +35,16 @@ impl Session {
         )
     )]
     pub async fn run(self) {
+        // Destructuring allows independent mutable access to fields while the socket
+        // is split into sink and stream halves.
         let Session {
             user_id,
             socket,
+            message_service,
             notifier,
             metrics,
+            config,
             mut shutdown_rx,
-            ack_batcher,
-            message_pump,
-            mut outbound_rx,
             ..
         } = self;
 
@@ -99,10 +54,32 @@ impl Session {
         let mut notification_rx = notifier.subscribe(user_id);
         let (mut ws_sink, mut ws_stream) = socket.split();
 
-        // Initial fetch
+        // Components are initialized here inside the 'websocket_session' span
+        // to ensure they are recorded as child spans in traces.
+        let (outbound_tx, mut outbound_rx) = mpsc::channel(config.outbound_buffer_size);
+
+        let ack_batcher = AckBatcher::new(
+            user_id,
+            message_service.clone(),
+            metrics.clone(),
+            config.ack_buffer_size,
+            config.ack_batch_size,
+            config.ack_flush_interval_ms,
+        );
+
+        let message_pump = MessagePump::new(
+            user_id,
+            message_service.clone(),
+            outbound_tx,
+            metrics.clone(),
+            message_service.batch_limit(),
+        );
+
         message_pump.notify();
 
         loop {
+            // Priority is given to shutdown and high-frequency events to ensure
+            // the server remains responsive to control signals.
             if *shutdown_rx.borrow() {
                 tracing::info!("Shutdown signal received, closing WebSocket");
                 let _ = ws_sink
@@ -155,6 +132,7 @@ impl Session {
                     let continue_loop = match result {
                         Ok(UserEvent::MessageReceived) | Err(broadcast::error::RecvError::Lagged(_)) => {
                             message_pump.notify();
+                            // Drain prevents queue buildup if notifications arrive faster than processing.
                             while let Ok(UserEvent::MessageReceived) = notification_rx.try_recv() {
                                  message_pump.notify();
                             }
@@ -169,19 +147,27 @@ impl Session {
         }
 
         let _ = ws_sink.close().await;
+
+        // Explicitly abort background tasks to ensure immediate resource cleanup.
+        ack_batcher.abort();
+        message_pump.abort();
+
         metrics.websocket_active_connections.add(-1, &[]);
         tracing::info!("WebSocket disconnected");
     }
 }
 
+// AckBatcher decouples fast WebSocket ACKs from slow database deletes and
+// reduces database overhead by batching multiple deletions into a single query.
 struct AckBatcher {
     tx: mpsc::Sender<Uuid>,
     metrics: GatewayMetrics,
-    _task: tokio::task::JoinHandle<()>,
+    task: tokio::task::JoinHandle<()>,
 }
 
 impl AckBatcher {
     fn new(
+        user_id: Uuid,
         message_service: MessageService,
         metrics: GatewayMetrics,
         buffer_size: usize,
@@ -191,11 +177,14 @@ impl AckBatcher {
         let (tx, rx) = mpsc::channel(buffer_size);
 
         let batcher_metrics = metrics.clone();
-        let task = tokio::spawn(async move {
-            Self::run_background(rx, message_service, batcher_metrics, batch_size, flush_interval_ms).await;
-        });
+        let task = tokio::spawn(
+            async move {
+                Self::run_background(rx, message_service, batcher_metrics, batch_size, flush_interval_ms).await;
+            }
+            .instrument(tracing::info_span!("ack_batcher", user.id = %user_id))
+        );
 
-        Self { tx, metrics, _task: task }
+        Self { tx, metrics, task }
     }
 
     fn push(&self, msg_id: Uuid) {
@@ -203,6 +192,10 @@ impl AckBatcher {
             warn!(message_id = %msg_id, "Dropped ACK due to full buffer");
             self.metrics.websocket_ack_queue_dropped_total.add(1, &[]);
         }
+    }
+
+    fn abort(&self) {
+        self.task.abort();
     }
 
     async fn run_background(
@@ -240,9 +233,11 @@ impl AckBatcher {
     }
 }
 
+// MessagePump coalesces multiple delivery notifications into a single background
+// database poll to avoid overwhelming the database with redundant queries.
 struct MessagePump {
     notify_tx: mpsc::Sender<()>,
-    _task: tokio::task::JoinHandle<()>,
+    task: tokio::task::JoinHandle<()>,
 }
 
 impl MessagePump {
@@ -253,17 +248,25 @@ impl MessagePump {
         metrics: GatewayMetrics,
         batch_limit: i64,
     ) -> Self {
+        // Channel size 1 effectively coalesces notifications while a fetch is in progress.
         let (notify_tx, notify_rx) = mpsc::channel(1);
 
-        let task = tokio::spawn(async move {
-            Self::run_background(user_id, notify_rx, message_service, outbound_tx, metrics, batch_limit).await;
-        });
+        let task = tokio::spawn(
+            async move {
+                Self::run_background(user_id, notify_rx, message_service, outbound_tx, metrics, batch_limit).await;
+            }
+            .instrument(tracing::info_span!("message_pump", user.id = %user_id))
+        );
 
-        Self { notify_tx, _task: task }
+        Self { notify_tx, task }
     }
 
     fn notify(&self) {
         let _ = self.notify_tx.try_send(());
+    }
+
+    fn abort(&self) {
+        self.task.abort();
     }
 
     async fn run_background(
@@ -277,6 +280,7 @@ impl MessagePump {
         let mut cursor: Option<(time::OffsetDateTime, Uuid)> = None;
 
         while rx.recv().await.is_some() {
+            // Continues fetching until the backlog is fully drained for the user.
             while let Ok(true) = Self::flush_batch(user_id, &message_service, &outbound_tx, &metrics, limit, &mut cursor).await {}
         }
     }

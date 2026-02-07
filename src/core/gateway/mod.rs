@@ -78,7 +78,8 @@ impl GatewayService {
     }
 
     pub async fn handle_socket(&self, mut socket: WebSocket, user_id: Uuid, request_id: String, shutdown_rx: tokio::sync::watch::Receiver<bool>) {
-        // 1. Validate User & Keys
+        // Validation is performed before spawning the session to provide immediate
+        // feedback and avoid allocating resources for invalid connections.
         match self.key_service.fetch_identity_key(user_id).await {
             Ok(Some(_)) => {}
             Ok(None) => {
@@ -93,7 +94,8 @@ impl GatewayService {
             }
         }
 
-        // 2. Send PreKey Status (Optional)
+        // Clients need to know if they are low on pre-keys immediately upon connection
+        // to prevent exhausting their bundle during an active session.
         match self.key_service.check_pre_key_status(user_id).await {
             Ok(Some(status)) => {
                 let frame = WebSocketFrame { payload: Some(Payload::PreKeyStatus(status)) };
@@ -109,7 +111,7 @@ impl GatewayService {
         }
 
         // 3. Hand over to Session
-        let params = crate::core::gateway::session::SessionParams {
+        let session = Session {
             user_id,
             request_id,
             socket,
@@ -119,8 +121,6 @@ impl GatewayService {
             config: self.config.clone(),
             shutdown_rx,
         };
-
-        let session = Session::new(params);
 
         session.run().await;
     }
