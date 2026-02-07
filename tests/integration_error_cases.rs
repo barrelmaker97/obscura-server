@@ -162,3 +162,57 @@ async fn test_gateway_missing_identity_key() {
         }
     }
 }
+
+#[tokio::test]
+async fn test_websocket_unexpected_text() {
+    let app = common::TestApp::spawn().await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user = app.register_user(&format!("ws_text_user_{}", run_id)).await;
+
+    // Connect manually
+    let url = format!("{}?token={}", app.ws_url, user.token);
+    let (mut socket, _) = tokio_tungstenite::connect_async(url).await.expect("Failed to connect");
+
+    // Send a raw text message (server expects Binary)
+    socket.send(WsMessage::Text("Hello Server!".into())).await.unwrap();
+
+    // Verify connection remains open and responsive to heartbeats
+    socket.send(WsMessage::Ping(vec![].into())).await.unwrap();
+    let mut pong_received = false;
+    for _ in 0..5 {
+        if let Some(Ok(WsMessage::Pong(_))) = socket.next().await {
+            pong_received = true;
+            break;
+        }
+    }
+    assert!(pong_received);
+}
+
+#[tokio::test]
+async fn test_websocket_unexpected_protobuf_variant() {
+    let app = common::TestApp::spawn().await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user = app.register_user(&format!("ws_proto_fail_{}", run_id)).await;
+
+    let mut client = app.connect_ws(&user.token).await;
+
+    // Construct a frame with an Envelope payload. 
+    // Clients should only send ACKs to the server. Envelopes are server -> client.
+    let envelope = obscura_server::proto::obscura::v1::Envelope {
+        id: Uuid::new_v4().to_string(),
+        source_user_id: Uuid::new_v4().to_string(),
+        timestamp: 12345,
+        message: None,
+    };
+    let frame = WebSocketFrame { payload: Some(Payload::Envelope(envelope)) };
+    let mut buf = Vec::new();
+    frame.encode(&mut buf).unwrap();
+
+    // Send it
+    client.sink.send(WsMessage::Binary(buf.into())).await.unwrap();
+
+    // Verify connection is still alive
+    client.sink.send(WsMessage::Ping(vec![].into())).await.unwrap();
+    let pong = client.receive_pong().await;
+    assert!(pong.is_some());
+}
