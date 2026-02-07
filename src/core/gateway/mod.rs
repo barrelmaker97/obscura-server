@@ -1,4 +1,6 @@
 pub mod session;
+pub mod ack_batcher;
+pub mod message_pump;
 
 use crate::config::WsConfig;
 use crate::core::key_service::KeyService;
@@ -11,7 +13,6 @@ use futures::SinkExt;
 use opentelemetry::{global, metrics::{Counter, Histogram, UpDownCounter}};
 use prost::Message as ProstMessage;
 use std::sync::Arc;
-use tracing::{error, warn};
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -83,12 +84,12 @@ impl GatewayService {
         match self.key_service.fetch_identity_key(user_id).await {
             Ok(Some(_)) => {}
             Ok(None) => {
-                warn!("User connected but has no identity key");
+                tracing::warn!("User connected but has no identity key");
                 let _ = socket.close().await;
                 return;
             }
             Err(e) => {
-                error!(error = %e, "Failed to fetch identity key");
+                tracing::error!(error = %e, "Failed to fetch identity key");
                 let _ = socket.close().await;
                 return;
             }
@@ -105,7 +106,7 @@ impl GatewayService {
                 }
             }
             Err(e) => {
-                warn!(error = %e, "Failed to check pre-key status");
+                tracing::warn!(error = %e, "Failed to check pre-key status");
             }
             _ => {}
         }

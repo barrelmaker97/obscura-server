@@ -1,15 +1,13 @@
 use crate::config::WsConfig;
 use crate::core::message_service::MessageService;
 use crate::core::notification::{Notifier, UserEvent};
-use crate::proto::obscura::v1::{EncryptedMessage, Envelope, WebSocketFrame, web_socket_frame::Payload};
-use crate::core::gateway::GatewayMetrics;
+use crate::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
+use crate::core::gateway::{GatewayMetrics, ack_batcher::AckBatcher, message_pump::MessagePump};
 use axum::extract::ws::{Message as WsMessage, WebSocket};
 use futures::{SinkExt, StreamExt};
-use opentelemetry::KeyValue;
-use prost::Message as ProstMessage;
+use prost::Message;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
-use tracing::{warn, Instrument};
 use uuid::Uuid;
 
 pub struct Session {
@@ -100,20 +98,34 @@ impl Session {
                     let continue_loop = match msg {
                         Some(Ok(WsMessage::Binary(bin))) => {
                             if let Ok(frame) = WebSocketFrame::decode(bin.as_ref()) {
-                                if let Some(Payload::Ack(ack)) = frame.payload {
-                                    if let Ok(msg_id) = Uuid::parse_str(&ack.message_id) {
-                                        ack_batcher.push(msg_id);
-                                    } else {
-                                        warn!("Received ACK with invalid UUID");
+                                match frame.payload {
+                                    Some(Payload::Ack(ack)) => {
+                                        if let Ok(msg_id) = Uuid::parse_str(&ack.message_id) {
+                                            ack_batcher.push(msg_id);
+                                        } else {
+                                            tracing::warn!("Received ACK with invalid UUID");
+                                        }
                                     }
+                                    _ => tracing::warn!("Received unexpected Protobuf payload type"),
                                 }
                             } else {
-                                warn!("Failed to decode WebSocket frame");
+                                tracing::warn!("Failed to decode WebSocket frame");
                             }
                             true
                         }
                         Some(Ok(WsMessage::Close(_))) | None | Some(Err(_)) => false,
-                        _ => true,
+                        Some(Ok(WsMessage::Text(t))) => {
+                            tracing::warn!("Received unexpected text message: {}", t);
+                            true
+                        }
+                        Some(Ok(WsMessage::Ping(_))) => {
+                            tracing::debug!("Received heartbeat ping from client");
+                            true
+                        }
+                        Some(Ok(WsMessage::Pong(_))) => {
+                            tracing::debug!("Received heartbeat pong from client");
+                            true
+                        }
                     };
 
                     if !continue_loop { break; }
@@ -154,185 +166,5 @@ impl Session {
 
         metrics.websocket_active_connections.add(-1, &[]);
         tracing::info!("WebSocket disconnected");
-    }
-}
-
-// AckBatcher decouples fast WebSocket ACKs from slow database deletes and
-// reduces database overhead by batching multiple deletions into a single query.
-struct AckBatcher {
-    tx: mpsc::Sender<Uuid>,
-    metrics: GatewayMetrics,
-    task: tokio::task::JoinHandle<()>,
-}
-
-impl AckBatcher {
-    fn new(
-        user_id: Uuid,
-        message_service: MessageService,
-        metrics: GatewayMetrics,
-        buffer_size: usize,
-        batch_size: usize,
-        flush_interval_ms: u64,
-    ) -> Self {
-        let (tx, rx) = mpsc::channel(buffer_size);
-
-        let batcher_metrics = metrics.clone();
-        let task = tokio::spawn(
-            async move {
-                Self::run_background(rx, message_service, batcher_metrics, batch_size, flush_interval_ms).await;
-            }
-            .instrument(tracing::info_span!("ack_batcher", user.id = %user_id))
-        );
-
-        Self { tx, metrics, task }
-    }
-
-    fn push(&self, msg_id: Uuid) {
-        if self.tx.try_send(msg_id).is_err() {
-            warn!(message_id = %msg_id, "Dropped ACK due to full buffer");
-            self.metrics.websocket_ack_queue_dropped_total.add(1, &[]);
-        }
-    }
-
-    fn abort(&self) {
-        self.task.abort();
-    }
-
-    async fn run_background(
-        mut rx: mpsc::Receiver<Uuid>,
-        message_service: MessageService,
-        metrics: GatewayMetrics,
-        batch_size: usize,
-        flush_interval_ms: u64,
-    ) {
-        loop {
-            let mut batch = Vec::new();
-            let timeout = tokio::time::sleep(std::time::Duration::from_millis(flush_interval_ms));
-            tokio::pin!(timeout);
-
-            loop {
-                tokio::select! {
-                    res = rx.recv() => {
-                        match res {
-                            Some(id) => {
-                                batch.push(id);
-                                if batch.len() >= batch_size { break; }
-                            }
-                            None => return,
-                        }
-                    }
-                    _ = &mut timeout => break,
-                }
-            }
-
-            if !batch.is_empty() {
-                metrics.websocket_ack_batch_size.record(batch.len() as u64, &[]);
-                let _ = message_service.delete_batch(&batch).await;
-            }
-        }
-    }
-}
-
-// MessagePump coalesces multiple delivery notifications into a single background
-// database poll to avoid overwhelming the database with redundant queries.
-struct MessagePump {
-    notify_tx: mpsc::Sender<()>,
-    task: tokio::task::JoinHandle<()>,
-}
-
-impl MessagePump {
-    fn new(
-        user_id: Uuid,
-        message_service: MessageService,
-        outbound_tx: mpsc::Sender<WsMessage>,
-        metrics: GatewayMetrics,
-        batch_limit: i64,
-    ) -> Self {
-        // Channel size 1 effectively coalesces notifications while a fetch is in progress.
-        let (notify_tx, notify_rx) = mpsc::channel(1);
-
-        let task = tokio::spawn(
-            async move {
-                Self::run_background(user_id, notify_rx, message_service, outbound_tx, metrics, batch_limit).await;
-            }
-            .instrument(tracing::info_span!("message_pump", user.id = %user_id))
-        );
-
-        Self { notify_tx, task }
-    }
-
-    fn notify(&self) {
-        let _ = self.notify_tx.try_send(());
-    }
-
-    fn abort(&self) {
-        self.task.abort();
-    }
-
-    async fn run_background(
-        user_id: Uuid,
-        mut rx: mpsc::Receiver<()>,
-        message_service: MessageService,
-        outbound_tx: mpsc::Sender<WsMessage>,
-        metrics: GatewayMetrics,
-        limit: i64,
-    ) {
-        let mut cursor: Option<(time::OffsetDateTime, Uuid)> = None;
-
-        while rx.recv().await.is_some() {
-            // Continues fetching until the backlog is fully drained for the user.
-            while let Ok(true) = Self::flush_batch(user_id, &message_service, &outbound_tx, &metrics, limit, &mut cursor).await {}
-        }
-    }
-
-    #[tracing::instrument(
-        err(level = "debug"),
-        skip(service, outbound_tx, metrics, cursor),
-        fields(user_id = %user_id, batch_count = tracing::field::Empty)
-    )]
-    async fn flush_batch(
-        user_id: Uuid,
-        service: &MessageService,
-        outbound_tx: &mpsc::Sender<WsMessage>,
-        metrics: &GatewayMetrics,
-        limit: i64,
-        cursor: &mut Option<(time::OffsetDateTime, Uuid)>,
-    ) -> crate::error::Result<bool> {
-        let messages = service.fetch_pending_batch(user_id, *cursor, limit).await?;
-
-        if messages.is_empty() { return Ok(false); }
-
-        let batch_size = messages.len();
-        tracing::Span::current().record("batch.count", batch_size);
-
-        if let Some(last_msg) = messages.last()
-            && let Some(ts) = last_msg.created_at
-        {
-            *cursor = Some((ts, last_msg.id));
-        }
-
-        for msg in messages {
-            let timestamp = msg.created_at
-                .map(|ts| (ts.unix_timestamp_nanos() / 1_000_000) as u64)
-                .unwrap_or_else(|| (time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000) as u64);
-
-            let envelope = Envelope {
-                id: msg.id.to_string(),
-                source_user_id: msg.sender_id.to_string(),
-                timestamp,
-                message: Some(EncryptedMessage { r#type: msg.message_type, content: msg.content }),
-            };
-
-            let frame = WebSocketFrame { payload: Some(Payload::Envelope(envelope)) };
-            let mut buf = Vec::new();
-
-            if frame.encode(&mut buf).is_ok()
-                 && outbound_tx.send(WsMessage::Binary(buf.into())).await.is_err() {
-                    metrics.websocket_outbound_dropped_total.add(1, &[KeyValue::new("reason", "buffer_full")]);
-                    return Ok(false);
-            }
-        }
-
-        Ok(batch_size >= limit as usize)
     }
 }
