@@ -2,7 +2,7 @@ use crate::api::rate_limit::log_rate_limit_events;
 use crate::config::Config;
 use crate::core::account_service::AccountService;
 use crate::core::attachment_service::AttachmentService;
-use crate::core::gateway_service::GatewayService;
+use crate::core::gateway::GatewayService;
 use crate::core::health_service::HealthService;
 use crate::core::key_service::KeyService;
 use crate::core::message_service::MessageService;

@@ -2,7 +2,7 @@ use obscura_server::api::{self, ServiceContainer};
 use obscura_server::config::Config;
 use obscura_server::core::account_service::AccountService;
 use obscura_server::core::attachment_service::AttachmentService;
-use obscura_server::core::gateway_service::GatewayService;
+use obscura_server::core::gateway::GatewayService;
 use obscura_server::core::health_service::HealthService;
 use obscura_server::core::key_service::KeyService;
 use obscura_server::core::message_service::MessageService;
