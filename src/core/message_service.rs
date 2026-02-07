@@ -1,12 +1,10 @@
 use crate::config::MessagingConfig;
 use crate::core::notification::{Notifier, UserEvent};
-use crate::error::{AppError, Result};
-use crate::proto::obscura::v1::EncryptedMessage;
+use crate::domain::message::Message;
+use crate::error::Result;
 use crate::storage::DbPool;
 use crate::storage::message_repo::MessageRepository;
-use axum::body::Bytes;
 use opentelemetry::{KeyValue, global, metrics::{Counter, Histogram}};
-use prost::Message;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::Instrument;
@@ -69,15 +67,12 @@ impl MessageService {
 
     #[tracing::instrument(
         err(level = "warn"),
-        skip(self, body, sender_id, recipient_id),
+        skip(self, content, sender_id, recipient_id),
         fields(recipient_id = %recipient_id)
     )]
-    pub async fn send_message(&self, sender_id: Uuid, recipient_id: Uuid, body: Bytes) -> Result<()> {
-        let msg = EncryptedMessage::decode(body)
-            .map_err(|e| AppError::BadRequest(format!("Invalid EncryptedMessage protobuf: {}", e)))?;
-
+    pub async fn send_message(&self, sender_id: Uuid, recipient_id: Uuid, message_type: i32, content: Vec<u8>) -> Result<()> {
         // Limits are enforced asynchronously by the background cleanup loop to optimize the send path.
-        match self.repo.create(&self.pool, sender_id, recipient_id, msg.r#type, msg.content, self.ttl_days).await {
+        match self.repo.create(&self.pool, sender_id, recipient_id, message_type, content, self.ttl_days).await {
             Ok(_) => {
                 tracing::debug!("Message stored for delivery");
                 self.metrics.messages_sent_total.add(1, &[KeyValue::new("status", "success")]);
@@ -118,7 +113,7 @@ impl MessageService {
         recipient_id: Uuid,
         cursor: Option<(time::OffsetDateTime, Uuid)>,
         limit: i64,
-    ) -> Result<Vec<crate::core::message::Message>> {
+    ) -> Result<Vec<Message>> {
         let messages = self.repo.fetch_pending_batch(&self.pool, recipient_id, cursor, limit).await?;
 
         self.metrics.messaging_fetch_batch_size.record(messages.len() as u64, &[]);

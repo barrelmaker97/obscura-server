@@ -1,4 +1,4 @@
-use crate::core::user::User;
+use crate::domain::user::User;
 use crate::error::{AppError, Result};
 use crate::storage::user_repo::UserRepository;
 use sqlx::{Executor, Postgres};

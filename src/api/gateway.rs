@@ -1,5 +1,5 @@
 use crate::api::AppState;
-use crate::core::auth::verify_jwt;
+use crate::domain::auth::Claims;
 use axum::{
     extract::{
         Query, State,
@@ -27,7 +27,7 @@ pub async fn websocket_handler(
         .map(|id| id.header_value().to_str().unwrap_or_default().to_string())
         .unwrap_or_else(|| "unknown".to_string());
 
-    match verify_jwt(&params.token, &state.config.auth.jwt_secret) {
+    match Claims::decode(&params.token, &state.config.auth.jwt_secret) {
         Ok(claims) => ws.on_upgrade(move |socket| {
             let service = state.gateway_service.clone();
             let shutdown = state.shutdown_rx.clone();

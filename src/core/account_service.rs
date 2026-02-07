@@ -1,10 +1,10 @@
-use crate::core::auth::AuthResponse;
 use crate::core::auth_service::AuthService;
 use crate::core::identity_service::IdentityService;
 use crate::core::key_service::{KeyService, KeyUploadParams};
 use crate::core::message_service::MessageService;
 use crate::core::notification::{Notifier, UserEvent};
-use crate::core::user::{OneTimePreKey, SignedPreKey};
+use crate::domain::keys::{OneTimePreKey, SignedPreKey};
+use crate::domain::session::Session;
 use crate::error::{AppError, Result};
 use crate::storage::DbPool;
 use opentelemetry::{global, metrics::Counter};
@@ -73,11 +73,11 @@ impl AccountService {
         &self,
         username: String,
         password: String,
-        identity_key: crate::core::crypto_types::PublicKey,
+        identity_key: crate::domain::crypto::PublicKey,
         registration_id: i32,
         signed_pre_key: SignedPreKey,
         one_time_pre_keys: Vec<OneTimePreKey>,
-    ) -> Result<AuthResponse> {
+    ) -> Result<Session> {
         if password.len() < 12 {
             tracing::warn!("Registration rejected: password too short");
             return Err(AppError::BadRequest("Password must be at least 12 characters long".into()));
@@ -107,14 +107,14 @@ impl AccountService {
         self.key_service.upsert_keys(&mut tx, key_params).await?;
 
         // 3. Create Session (Auth)
-        let auth_response = self.auth_service.create_session(&mut *tx, user.id).await?;
+        let session = self.auth_service.create_session(&mut *tx, user.id).await?;
 
         tx.commit().await?;
 
         tracing::info!("User registered successfully");
         self.metrics.users_registered_total.add(1, &[]);
 
-        Ok(auth_response)
+        Ok(session)
     }
 
     #[tracing::instrument(
@@ -153,7 +153,7 @@ impl AccountService {
         fields(user_id = tracing::field::Empty),
         err(level = "warn")
     )]
-    pub async fn login(&self, username: String, password: String) -> Result<AuthResponse> {
+    pub async fn login(&self, username: String, password: String) -> Result<Session> {
         let user = match self.identity_service.find_by_username(&self.pool, &username).await? {
             Some(u) => u,
             None => {
@@ -174,12 +174,12 @@ impl AccountService {
 
         // Generate Tokens
         let mut tx = self.pool.begin().await?;
-        let auth_response = self.auth_service.create_session(&mut *tx, user.id).await?;
+        let session = self.auth_service.create_session(&mut *tx, user.id).await?;
         tx.commit().await?;
 
         tracing::info!("User logged in successfully");
 
-        Ok(auth_response)
+        Ok(session)
     }
 
     #[tracing::instrument(
@@ -187,7 +187,7 @@ impl AccountService {
         fields(user_id = tracing::field::Empty),
         err(level = "warn")
     )]
-    pub async fn refresh(&self, refresh_token: String) -> Result<AuthResponse> {
+    pub async fn refresh(&self, refresh_token: String) -> Result<Session> {
         self.auth_service.refresh_session(&self.pool, refresh_token).await
     }
 

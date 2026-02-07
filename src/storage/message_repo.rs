@@ -1,5 +1,6 @@
-use crate::core::message::Message;
+use crate::domain::message::Message;
 use crate::error::{AppError, Result};
+use crate::storage::models::MessageRecord;
 use sqlx::{Executor, Postgres};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
@@ -64,7 +65,7 @@ impl MessageRepository {
     {
         let messages = match cursor {
             Some((last_ts, last_id)) => {
-                sqlx::query_as::<_, Message>(
+                sqlx::query_as::<_, MessageRecord>(
                     r#"
                     SELECT id, sender_id, recipient_id, message_type, content, created_at, expires_at
                     FROM messages
@@ -83,7 +84,7 @@ impl MessageRepository {
                 .await?
             }
             None => {
-                sqlx::query_as::<_, Message>(
+                sqlx::query_as::<_, MessageRecord>(
                     r#"
                     SELECT id, sender_id, recipient_id, message_type, content, created_at, expires_at
                     FROM messages
@@ -100,7 +101,7 @@ impl MessageRepository {
             }
         };
 
-        Ok(messages)
+        Ok(messages.into_iter().map(Into::into).collect())
     }
 
     #[tracing::instrument(level = "debug", skip(self, executor))]

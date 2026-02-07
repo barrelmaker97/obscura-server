@@ -23,6 +23,7 @@ use std::sync::Arc;
 pub mod attachments;
 pub mod auth;
 pub mod docs;
+pub mod dto;
 pub mod gateway;
 pub mod health;
 pub mod keys;

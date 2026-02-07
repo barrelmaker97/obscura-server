@@ -1,7 +1,6 @@
 use crate::config::MessagingConfig;
-use crate::core::auth::verify_signature;
-use crate::core::crypto_types::PublicKey;
-use crate::core::user::{OneTimePreKey, PreKeyBundle, SignedPreKey};
+use crate::domain::crypto::PublicKey;
+use crate::domain::keys::{OneTimePreKey, PreKeyBundle, SignedPreKey};
 use crate::error::{AppError, Result};
 use crate::proto::obscura::v1::PreKeyStatus;
 use crate::storage::key_repo::KeyRepository;
@@ -56,7 +55,7 @@ impl KeyService {
         }
     }
 
-    pub fn validate_otpk_uniqueness(keys: &[OneTimePreKey]) -> Result<()> {
+    pub(crate) fn validate_otpk_uniqueness(keys: &[OneTimePreKey]) -> Result<()> {
         let mut unique_ids = std::collections::HashSet::with_capacity(keys.len());
         for pk in keys {
             if !unique_ids.insert(pk.key_id) {
@@ -203,17 +202,17 @@ fn verify_keys(ik: &PublicKey, signed_pre_key: &SignedPreKey) -> Result<()> {
     // However, some versions or test polyfills might sign the 32-byte raw key.
     // We try both to be absolutely robust.
 
-    if verify_signature(ik, wire_33, &signed_pre_key.signature).is_ok() {
+    if ik.verify(wire_33, &signed_pre_key.signature).is_ok() {
         return Ok(());
     }
 
-    verify_signature(ik, raw_32, &signed_pre_key.signature)
+    ik.verify(raw_32, &signed_pre_key.signature)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::crypto_types::{PublicKey, Signature};
+    use crate::domain::crypto::{PublicKey, Signature};
     use curve25519_dalek::edwards::CompressedEdwardsY;
     use rand::RngCore;
     use rand::rngs::OsRng;

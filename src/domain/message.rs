@@ -1,8 +1,7 @@
-use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone)]
 pub struct Message {
     pub id: Uuid,
     pub sender_id: Uuid,
