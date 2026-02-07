@@ -1,9 +1,11 @@
 pub mod account_service;
 pub mod attachment_service;
 pub mod auth;
+pub mod auth_service;
 pub mod crypto_types;
 pub mod gateway;
 pub mod health_service;
+pub mod identity_service;
 pub mod key_service;
 pub mod message;
 pub mod message_service;

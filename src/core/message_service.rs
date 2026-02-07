@@ -128,6 +128,19 @@ impl MessageService {
 
     #[tracing::instrument(
         err,
+        skip(self, executor),
+        fields(user_id = %user_id)
+    )]
+    pub async fn delete_all_for_user<'e, E>(&self, executor: E, user_id: Uuid) -> Result<()>
+    where
+        E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+    {
+        self.repo.delete_all_for_user(executor, user_id).await?;
+        Ok(())
+    }
+
+    #[tracing::instrument(
+        err,
         skip(self),
         fields(batch_count = message_ids.len())
     )]

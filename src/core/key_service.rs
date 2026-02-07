@@ -1,21 +1,17 @@
 use crate::config::MessagingConfig;
 use crate::core::auth::verify_signature;
 use crate::core::crypto_types::PublicKey;
-use crate::core::notification::{Notifier, UserEvent};
 use crate::core::user::{OneTimePreKey, PreKeyBundle, SignedPreKey};
 use crate::error::{AppError, Result};
 use crate::proto::obscura::v1::PreKeyStatus;
 use crate::storage::key_repo::KeyRepository;
-use crate::storage::message_repo::MessageRepository;
 use opentelemetry::{global, metrics::Counter};
 use sqlx::{PgConnection, PgPool};
-use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Clone)]
 struct KeyMetrics {
     keys_prekey_low_total: Counter<u64>,
-    keys_takeovers_total: Counter<u64>,
 }
 
 impl KeyMetrics {
@@ -26,10 +22,6 @@ impl KeyMetrics {
                 .u64_counter("keys_prekey_low_total")
                 .with_description("Events where users dipped below prekey threshold")
                 .build(),
-            keys_takeovers_total: meter
-                .u64_counter("keys_takeovers_total")
-                .with_description("Total number of device takeover events")
-                .build(),
         }
     }
 }
@@ -38,8 +30,6 @@ impl KeyMetrics {
 pub struct KeyService {
     pool: PgPool,
     key_repo: KeyRepository,
-    message_repo: MessageRepository,
-    notifier: Arc<dyn Notifier>,
     config: MessagingConfig,
     metrics: KeyMetrics,
 }
@@ -56,15 +46,11 @@ impl KeyService {
     pub fn new(
         pool: PgPool,
         key_repo: KeyRepository,
-        message_repo: MessageRepository,
-        notifier: Arc<dyn Notifier>,
         config: MessagingConfig,
     ) -> Self {
         Self {
             pool,
             key_repo,
-            message_repo,
-            notifier,
             config,
             metrics: KeyMetrics::new(),
         }
@@ -106,37 +92,9 @@ impl KeyService {
         }
     }
 
-    /// Public entry point for key uploads.
-    #[tracing::instrument(
-        skip(self, params),
-        fields(user_id = %params.user_id),
-        err(level = "warn")
-    )]
-    pub async fn upload_keys(&self, params: KeyUploadParams) -> Result<()> {
-        let user_id = params.user_id;
-
-        // 0. Uniqueness check (CPU only, outside transaction)
-        Self::validate_otpk_uniqueness(&params.one_time_pre_keys)?;
-
-        let mut tx = self.pool.begin().await?;
-
-        let is_takeover = self.upload_keys_internal(&mut tx, params).await?;
-
-        tx.commit().await?;
-
-        if is_takeover {
-            tracing::warn!("Device takeover detected");
-            self.metrics.keys_takeovers_total.add(1, &[]);
-
-            self.notifier.notify(user_id, UserEvent::Disconnect);
-        }
-
-        Ok(())
-    }
-
     /// Internal implementation that accepts a mutable connection.
     #[tracing::instrument(level = "debug", skip(self, conn, params), err(level = "debug"))]
-    pub(crate) async fn upload_keys_internal(&self, conn: &mut PgConnection, params: KeyUploadParams) -> Result<bool> {
+    pub(crate) async fn upsert_keys(&self, conn: &mut PgConnection, params: KeyUploadParams) -> Result<bool> {
         let mut is_takeover = false;
 
         // 1. Identify/Verify Identity Key
@@ -200,7 +158,8 @@ impl KeyService {
 
             self.key_repo.delete_all_signed_pre_keys(&mut *conn, params.user_id).await?;
             self.key_repo.delete_all_one_time_pre_keys(&mut *conn, params.user_id).await?;
-            self.message_repo.delete_all_for_user(&mut *conn, params.user_id).await?;
+            
+            // Note: Message deletion and notification are now handled by the orchestrator.
 
             // Upsert Identity Key
             self.key_repo.upsert_identity_key(&mut *conn, params.user_id, &ik, reg_id).await?;

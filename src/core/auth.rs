@@ -19,6 +19,14 @@ pub struct Claims {
     pub exp: usize,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthResponse {
+    pub token: String,
+    pub refresh_token: String,
+    pub expires_at: i64,
+}
+
 #[tracing::instrument(err, skip(secret))]
 pub fn create_jwt(user_id: Uuid, secret: &str, ttl_secs: u64) -> Result<String> {
     let expiration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(std::time::Duration::from_secs(0)).as_secs()

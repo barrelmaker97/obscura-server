@@ -60,7 +60,7 @@ pub async fn upload_keys(
         one_time_pre_keys,
     };
 
-    state.key_service.upload_keys(params).await?;
+    state.account_service.upload_keys(params).await?;
 
     Ok(StatusCode::OK)
 }

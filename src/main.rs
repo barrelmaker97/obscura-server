@@ -121,8 +121,6 @@ async fn main() -> anyhow::Result<()> {
             let key_service = KeyService::new(
                 pool.clone(),
                 key_repo,
-                message_repo.clone(),
-                notifier.clone(),
                 config.messaging.clone(),
             );
 
@@ -134,11 +132,10 @@ async fn main() -> anyhow::Result<()> {
                 config.ttl_days,
             );
 
-            let account_service = AccountService::new(
-                pool.clone(),
+            let identity_service = obscura_server::core::identity_service::IdentityService::new(user_repo);
+
+            let auth_service = obscura_server::core::auth_service::AuthService::new(
                 config.auth.clone(),
-                key_service.clone(),
-                user_repo,
                 refresh_repo,
             );
 
@@ -148,6 +145,15 @@ async fn main() -> anyhow::Result<()> {
                 notifier.clone(),
                 config.messaging.clone(),
                 config.ttl_days,
+            );
+
+            let account_service = AccountService::new(
+                pool.clone(),
+                identity_service.clone(),
+                auth_service.clone(),
+                key_service.clone(),
+                message_service.clone(),
+                notifier.clone(),
             );
 
             let gateway_service = GatewayService::new(

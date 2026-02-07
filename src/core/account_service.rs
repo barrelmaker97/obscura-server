@@ -1,26 +1,20 @@
-use crate::config::AuthConfig;
-use crate::core::auth::{self, create_jwt};
+use crate::core::auth::AuthResponse;
+use crate::core::auth_service::AuthService;
+use crate::core::identity_service::IdentityService;
 use crate::core::key_service::{KeyService, KeyUploadParams};
+use crate::core::message_service::MessageService;
+use crate::core::notification::{Notifier, UserEvent};
 use crate::core::user::{OneTimePreKey, SignedPreKey};
 use crate::error::{AppError, Result};
 use crate::storage::DbPool;
-use crate::storage::refresh_token_repo::RefreshTokenRepository;
-use crate::storage::user_repo::UserRepository;
 use opentelemetry::{global, metrics::Counter};
-use serde::Serialize;
+use std::sync::Arc;
 use uuid::Uuid;
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AuthResponse {
-    pub token: String,
-    pub refresh_token: String,
-    pub expires_at: i64,
-}
 
 #[derive(Clone)]
 struct AccountMetrics {
     users_registered_total: Counter<u64>,
+    keys_takeovers_total: Counter<u64>,
 }
 
 impl AccountMetrics {
@@ -31,6 +25,10 @@ impl AccountMetrics {
                 .u64_counter("users_registered_total")
                 .with_description("Total number of successful user registrations")
                 .build(),
+            keys_takeovers_total: meter
+                .u64_counter("keys_takeovers_total")
+                .with_description("Total number of device takeover events")
+                .build(),
         }
     }
 }
@@ -38,27 +36,30 @@ impl AccountMetrics {
 #[derive(Clone)]
 pub struct AccountService {
     pool: DbPool,
-    config: AuthConfig,
+    identity_service: IdentityService,
+    auth_service: AuthService,
     key_service: KeyService,
-    user_repo: UserRepository,
-    refresh_repo: RefreshTokenRepository,
+    message_service: MessageService,
+    notifier: Arc<dyn Notifier>,
     metrics: AccountMetrics,
 }
 
 impl AccountService {
     pub fn new(
         pool: DbPool,
-        config: AuthConfig,
+        identity_service: IdentityService,
+        auth_service: AuthService,
         key_service: KeyService,
-        user_repo: UserRepository,
-        refresh_repo: RefreshTokenRepository,
+        message_service: MessageService,
+        notifier: Arc<dyn Notifier>,
     ) -> Self {
         Self {
             pool,
-            config,
+            identity_service,
+            auth_service,
             key_service,
-            user_repo,
-            refresh_repo,
+            message_service,
+            notifier,
             metrics: AccountMetrics::new(),
         }
     }
@@ -85,24 +86,16 @@ impl AccountService {
         // 0. Uniqueness check (CPU only, outside transaction)
         KeyService::validate_otpk_uniqueness(&one_time_pre_keys)?;
 
-        let password_hash: Result<String> = tokio::task::spawn_blocking(move || auth::hash_password(&password))
-            .await
-            .map_err(|_| AppError::Internal)?;
-        let password_hash = password_hash?;
+        let password_hash = self.auth_service.hash_password(&password).await?;
 
         let mut tx = self.pool.begin().await?;
 
-        let user = self.user_repo.create(&mut *tx, &username, &password_hash).await.map_err(|e| {
-            if let AppError::Database(sqlx::Error::Database(db_err)) = &e
-                && db_err.code().as_deref() == Some("23505")
-            {
-                return AppError::Conflict("Username already exists".into());
-            }
-            e
-        })?;
+        // 1. Create User
+        let user = self.identity_service.create_user(&mut *tx, &username, &password_hash).await?;
 
         tracing::Span::current().record("user.id", tracing::field::display(user.id));
 
+        // 2. Upload Keys
         let key_params = KeyUploadParams {
             user_id: user.id,
             identity_key: Some(identity_key),
@@ -111,25 +104,48 @@ impl AccountService {
             one_time_pre_keys,
         };
 
-        self.key_service.upload_keys_internal(&mut tx, key_params).await?;
+        self.key_service.upsert_keys(&mut tx, key_params).await?;
 
-        // Generate Tokens
-        let token = create_jwt(user.id, &self.config.jwt_secret, self.config.access_token_ttl_secs)?;
-        let refresh_token = auth::generate_opaque_token();
-        let refresh_hash = auth::hash_token(&refresh_token);
-
-        self.refresh_repo.create(&mut *tx, user.id, &refresh_hash, self.config.refresh_token_ttl_days).await?;
+        // 3. Create Session (Auth)
+        let auth_response = self.auth_service.create_session(&mut *tx, user.id).await?;
 
         tx.commit().await?;
 
         tracing::info!("User registered successfully");
         self.metrics.users_registered_total.add(1, &[]);
 
-        let expires_at = (time::OffsetDateTime::now_utc()
-            + time::Duration::seconds(self.config.access_token_ttl_secs as i64))
-        .unix_timestamp();
+        Ok(auth_response)
+    }
 
-        Ok(AuthResponse { token, refresh_token, expires_at })
+    #[tracing::instrument(
+        skip(self, params),
+        fields(user_id = %params.user_id),
+        err(level = "warn")
+    )]
+    pub async fn upload_keys(&self, params: KeyUploadParams) -> Result<()> {
+        let user_id = params.user_id;
+
+        // 0. Uniqueness check (CPU only, outside transaction)
+        KeyService::validate_otpk_uniqueness(&params.one_time_pre_keys)?;
+
+        let mut tx = self.pool.begin().await?;
+
+        let is_takeover = self.key_service.upsert_keys(&mut tx, params).await?;
+
+        if is_takeover {
+            self.message_service.delete_all_for_user(&mut *tx, user_id).await?;
+        }
+
+        tx.commit().await?;
+
+        if is_takeover {
+            tracing::warn!("Device takeover detected");
+            self.metrics.keys_takeovers_total.add(1, &[]);
+
+            self.notifier.notify(user_id, UserEvent::Disconnect);
+        }
+
+        Ok(())
     }
 
     #[tracing::instrument(
@@ -138,7 +154,7 @@ impl AccountService {
         err(level = "warn")
     )]
     pub async fn login(&self, username: String, password: String) -> Result<AuthResponse> {
-        let user = match self.user_repo.find_by_username(&self.pool, &username).await? {
+        let user = match self.identity_service.find_by_username(&self.pool, &username).await? {
             Some(u) => u,
             None => {
                 tracing::warn!("Login failed: user not found");
@@ -148,13 +164,7 @@ impl AccountService {
 
         tracing::Span::current().record("user.id", tracing::field::display(user.id));
 
-        let password_hash = user.password_hash.clone();
-
-        let is_valid: Result<bool> =
-            tokio::task::spawn_blocking(move || auth::verify_password(&password, &password_hash))
-                .await
-                .map_err(|_| AppError::Internal)?;
-        let is_valid = is_valid?;
+        let is_valid = self.auth_service.verify_password(&password, &user.password_hash).await?;
 
         if !is_valid {
             tracing::Span::current().record("user_id", tracing::field::display(user.id));
@@ -163,21 +173,13 @@ impl AccountService {
         }
 
         // Generate Tokens
-        let token = create_jwt(user.id, &self.config.jwt_secret, self.config.access_token_ttl_secs)?;
-        let refresh_token = auth::generate_opaque_token();
-        let refresh_hash = auth::hash_token(&refresh_token);
-
         let mut tx = self.pool.begin().await?;
-        self.refresh_repo.create(&mut *tx, user.id, &refresh_hash, self.config.refresh_token_ttl_days).await?;
+        let auth_response = self.auth_service.create_session(&mut *tx, user.id).await?;
         tx.commit().await?;
 
         tracing::info!("User logged in successfully");
 
-        let expires_at = (time::OffsetDateTime::now_utc()
-            + time::Duration::seconds(self.config.access_token_ttl_secs as i64))
-        .unix_timestamp();
-
-        Ok(AuthResponse { token, refresh_token, expires_at })
+        Ok(auth_response)
     }
 
     #[tracing::instrument(
@@ -186,43 +188,13 @@ impl AccountService {
         err(level = "warn")
     )]
     pub async fn refresh(&self, refresh_token: String) -> Result<AuthResponse> {
-        // 1. Hash the incoming token to look it up
-        let hash = auth::hash_token(&refresh_token);
-
-        // 2. Verify and Rotate (Atomic Transaction)
-        let mut tx = self.pool.begin().await?;
-
-        let user_id = self.refresh_repo.verify_and_consume(&mut tx, &hash).await?.ok_or(AppError::AuthError)?;
-
-        tracing::Span::current().record("user.id", tracing::field::display(user_id));
-
-        // 3. Generate New Pair
-        let new_access_token = create_jwt(user_id, &self.config.jwt_secret, self.config.access_token_ttl_secs)?;
-        let new_refresh_token = auth::generate_opaque_token();
-        let new_refresh_hash = auth::hash_token(&new_refresh_token);
-
-        // 4. Store New Refresh Token
-        self.refresh_repo.create(&mut *tx, user_id, &new_refresh_hash, self.config.refresh_token_ttl_days).await?;
-
-        tx.commit().await?;
-
-        tracing::info!("Tokens rotated successfully");
-
-        let expires_at = (time::OffsetDateTime::now_utc()
-            + time::Duration::seconds(self.config.access_token_ttl_secs as i64))
-        .unix_timestamp();
-
-        Ok(AuthResponse { token: new_access_token, refresh_token: new_refresh_token, expires_at })
+        self.auth_service.refresh_session(&self.pool, refresh_token).await
     }
 
     #[tracing::instrument(err, skip(self, refresh_token), fields(user_id = %user_id))]
     pub async fn logout(&self, user_id: Uuid, refresh_token: String) -> Result<()> {
-        let hash = auth::hash_token(&refresh_token);
-
-        self.refresh_repo.delete_owned(&self.pool, &hash, user_id).await?;
-
+        self.auth_service.logout(&self.pool, user_id, refresh_token).await?;
         tracing::info!("User logged out");
-
         Ok(())
     }
 }
