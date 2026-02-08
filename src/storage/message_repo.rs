@@ -22,16 +22,17 @@ impl MessageRepository {
         message_type: i32,
         content: Vec<u8>,
         ttl_days: i64,
-    ) -> Result<()>
+    ) -> Result<Message>
     where
         E: Executor<'e, Database = Postgres>,
     {
         let expires_at = OffsetDateTime::now_utc() + Duration::days(ttl_days);
 
-        let result = sqlx::query(
+        let result = sqlx::query_as::<_, MessageRecord>(
             r#"
             INSERT INTO messages (sender_id, recipient_id, message_type, content, expires_at)
             VALUES ($1, $2, $3, $4, $5)
+            RETURNING id, sender_id, recipient_id, message_type, content, created_at, expires_at
             "#,
         )
         .bind(sender_id)
@@ -39,17 +40,36 @@ impl MessageRepository {
         .bind(message_type)
         .bind(content)
         .bind(expires_at)
-        .execute(executor)
+        .fetch_one(executor)
         .await;
 
         match result {
-            Ok(_) => Ok(()),
+            Ok(record) => Ok(record.into()),
             Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("23503") => {
                 // Foreign key violation: recipient_id does not exist
                 Err(AppError::NotFound)
             }
             Err(e) => Err(AppError::Database(e)),
         }
+    }
+
+    #[tracing::instrument(level = "debug", skip(self, executor))]
+    pub async fn find_by_id<'e, E>(&self, executor: E, id: Uuid) -> Result<Option<Message>>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
+        let record = sqlx::query_as::<_, MessageRecord>(
+            r#"
+            SELECT id, sender_id, recipient_id, message_type, content, created_at, expires_at
+            FROM messages
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(executor)
+        .await?;
+
+        Ok(record.map(Into::into))
     }
 
     #[tracing::instrument(level = "debug", skip(self, executor))]

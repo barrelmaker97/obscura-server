@@ -1,7 +1,5 @@
 use crate::error::{AppError, Result};
-use base64::{Engine as _, engine::general_purpose::STANDARD};
 use ed25519_dalek::Verifier;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Prefix byte used by Signal/DJB for Montgomery (X25519) keys.
 pub const DJB_KEY_PREFIX: u8 = 0x05;
@@ -91,28 +89,6 @@ impl From<PublicKey> for Vec<u8> {
     }
 }
 
-impl Serialize for PublicKey {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let b64 = STANDARD.encode(self.0);
-        serializer.serialize_str(&b64)
-    }
-}
-
-impl<'de> Deserialize<'de> for PublicKey {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        let bytes = STANDARD.decode(&s).map_err(serde::de::Error::custom)?;
-
-        PublicKey::try_from_bytes(&bytes).map_err(serde::de::Error::custom)
-    }
-}
-
 /// Strong type for 64-byte Ed25519 signatures.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Signature([u8; 64]);
@@ -153,27 +129,6 @@ impl From<Signature> for Vec<u8> {
     }
 }
 
-impl Serialize for Signature {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let b64 = STANDARD.encode(self.0);
-        serializer.serialize_str(&b64)
-    }
-}
-
-impl<'de> Deserialize<'de> for Signature {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        let bytes = STANDARD.decode(&s).map_err(serde::de::Error::custom)?;
-
-        Signature::try_from(bytes.as_slice()).map_err(serde::de::Error::custom)
-    }
-}
 
 
 
@@ -195,51 +150,6 @@ mod tests {
 
         let key = PublicKey::try_from_bytes(&bytes).unwrap();
         assert_eq!(key.as_crypto_bytes(), &inner);
-    }
-
-    #[test]
-    fn test_deserialize_montgomery_32_fails() {
-        let bytes = [3u8; 32];
-        let b64 = STANDARD.encode(bytes);
-        let res: std::result::Result<PublicKey, _> = serde_json::from_str(&format!("\"{}\"", b64));
-        assert!(res.is_err(), "32-byte wire format should fail");
-    }
-
-    #[test]
-    fn test_deserialize_montgomery_33() {
-        let mut bytes = [2u8; 33];
-        bytes[0] = DJB_KEY_PREFIX; // Prefix
-        let inner = [2u8; 32]; // Rest
-        bytes[1..].copy_from_slice(&inner);
-
-        let b64 = STANDARD.encode(bytes);
-        let key: PublicKey = serde_json::from_str(&format!("\"{}\"", b64)).unwrap();
-        assert_eq!(key, PublicKey(bytes));
-    }
-
-    #[test]
-    fn test_deserialize_invalid_len() {
-        let bytes = [0u8; 31];
-        let b64 = STANDARD.encode(bytes);
-        let res: std::result::Result<PublicKey, _> = serde_json::from_str(&format!("\"{}\"", b64));
-        assert!(res.is_err());
-    }
-
-    #[test]
-    fn test_serialize_roundtrip() {
-        let key = PublicKey::try_from_bytes(&[5u8; 33]).unwrap();
-        let json = serde_json::to_string(&key).unwrap();
-        let back: PublicKey = serde_json::from_str(&json).unwrap();
-        assert_eq!(key, back);
-    }
-
-    #[test]
-    fn test_signature_roundtrip() {
-        let bytes = [9u8; 64];
-        let sig = Signature(bytes);
-        let json = serde_json::to_string(&sig).unwrap();
-        let back: Signature = serde_json::from_str(&json).unwrap();
-        assert_eq!(sig, back);
     }
 
     #[test]

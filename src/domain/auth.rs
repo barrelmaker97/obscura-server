@@ -9,7 +9,22 @@ use rand::{RngCore, rngs::OsRng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
+use time::OffsetDateTime;
 use uuid::Uuid;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefreshToken {
+    pub token_hash: String,
+    pub user_id: Uuid,
+    pub expires_at: OffsetDateTime,
+    pub created_at: OffsetDateTime,
+}
+
+impl RefreshToken {
+    pub fn is_expired(&self) -> bool {
+        self.expires_at < OffsetDateTime::now_utc()
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Claims {

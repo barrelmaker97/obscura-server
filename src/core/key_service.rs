@@ -55,16 +55,6 @@ impl KeyService {
         }
     }
 
-    pub(crate) fn validate_otpk_uniqueness(keys: &[OneTimePreKey]) -> Result<()> {
-        let mut unique_ids = std::collections::HashSet::with_capacity(keys.len());
-        for pk in keys {
-            if !unique_ids.insert(pk.key_id) {
-                return Err(AppError::BadRequest(format!("Duplicate prekey ID: {}", pk.key_id)));
-            }
-        }
-        Ok(())
-    }
-
     #[tracing::instrument(err, skip(self), fields(user_id = %user_id))]
     pub async fn get_pre_key_bundle(&self, user_id: Uuid) -> Result<Option<PreKeyBundle>> {
         let mut conn = self.pool.acquire().await?;
@@ -95,6 +85,9 @@ impl KeyService {
     #[tracing::instrument(level = "debug", skip(self, conn, params), err(level = "debug"))]
     pub(crate) async fn upsert_keys(&self, conn: &mut PgConnection, params: KeyUploadParams) -> Result<bool> {
         let mut is_takeover = false;
+
+        // 0. Uniqueness check (CPU only, outside transaction)
+        OneTimePreKey::validate_uniqueness(&params.one_time_pre_keys)?;
 
         // 1. Identify/Verify Identity Key
         let ik = if let Some(new_ik) = params.identity_key {
@@ -254,21 +247,5 @@ mod tests {
         let spk = SignedPreKey { key_id: 1, public_key: spk_pub, signature };
 
         assert!(verify_keys(&ik_pub, &spk).is_ok());
-    }
-
-    #[test]
-    fn test_validate_otpk_uniqueness() {
-        let pk = PublicKey::new([0x05; 33]);
-        let keys = vec![
-            OneTimePreKey { key_id: 1, public_key: pk.clone() },
-            OneTimePreKey { key_id: 2, public_key: pk.clone() },
-        ];
-        assert!(KeyService::validate_otpk_uniqueness(&keys).is_ok());
-
-        let duplicate_keys = vec![
-            OneTimePreKey { key_id: 1, public_key: pk.clone() },
-            OneTimePreKey { key_id: 1, public_key: pk.clone() },
-        ];
-        assert!(KeyService::validate_otpk_uniqueness(&duplicate_keys).is_err());
     }
 }

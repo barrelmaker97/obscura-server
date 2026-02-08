@@ -1,5 +1,5 @@
-use crate::domain::crypto::PublicKey;
-use crate::domain::keys::{OneTimePreKey, SignedPreKey};
+use crate::api::dto::crypto::PublicKeyDto;
+use crate::api::dto::keys::{OneTimePreKeyDto, SignedPreKeyDto};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
@@ -7,10 +7,10 @@ use serde::{Deserialize, Serialize};
 pub struct RegistrationRequest {
     pub username: String,
     pub password: String,
-    pub identity_key: PublicKey,
+    pub identity_key: PublicKeyDto,
     pub registration_id: i32,
-    pub signed_pre_key: SignedPreKey,
-    pub one_time_pre_keys: Vec<OneTimePreKey>,
+    pub signed_pre_key: SignedPreKeyDto,
+    pub one_time_pre_keys: Vec<OneTimePreKeyDto>,
 }
 
 #[derive(Deserialize)]

@@ -1,5 +1,7 @@
+use crate::domain::attachment::Attachment;
 use crate::error::Result;
-use sqlx::{Executor, Postgres, Row};
+use crate::storage::models::AttachmentRecord;
+use sqlx::{Executor, Postgres};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -25,14 +27,16 @@ impl AttachmentRepository {
     }
 
     #[tracing::instrument(level = "debug", skip(self, executor))]
-    pub async fn get_expires_at<'e, E>(&self, executor: E, id: Uuid) -> Result<Option<OffsetDateTime>>
+    pub async fn find_by_id<'e, E>(&self, executor: E, id: Uuid) -> Result<Option<Attachment>>
     where
         E: Executor<'e, Database = Postgres>,
     {
-        let row =
-            sqlx::query("SELECT expires_at FROM attachments WHERE id = $1").bind(id).fetch_optional(executor).await?;
+        let record = sqlx::query_as::<_, AttachmentRecord>("SELECT id, expires_at FROM attachments WHERE id = $1")
+            .bind(id)
+            .fetch_optional(executor)
+            .await?;
 
-        Ok(row.map(|r| r.get("expires_at")))
+        Ok(record.map(Into::into))
     }
 
     #[tracing::instrument(level = "debug", skip(self, executor))]
@@ -49,11 +53,11 @@ impl AttachmentRepository {
     where
         E: Executor<'e, Database = Postgres>,
     {
-        let rows = sqlx::query("SELECT id FROM attachments WHERE expires_at < NOW() LIMIT $1")
+        let rows = sqlx::query_as::<_, AttachmentRecord>("SELECT id, expires_at FROM attachments WHERE expires_at < NOW() LIMIT $1")
             .bind(limit)
             .fetch_all(executor)
             .await?;
 
-        Ok(rows.into_iter().map(|r| r.get("id")).collect())
+        Ok(rows.into_iter().map(|r| r.id).collect())
     }
 }

@@ -4,7 +4,7 @@ use crate::api::dto::auth::{
 };
 use crate::api::middleware::AuthUser;
 use crate::domain::session::Session;
-use crate::error::Result;
+use crate::error::{AppError, Result};
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 
 pub async fn login(State(state): State<AppState>, Json(payload): Json<LoginRequest>) -> Result<impl IntoResponse> {
@@ -22,10 +22,14 @@ pub async fn register(
         .register(
             payload.username,
             payload.password,
-            payload.identity_key,
+            payload.identity_key.try_into().map_err(AppError::BadRequest)?,
             payload.registration_id,
-            payload.signed_pre_key,
-            payload.one_time_pre_keys,
+            payload.signed_pre_key.try_into().map_err(AppError::BadRequest)?,
+            payload.one_time_pre_keys
+                .into_iter()
+                .map(|k| k.try_into())
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(AppError::BadRequest)?,
         )
         .await?;
 

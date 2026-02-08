@@ -1,4 +1,6 @@
+use crate::domain::auth::RefreshToken;
 use crate::error::{AppError, Result};
+use crate::storage::models::RefreshTokenRecord;
 use sqlx::{Executor, PgConnection, Postgres};
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -37,16 +39,10 @@ impl RefreshTokenRepository {
     /// The caller MUST commit the transaction.
     #[tracing::instrument(level = "debug", skip(self, executor, token_hash), fields(user_id = tracing::field::Empty))]
     pub async fn verify_and_consume(&self, executor: &mut PgConnection, token_hash: &str) -> Result<Option<Uuid>> {
-        #[derive(sqlx::FromRow)]
-        struct TokenRecord {
-            user_id: Uuid,
-            expires_at: OffsetDateTime,
-        }
-
         // 1. Fetch and Lock
-        let row: Option<TokenRecord> = sqlx::query_as(
+        let record: Option<RefreshTokenRecord> = sqlx::query_as(
             r#"
-            SELECT user_id, expires_at 
+            SELECT token_hash, user_id, expires_at, created_at
             FROM refresh_tokens 
             WHERE token_hash = $1 
             FOR UPDATE SKIP LOCKED
@@ -57,11 +53,12 @@ impl RefreshTokenRepository {
         .await
         .map_err(AppError::Database)?;
 
-        if let Some(record) = row {
-            tracing::Span::current().record("user_id", tracing::field::display(record.user_id));
+        if let Some(record) = record {
+            let token: RefreshToken = record.into();
+            tracing::Span::current().record("user_id", tracing::field::display(token.user_id));
 
-            // 2. Check Expiry
-            if record.expires_at < OffsetDateTime::now_utc() {
+            // 2. Check Expiry using domain logic
+            if token.is_expired() {
                 tracing::warn!("Refresh token expired during rotation attempt");
                 // Delete expired token to clean up
                 sqlx::query("DELETE FROM refresh_tokens WHERE token_hash = $1")
@@ -77,7 +74,7 @@ impl RefreshTokenRepository {
                 .execute(&mut *executor)
                 .await?;
 
-            Ok(Some(record.user_id))
+            Ok(Some(token.user_id))
         } else {
             tracing::warn!("Refresh token not found or already consumed (potential reuse attack)");
             Ok(None)

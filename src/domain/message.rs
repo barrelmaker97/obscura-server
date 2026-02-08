@@ -11,3 +11,9 @@ pub struct Message {
     pub created_at: Option<OffsetDateTime>,
     pub expires_at: OffsetDateTime,
 }
+
+impl Message {
+    pub fn is_expired(&self) -> bool {
+        self.expires_at < OffsetDateTime::now_utc()
+    }
+}

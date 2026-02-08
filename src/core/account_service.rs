@@ -84,7 +84,7 @@ impl AccountService {
         }
 
         // 0. Uniqueness check (CPU only, outside transaction)
-        KeyService::validate_otpk_uniqueness(&one_time_pre_keys)?;
+        OneTimePreKey::validate_uniqueness(&one_time_pre_keys)?;
 
         let password_hash = self.auth_service.hash_password(&password).await?;
 
@@ -126,7 +126,7 @@ impl AccountService {
         let user_id = params.user_id;
 
         // 0. Uniqueness check (CPU only, outside transaction)
-        KeyService::validate_otpk_uniqueness(&params.one_time_pre_keys)?;
+        OneTimePreKey::validate_uniqueness(&params.one_time_pre_keys)?;
 
         let mut tx = self.pool.begin().await?;
 

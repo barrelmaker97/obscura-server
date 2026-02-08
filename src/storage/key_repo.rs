@@ -1,6 +1,7 @@
 use crate::domain::crypto::{PublicKey, Signature};
 use crate::domain::keys::{OneTimePreKey, PreKeyBundle, SignedPreKey};
 use crate::error::{AppError, Result};
+use crate::storage::models::{IdentityKeyRecord, OneTimePreKeyRecord, SignedPreKeyRecord};
 use sqlx::{Executor, PgConnection, Postgres, Row};
 use uuid::Uuid;
 
@@ -114,31 +115,29 @@ impl KeyRepository {
         executor: &mut PgConnection,
         user_id: Uuid,
     ) -> Result<Option<PreKeyBundle>> {
-        // Fetch identity and signed pre key
-        let identity_row = sqlx::query(
-            r#"
-            SELECT identity_key, registration_id FROM identity_keys WHERE user_id = $1
-            "#,
+        // Fetch identity
+        let identity_rec = sqlx::query_as::<_, IdentityKeyRecord>(
+            "SELECT user_id, identity_key, registration_id FROM identity_keys WHERE user_id = $1",
         )
         .bind(user_id)
         .fetch_optional(&mut *executor)
         .await?;
 
-        let Some(identity_row) = identity_row else {
+        let Some(identity_rec) = identity_rec else {
             return Ok(None);
         };
-        let identity_key_bytes: Vec<u8> = identity_row.get("identity_key");
-        let registration_id: i32 = identity_row.get("registration_id");
 
-        // Convert Identity Key
-        let identity_key = PublicKey::try_from(identity_key_bytes).map_err(|e| {
+        let registration_id = identity_rec.registration_id;
+        let identity_key = PublicKey::try_from(identity_rec).map_err(|e| {
             tracing::error!(error = %e, "Database data corruption: Invalid identity key format");
             AppError::Internal
         })?;
 
-        let signed_row = sqlx::query(
+        // Fetch latest signed pre key
+        let signed_rec = sqlx::query_as::<_, SignedPreKeyRecord>(
             r#"
-            SELECT id, public_key, signature FROM signed_pre_keys WHERE user_id = $1
+            SELECT id, user_id, public_key, signature, created_at 
+            FROM signed_pre_keys WHERE user_id = $1
             ORDER BY created_at DESC LIMIT 1
             "#,
         )
@@ -146,51 +145,36 @@ impl KeyRepository {
         .fetch_optional(&mut *executor)
         .await?;
 
-        let Some(signed_row) = signed_row else {
+        let Some(signed_rec) = signed_rec else {
             return Ok(None);
         };
-        let pk_bytes: Vec<u8> = signed_row.get("public_key");
-        let sig_bytes: Vec<u8> = signed_row.get("signature");
 
-        let pk = PublicKey::try_from(pk_bytes).map_err(|e| {
+        let signed_pre_key = SignedPreKey::try_from(signed_rec).map_err(|e| {
             tracing::error!(error = %e, "Database data corruption: Invalid signed pre-key format");
             AppError::Internal
         })?;
-        let sig = Signature::try_from(sig_bytes).map_err(|e| {
-            tracing::error!(
-                error = %e,
-                "Database data corruption: Invalid signed pre-key signature format"
-            );
-            AppError::Internal
-        })?;
-
-        let signed_pre_key = SignedPreKey { key_id: signed_row.get("id"), public_key: pk, signature: sig };
 
         // Fetch one one-time pre key and delete it
-        let otpk_row = sqlx::query(
+        let otpk_rec = sqlx::query_as::<_, OneTimePreKeyRecord>(
             r#"
             DELETE FROM one_time_pre_keys
             WHERE id = (
                 SELECT id FROM one_time_pre_keys WHERE user_id = $1 LIMIT 1
             ) AND user_id = $1
-            RETURNING id, public_key
+            RETURNING id, user_id, public_key, created_at
             "#,
         )
         .bind(user_id)
         .fetch_optional(&mut *executor)
         .await?;
 
-        let one_time_pre_key = match otpk_row {
-            Some(row) => {
-                let pk_bytes: Vec<u8> = row.get("public_key");
-                let pk = PublicKey::try_from(pk_bytes).map_err(|e| {
-                    tracing::error!(
-                        error = %e,
-                        "Database data corruption: Invalid one-time pre-key format"
-                    );
+        let one_time_pre_key = match otpk_rec {
+            Some(rec) => {
+                let pk = OneTimePreKey::try_from(rec).map_err(|e| {
+                    tracing::error!(error = %e, "Database data corruption: Invalid one-time pre-key format");
                     AppError::Internal
                 })?;
-                Some(OneTimePreKey { key_id: row.get("id"), public_key: pk })
+                Some(pk)
             }
             None => None,
         };
@@ -203,19 +187,17 @@ impl KeyRepository {
     where
         E: Executor<'e, Database = Postgres>,
     {
-        let row = sqlx::query("SELECT identity_key FROM identity_keys WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_optional(executor)
-            .await?;
+        let rec = sqlx::query_as::<_, IdentityKeyRecord>(
+            "SELECT user_id, identity_key, registration_id FROM identity_keys WHERE user_id = $1",
+        )
+        .bind(user_id)
+        .fetch_optional(executor)
+        .await?;
 
-        match row {
+        match rec {
             Some(r) => {
-                let bytes: Vec<u8> = r.get("identity_key");
-                let pk = PublicKey::try_from(bytes).map_err(|e| {
-                    tracing::error!(
-                        error = %e,
-                        "Database data corruption: Invalid identity key format"
-                    );
+                let pk = PublicKey::try_from(r).map_err(|e| {
+                    tracing::error!(error = %e, "Database data corruption: Invalid identity key format");
                     AppError::Internal
                 })?;
                 Ok(Some(pk))
@@ -229,19 +211,17 @@ impl KeyRepository {
     where
         E: Executor<'e, Database = Postgres>,
     {
-        let row = sqlx::query("SELECT identity_key FROM identity_keys WHERE user_id = $1 FOR UPDATE")
-            .bind(user_id)
-            .fetch_optional(executor)
-            .await?;
+        let rec = sqlx::query_as::<_, IdentityKeyRecord>(
+            "SELECT user_id, identity_key, registration_id FROM identity_keys WHERE user_id = $1 FOR UPDATE",
+        )
+        .bind(user_id)
+        .fetch_optional(executor)
+        .await?;
 
-        match row {
+        match rec {
             Some(r) => {
-                let bytes: Vec<u8> = r.get("identity_key");
-                let pk = PublicKey::try_from(bytes).map_err(|e| {
-                    tracing::error!(
-                        error = %e,
-                        "Database data corruption: Invalid identity key format"
-                    );
+                let pk = PublicKey::try_from(r).map_err(|e| {
+                    tracing::error!(error = %e, "Database data corruption: Invalid identity key format");
                     AppError::Internal
                 })?;
                 Ok(Some(pk))

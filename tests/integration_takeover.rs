@@ -1,6 +1,5 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use obscura_server::storage::message_repo::MessageRepository;
 use serde_json::json;
 use uuid::Uuid;
 use xeddsa::CalculateKeyPair;
@@ -18,8 +17,7 @@ async fn test_device_takeover_success() {
     let user = app.register_user_with_keys(&username, 111, 1).await;
 
     // 3. Populate Data
-    let msg_repo = MessageRepository::new();
-    msg_repo.create(&app.pool, user.user_id, user.user_id, 2, vec![1, 2, 3], 30).await.unwrap();
+    app.send_message(&user.token, user.user_id, b"hello device A").await;
     app.assert_message_count(user.user_id, 1).await;
 
     // 4. Connect WS (Optional, for other tests, but let's keep it if we want to test disconnect)

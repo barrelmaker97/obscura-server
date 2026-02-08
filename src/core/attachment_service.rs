@@ -179,10 +179,10 @@ impl AttachmentService {
         fields(attachment_id = %id, attachment_size = tracing::field::Empty)
     )]
     pub async fn download(&self, id: Uuid) -> Result<(u64, ByteStream)> {
-        // 1. Check Existence & Expiry
-        match self.repo.get_expires_at(&self.pool, id).await? {
-            Some(expires_at) => {
-                if expires_at < OffsetDateTime::now_utc() {
+        // 1. Check Existence & Expiry using Domain Logic
+        match self.repo.find_by_id(&self.pool, id).await? {
+            Some(attachment) => {
+                if attachment.is_expired() {
                     return Err(AppError::NotFound);
                 }
             }
