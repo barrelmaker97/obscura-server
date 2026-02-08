@@ -1,7 +1,7 @@
 use crate::domain::crypto::{PublicKey, Signature};
 use crate::domain::keys::{OneTimePreKey, PreKeyBundle, SignedPreKey};
 use crate::error::{AppError, Result};
-use crate::storage::records::{IdentityKeyRecord, OneTimePreKeyRecord, SignedPreKeyRecord};
+use crate::storage::records::{IdentityKey as IdentityKeyRecord, OneTimePreKey as OneTimePreKeyRecord, SignedPreKey as SignedPreKeyRecord};
 use sqlx::{Executor, PgConnection, Postgres};
 use uuid::Uuid;
 

@@ -1,39 +1,39 @@
-use crate::api::dto::crypto::PublicKeyDto;
-use crate::api::dto::keys::{OneTimePreKeyDto, SignedPreKeyDto};
+use crate::api::schemas::crypto::PublicKey;
+use crate::api::schemas::keys::{OneTimePreKey, SignedPreKey};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RegistrationRequest {
+pub struct Registration {
     pub username: String,
     pub password: String,
-    pub identity_key: PublicKeyDto,
+    pub identity_key: PublicKey,
     pub registration_id: i32,
-    pub signed_pre_key: SignedPreKeyDto,
-    pub one_time_pre_keys: Vec<OneTimePreKeyDto>,
+    pub signed_pre_key: SignedPreKey,
+    pub one_time_pre_keys: Vec<OneTimePreKey>,
 }
 
 #[derive(Deserialize)]
-pub struct LoginRequest {
+pub struct Login {
     pub username: String,
     pub password: String,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RefreshRequest {
+pub struct Refresh {
     pub refresh_token: String,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LogoutRequest {
+pub struct Logout {
     pub refresh_token: String,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AuthResponse {
+pub struct AuthSession {
     pub token: String,
     pub refresh_token: String,
     pub expires_at: i64,

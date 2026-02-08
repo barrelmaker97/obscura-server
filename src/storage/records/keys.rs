@@ -1,25 +1,23 @@
-use crate::domain::crypto::{PublicKey, Signature};
-use crate::domain::keys::{OneTimePreKey, SignedPreKey};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 #[derive(sqlx::FromRow)]
-pub(crate) struct IdentityKeyRecord {
+pub(crate) struct IdentityKey {
     #[sqlx(rename = "user_id")]
     pub _user_id: Uuid,
     pub identity_key: Vec<u8>,
     pub registration_id: i32,
 }
 
-impl TryFrom<IdentityKeyRecord> for PublicKey {
+impl TryFrom<IdentityKey> for crate::domain::crypto::PublicKey {
     type Error = String;
-    fn try_from(record: IdentityKeyRecord) -> Result<Self, Self::Error> {
-        PublicKey::try_from(record.identity_key)
+    fn try_from(record: IdentityKey) -> Result<Self, Self::Error> {
+        crate::domain::crypto::PublicKey::try_from_bytes(&record.identity_key)
     }
 }
 
 #[derive(sqlx::FromRow)]
-pub(crate) struct SignedPreKeyRecord {
+pub(crate) struct SignedPreKey {
     pub id: i32,
     #[sqlx(rename = "user_id")]
     pub _user_id: Uuid,
@@ -29,12 +27,12 @@ pub(crate) struct SignedPreKeyRecord {
     pub _created_at: Option<OffsetDateTime>,
 }
 
-impl TryFrom<SignedPreKeyRecord> for SignedPreKey {
+impl TryFrom<SignedPreKey> for crate::domain::keys::SignedPreKey {
     type Error = String;
-    fn try_from(record: SignedPreKeyRecord) -> Result<Self, Self::Error> {
-        let public_key = PublicKey::try_from(record.public_key)?;
-        let signature = Signature::try_from(record.signature)?;
-        Ok(SignedPreKey {
+    fn try_from(record: SignedPreKey) -> Result<Self, Self::Error> {
+        let public_key = crate::domain::crypto::PublicKey::try_from(record.public_key)?;
+        let signature = crate::domain::crypto::Signature::try_from(record.signature)?;
+        Ok(crate::domain::keys::SignedPreKey {
             key_id: record.id,
             public_key,
             signature,
@@ -43,7 +41,7 @@ impl TryFrom<SignedPreKeyRecord> for SignedPreKey {
 }
 
 #[derive(sqlx::FromRow)]
-pub(crate) struct OneTimePreKeyRecord {
+pub(crate) struct OneTimePreKey {
     pub id: i32,
     #[sqlx(rename = "user_id")]
     pub _user_id: Uuid,
@@ -52,12 +50,11 @@ pub(crate) struct OneTimePreKeyRecord {
     pub _created_at: Option<OffsetDateTime>,
 }
 
-
-impl TryFrom<OneTimePreKeyRecord> for OneTimePreKey {
+impl TryFrom<OneTimePreKey> for crate::domain::keys::OneTimePreKey {
     type Error = String;
-    fn try_from(record: OneTimePreKeyRecord) -> Result<Self, Self::Error> {
-        let public_key = PublicKey::try_from(record.public_key)?;
-        Ok(OneTimePreKey {
+    fn try_from(record: OneTimePreKey) -> Result<Self, Self::Error> {
+        let public_key = crate::domain::crypto::PublicKey::try_from(record.public_key)?;
+        Ok(crate::domain::keys::OneTimePreKey {
             key_id: record.id,
             public_key,
         })

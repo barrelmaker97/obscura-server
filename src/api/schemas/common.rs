@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct ErrorResponse {
+pub struct Error {
     pub error: String,
 }

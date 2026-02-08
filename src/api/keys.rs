@@ -1,5 +1,5 @@
 use crate::api::AppState;
-use crate::api::dto::keys::{PreKeyUpload, PreKeyBundleDto};
+use crate::api::schemas::keys::{PreKeyUpload, PreKeyBundle as PreKeyBundleSchema};
 use crate::api::middleware::AuthUser;
 use crate::services::key_service::KeyUploadParams;
 use crate::error::{AppError, Result};
@@ -15,7 +15,7 @@ pub async fn get_pre_key_bundle(State(state): State<AppState>, Path(user_id): Pa
     let bundle = state.key_service.get_pre_key_bundle(user_id).await?;
 
     match bundle {
-        Some(b) => Ok(Json(PreKeyBundleDto::from(b))),
+        Some(b) => Ok(Json(PreKeyBundleSchema::from(b))),
         None => Err(crate::error::AppError::NotFound),
     }
 }

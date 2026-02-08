@@ -1,4 +1,4 @@
-use crate::api::dto::common::ErrorResponse;
+use crate::api::schemas::common::Error as ErrorSchema;
 use axum::{
     Json,
     http::StatusCode,
@@ -35,7 +35,7 @@ impl IntoResponse for AppError {
             AppError::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()),
         };
 
-        let body = Json(ErrorResponse {
+        let body = Json(ErrorSchema {
             error: message
         });
 
