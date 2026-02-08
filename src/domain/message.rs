@@ -13,7 +13,7 @@ pub struct Message {
 }
 
 impl Message {
-    pub fn is_expired(&self) -> bool {
-        self.expires_at < OffsetDateTime::now_utc()
+    pub fn is_expired_at(&self, now: OffsetDateTime) -> bool {
+        self.expires_at < now
     }
 }

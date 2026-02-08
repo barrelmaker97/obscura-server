@@ -11,8 +11,8 @@ pub struct RefreshToken {
 }
 
 impl RefreshToken {
-    pub fn is_expired(&self) -> bool {
-        self.expires_at < OffsetDateTime::now_utc()
+    pub fn is_expired_at(&self, now: OffsetDateTime) -> bool {
+        self.expires_at < now
     }
 }
 

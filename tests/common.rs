@@ -249,10 +249,13 @@ impl TestApp {
         let refresh_repo = RefreshTokenRepository::new();
         let attachment_repo = AttachmentRepository::new();
 
+        let crypto_service = obscura_server::services::crypto_service::CryptoService::new();
+
         // Initialize Services
         let key_service = KeyService::new(
             pool.clone(),
             key_repo,
+            crypto_service.clone(),
             config.messaging.clone(),
         );
 

@@ -58,7 +58,7 @@ impl RefreshTokenRepository {
             tracing::Span::current().record("user_id", tracing::field::display(token.user_id));
 
             // 2. Check Expiry using domain logic
-            if token.is_expired() {
+            if token.is_expired_at(OffsetDateTime::now_utc()) {
                 tracing::warn!("Refresh token expired during rotation attempt");
                 // Delete expired token to clean up
                 sqlx::query("DELETE FROM refresh_tokens WHERE token_hash = $1")

@@ -119,9 +119,13 @@ async fn main() -> anyhow::Result<()> {
             auth_service,
         ) = {
             let _span = tracing::info_span!("service_initialization").entered();
+            
+            let crypto_service = obscura_server::services::crypto_service::CryptoService::new();
+
             let key_service = KeyService::new(
                 pool.clone(),
                 key_repo,
+                crypto_service.clone(),
                 config.messaging.clone(),
             );
 

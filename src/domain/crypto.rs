@@ -1,6 +1,3 @@
-use crate::error::{AppError, Result};
-use ed25519_dalek::Verifier;
-
 /// Prefix byte used by Signal/DJB for Montgomery (X25519) keys.
 pub const DJB_KEY_PREFIX: u8 = 0x05;
 
@@ -34,38 +31,6 @@ impl PublicKey {
         let mut arr = [0u8; 33];
         arr.copy_from_slice(bytes);
         Ok(PublicKey(arr))
-    }
-
-    /// Verifies an XEdDSA signature.
-    ///
-    /// XEdDSA is used to verify Ed25519 signatures against Curve25519 (Montgomery) public keys.
-    /// Because a Montgomery X-coordinate corresponds to two Edwards points (sign bit 0 and 1),
-    /// we try both to ensure compatibility with various client implementations and environments.
-    #[tracing::instrument(skip(self, message, signature), level = "debug")]
-    pub fn verify(&self, message: &[u8], signature: &Signature) -> Result<()> {
-        let pk = xeddsa::xed25519::PublicKey(*self.as_crypto_bytes());
-
-        use xeddsa::ConvertMont;
-        let sig_bytes = signature.as_bytes();
-
-        // We must clear the 255th bit of 's' for standard Ed25519 libraries.
-        // XEdDSA uses this bit to represent the sign of the recovered point.
-        let mut sig_canonical = *sig_bytes;
-        sig_canonical[63] &= 0x7F;
-        let sig_obj = ed25519_dalek::Signature::from_bytes(&sig_canonical);
-
-        // Try both possible Edwards points for the Montgomery public key.
-        // Some client environments (like JS polyfills) may choose the alternative point.
-        for sign_bit in [0, 1] {
-            if let Ok(ed_pk_bytes) = pk.convert_mont(sign_bit)
-                && let Ok(ed_pk) = ed25519_dalek::VerifyingKey::from_bytes(&ed_pk_bytes)
-                && ed_pk.verify(message, &sig_obj).is_ok()
-            {
-                return Ok(());
-            }
-        }
-
-        Err(AppError::BadRequest("Invalid signature".into()))
     }
 }
 
@@ -129,17 +94,9 @@ impl From<Signature> for Vec<u8> {
     }
 }
 
-
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use curve25519_dalek::edwards::CompressedEdwardsY;
-    use xeddsa::xed25519::PrivateKey;
-    use xeddsa::{CalculateKeyPair, Sign};
-    use rand::RngCore;
-    use rand::rngs::OsRng;
 
     #[test]
     fn test_as_crypto_bytes() {
@@ -150,38 +107,5 @@ mod tests {
 
         let key = PublicKey::try_from_bytes(&bytes).unwrap();
         assert_eq!(key.as_crypto_bytes(), &inner);
-    }
-
-    #[test]
-    fn test_verify_signature_exhaustive_robustness() {
-        let mut seed = [0u8; 32];
-        OsRng.fill_bytes(&mut seed);
-        let xed_priv = PrivateKey(seed);
-
-        // We test both sign bits for the identity key creation
-        for ik_sign in [0, 1] {
-            // 1. Calculate public key with specific sign bit
-            let (_, ed_pub) = xed_priv.calculate_key_pair(ik_sign);
-            let mont_pub = CompressedEdwardsY(ed_pub).decompress().unwrap().to_montgomery().to_bytes();
-
-            let mut ik_wire = [0u8; 33];
-            ik_wire[0] = 0x05;
-            ik_wire[1..].copy_from_slice(&mont_pub);
-            let ik_pub = PublicKey::new(ik_wire);
-
-            // 2. Create both 32-byte and 33-byte messages
-            let msg_32 = [0x42u8; 32];
-            let mut msg_33 = [0x00u8; 33];
-            msg_33[0] = 0x05;
-            msg_33[1..].copy_from_slice(&msg_32);
-
-            // 3. Sign using XEdDSA (which uses the private key math)
-            // Note: XEdDSA signing math is consistent with its verification math.
-            let sig_32 = Signature::new(xed_priv.sign(&msg_32, OsRng));
-            let sig_33 = Signature::new(xed_priv.sign(&msg_33, OsRng));
-
-            assert!(ik_pub.verify(&msg_32, &sig_32).is_ok(), "Failed 32-byte msg for ik_sign={}", ik_sign);
-            assert!(ik_pub.verify(&msg_33, &sig_33).is_ok(), "Failed 33-byte msg for ik_sign={}", ik_sign);
-        }
     }
 }

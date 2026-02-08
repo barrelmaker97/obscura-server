@@ -182,7 +182,7 @@ impl AttachmentService {
         // 1. Check Existence & Expiry using Domain Logic
         match self.repo.find_by_id(&self.pool, id).await? {
             Some(attachment) => {
-                if attachment.is_expired() {
+                if attachment.is_expired_at(OffsetDateTime::now_utc()) {
                     return Err(AppError::NotFound);
                 }
             }
