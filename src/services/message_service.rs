@@ -1,5 +1,5 @@
 use crate::config::MessagingConfig;
-use crate::core::notification::{Notifier, UserEvent};
+use crate::services::notification::{Notifier, UserEvent};
 use crate::domain::message::Message;
 use crate::error::Result;
 use crate::storage::DbPool;

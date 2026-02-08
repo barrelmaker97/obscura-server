@@ -4,7 +4,7 @@ use sqlx::{Pool, Postgres};
 pub mod attachment_repo;
 pub mod key_repo;
 pub mod message_repo;
-pub mod models;
+pub mod records;
 pub mod refresh_token_repo;
 pub mod user_repo;
 

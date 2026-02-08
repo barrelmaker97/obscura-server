@@ -1,6 +1,6 @@
 use crate::config::AuthConfig;
 use crate::domain::auth::{Claims, OpaqueToken, Password};
-use crate::domain::session::Session;
+use crate::domain::auth_session::AuthSession;
 use crate::error::{AppError, Result};
 use crate::storage::refresh_token_repo::RefreshTokenRepository;
 use crate::storage::DbPool;
@@ -36,7 +36,7 @@ impl AuthService {
     }
 
     #[tracing::instrument(err, skip(self, executor), fields(user_id = %user_id))]
-    pub async fn create_session<'e, E>(&self, executor: E, user_id: Uuid) -> Result<Session>
+    pub async fn create_session<'e, E>(&self, executor: E, user_id: Uuid) -> Result<AuthSession>
     where
         E: Executor<'e, Database = Postgres>,
     {
@@ -50,11 +50,11 @@ impl AuthService {
             + time::Duration::seconds(self.config.access_token_ttl_secs as i64))
         .unix_timestamp();
 
-        Ok(Session { token, refresh_token, expires_at })
+        Ok(AuthSession { token, refresh_token, expires_at })
     }
 
     #[tracing::instrument(err, skip(self, refresh_token))]
-    pub async fn refresh_session(&self, pool: &DbPool, refresh_token: String) -> Result<Session> {
+    pub async fn refresh_session(&self, pool: &DbPool, refresh_token: String) -> Result<AuthSession> {
         // 1. Hash the incoming token to look it up
         let hash = OpaqueToken::hash(&refresh_token);
 
@@ -81,7 +81,7 @@ impl AuthService {
             + time::Duration::seconds(self.config.access_token_ttl_secs as i64))
         .unix_timestamp();
 
-        Ok(Session { token: new_access_token, refresh_token: new_refresh_token, expires_at })
+        Ok(AuthSession { token: new_access_token, refresh_token: new_refresh_token, expires_at })
     }
 
     #[tracing::instrument(err, skip(self, refresh_token), fields(user_id = %user_id))]

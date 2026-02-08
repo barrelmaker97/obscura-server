@@ -3,7 +3,7 @@ use crate::api::dto::auth::{
     AuthResponse, LoginRequest, LogoutRequest, RefreshRequest, RegistrationRequest,
 };
 use crate::api::middleware::AuthUser;
-use crate::domain::session::Session;
+use crate::domain::auth_session::AuthSession;
 use crate::error::{AppError, Result};
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 
@@ -52,7 +52,7 @@ pub async fn logout(
     Ok(StatusCode::OK)
 }
 
-fn map_session(session: Session) -> AuthResponse {
+fn map_session(session: AuthSession) -> AuthResponse {
     AuthResponse {
         token: session.token,
         refresh_token: session.refresh_token,

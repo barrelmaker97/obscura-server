@@ -1,6 +1,6 @@
 use crate::domain::user::User;
 use crate::error::Result;
-use crate::storage::models::UserRecord;
+use crate::storage::records::UserRecord;
 use sqlx::{Executor, Postgres};
 
 #[derive(Clone, Default)]

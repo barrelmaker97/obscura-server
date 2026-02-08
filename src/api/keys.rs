@@ -1,7 +1,7 @@
 use crate::api::AppState;
 use crate::api::dto::keys::{PreKeyUpload, PreKeyBundleDto};
 use crate::api::middleware::AuthUser;
-use crate::core::key_service::KeyUploadParams;
+use crate::services::key_service::KeyUploadParams;
 use crate::error::{AppError, Result};
 use axum::{
     Json,

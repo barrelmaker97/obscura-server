@@ -4,7 +4,7 @@ use futures::{SinkExt, StreamExt};
 use obscura_server::{
     api::{ServiceContainer, app_router},
     config::Config,
-    core::{
+    services::{
         account_service::AccountService,
         attachment_service::AttachmentService,
         gateway::GatewayService,
@@ -264,9 +264,9 @@ impl TestApp {
             config.ttl_days,
         );
 
-        let identity_service = obscura_server::core::identity_service::IdentityService::new(user_repo);
+        let identity_service = obscura_server::services::identity_service::IdentityService::new(user_repo);
 
-        let auth_service = obscura_server::core::auth_service::AuthService::new(
+        let auth_service = obscura_server::services::auth_service::AuthService::new(
             config.auth.clone(),
             refresh_repo,
         );

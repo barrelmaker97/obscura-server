@@ -1,5 +1,5 @@
-use crate::core::gateway::GatewayMetrics;
-use crate::core::message_service::MessageService;
+use crate::services::gateway::GatewayMetrics;
+use crate::services::message_service::MessageService;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::Instrument;

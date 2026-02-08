@@ -1,10 +1,10 @@
-use crate::core::auth_service::AuthService;
-use crate::core::identity_service::IdentityService;
-use crate::core::key_service::{KeyService, KeyUploadParams};
-use crate::core::message_service::MessageService;
-use crate::core::notification::{Notifier, UserEvent};
+use crate::services::auth_service::AuthService;
+use crate::services::identity_service::IdentityService;
+use crate::services::key_service::{KeyService, KeyUploadParams};
+use crate::services::message_service::MessageService;
+use crate::services::notification::{Notifier, UserEvent};
 use crate::domain::keys::{OneTimePreKey, SignedPreKey};
-use crate::domain::session::Session;
+use crate::domain::auth_session::AuthSession;
 use crate::error::{AppError, Result};
 use crate::storage::DbPool;
 use opentelemetry::{global, metrics::Counter};
@@ -77,7 +77,7 @@ impl AccountService {
         registration_id: i32,
         signed_pre_key: SignedPreKey,
         one_time_pre_keys: Vec<OneTimePreKey>,
-    ) -> Result<Session> {
+    ) -> Result<AuthSession> {
         if password.len() < 12 {
             tracing::warn!("Registration rejected: password too short");
             return Err(AppError::BadRequest("Password must be at least 12 characters long".into()));
@@ -153,7 +153,7 @@ impl AccountService {
         fields(user_id = tracing::field::Empty),
         err(level = "warn")
     )]
-    pub async fn login(&self, username: String, password: String) -> Result<Session> {
+    pub async fn login(&self, username: String, password: String) -> Result<AuthSession> {
         let user = match self.identity_service.find_by_username(&self.pool, &username).await? {
             Some(u) => u,
             None => {
@@ -187,7 +187,7 @@ impl AccountService {
         fields(user_id = tracing::field::Empty),
         err(level = "warn")
     )]
-    pub async fn refresh(&self, refresh_token: String) -> Result<Session> {
+    pub async fn refresh(&self, refresh_token: String) -> Result<AuthSession> {
         self.auth_service.refresh_session(&self.pool, refresh_token).await
     }
 

@@ -3,11 +3,11 @@ pub mod ack_batcher;
 pub mod message_pump;
 
 use crate::config::WsConfig;
-use crate::core::key_service::KeyService;
-use crate::core::message_service::MessageService;
-use crate::core::notification::Notifier;
+use crate::services::key_service::KeyService;
+use crate::services::message_service::MessageService;
+use crate::services::notification::Notifier;
 use crate::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
-use crate::core::gateway::session::Session;
+use crate::services::gateway::session::Session;
 use axum::extract::ws::{Message as WsMessage, WebSocket};
 use futures::SinkExt;
 use opentelemetry::{global, metrics::{Counter, Histogram, UpDownCounter}};

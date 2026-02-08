@@ -1,6 +1,6 @@
 use crate::domain::auth::RefreshToken;
 use crate::error::{AppError, Result};
-use crate::storage::models::RefreshTokenRecord;
+use crate::storage::records::RefreshTokenRecord;
 use sqlx::{Executor, PgConnection, Postgres};
 use time::OffsetDateTime;
 use uuid::Uuid;

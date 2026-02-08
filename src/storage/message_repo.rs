@@ -1,6 +1,6 @@
 use crate::domain::message::Message;
 use crate::error::{AppError, Result};
-use crate::storage::models::MessageRecord;
+use crate::storage::records::MessageRecord;
 use sqlx::{Executor, Postgres};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;

@@ -1,13 +1,13 @@
 use obscura_server::api::{self, ServiceContainer};
 use obscura_server::config::Config;
-use obscura_server::core::account_service::AccountService;
-use obscura_server::core::attachment_service::AttachmentService;
-use obscura_server::core::gateway::GatewayService;
-use obscura_server::core::health_service::HealthService;
-use obscura_server::core::key_service::KeyService;
-use obscura_server::core::message_service::MessageService;
-use obscura_server::core::notification::InMemoryNotifier;
-use obscura_server::core::rate_limit_service::RateLimitService;
+use obscura_server::services::account_service::AccountService;
+use obscura_server::services::attachment_service::AttachmentService;
+use obscura_server::services::gateway::GatewayService;
+use obscura_server::services::health_service::HealthService;
+use obscura_server::services::key_service::KeyService;
+use obscura_server::services::message_service::MessageService;
+use obscura_server::services::notification::InMemoryNotifier;
+use obscura_server::services::rate_limit_service::RateLimitService;
 use obscura_server::storage::attachment_repo::AttachmentRepository;
 use obscura_server::storage::key_repo::KeyRepository;
 use obscura_server::storage::message_repo::MessageRepository;
@@ -132,9 +132,9 @@ async fn main() -> anyhow::Result<()> {
                 config.ttl_days,
             );
 
-            let identity_service = obscura_server::core::identity_service::IdentityService::new(user_repo);
+            let identity_service = obscura_server::services::identity_service::IdentityService::new(user_repo);
 
-            let auth_service = obscura_server::core::auth_service::AuthService::new(
+            let auth_service = obscura_server::services::auth_service::AuthService::new(
                 config.auth.clone(),
                 refresh_repo,
             );
