@@ -15,15 +15,6 @@ pub struct OneTimePreKey {
 }
 
 impl OneTimePreKey {
-    pub fn validate_uniqueness(keys: &[OneTimePreKey]) -> Result<()> {
-        let mut unique_ids = std::collections::HashSet::with_capacity(keys.len());
-        for pk in keys {
-            if !unique_ids.insert(pk.key_id) {
-                return Err(AppError::BadRequest(format!("Duplicate prekey ID: {}", pk.key_id)));
-            }
-        }
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -37,20 +28,4 @@ pub struct PreKeyBundle {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_validate_uniqueness() {
-        let pk = PublicKey::new([0x05; 33]);
-        let keys = vec![
-            OneTimePreKey { key_id: 1, public_key: pk.clone() },
-            OneTimePreKey { key_id: 2, public_key: pk.clone() },
-        ];
-        assert!(OneTimePreKey::validate_uniqueness(&keys).is_ok());
-
-        let duplicate_keys = vec![
-            OneTimePreKey { key_id: 1, public_key: pk.clone() },
-            OneTimePreKey { key_id: 1, public_key: pk.clone() },
-        ];
-        assert!(OneTimePreKey::validate_uniqueness(&duplicate_keys).is_err());
-    }
 }

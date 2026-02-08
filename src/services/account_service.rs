@@ -78,14 +78,6 @@ impl AccountService {
         signed_pre_key: SignedPreKey,
         one_time_pre_keys: Vec<OneTimePreKey>,
     ) -> Result<AuthSession> {
-        if password.len() < 12 {
-            tracing::warn!("Registration rejected: password too short");
-            return Err(AppError::BadRequest("Password must be at least 12 characters long".into()));
-        }
-
-        // 0. Uniqueness check (CPU only, outside transaction)
-        OneTimePreKey::validate_uniqueness(&one_time_pre_keys)?;
-
         let password_hash = self.auth_service.hash_password(&password).await?;
 
         let mut tx = self.pool.begin().await?;
@@ -124,9 +116,6 @@ impl AccountService {
     )]
     pub async fn upload_keys(&self, params: KeyUploadParams) -> Result<()> {
         let user_id = params.user_id;
-
-        // 0. Uniqueness check (CPU only, outside transaction)
-        OneTimePreKey::validate_uniqueness(&params.one_time_pre_keys)?;
 
         let mut tx = self.pool.begin().await?;
 

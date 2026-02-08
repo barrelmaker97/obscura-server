@@ -25,6 +25,8 @@ pub async fn upload_keys(
     State(state): State<AppState>,
     Json(payload): Json<PreKeyUpload>,
 ) -> Result<impl IntoResponse> {
+    payload.validate().map_err(AppError::BadRequest)?;
+
     // Call Service directly with domain types from payload
     let params = KeyUploadParams {
         user_id: auth_user.user_id,

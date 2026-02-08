@@ -17,6 +17,8 @@ pub async fn register(
     State(state): State<AppState>,
     Json(payload): Json<Registration>,
 ) -> Result<impl IntoResponse> {
+    payload.validate().map_err(AppError::BadRequest)?;
+
     let session = state
         .account_service
         .register(

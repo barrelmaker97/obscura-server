@@ -65,6 +65,78 @@ pub struct PreKeyUpload {
     pub one_time_pre_keys: Vec<OneTimePreKey>,
 }
 
+impl PreKeyUpload {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.identity_key.is_some() && self.registration_id.is_none() {
+            return Err("registrationId is required when identityKey is provided".into());
+        }
+
+        let mut unique_ids = std::collections::HashSet::with_capacity(self.one_time_pre_keys.len());
+        for pk in &self.one_time_pre_keys {
+            if !unique_ids.insert(pk.key_id) {
+                return Err(format!("Duplicate prekey ID: {}", pk.key_id));
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::schemas::crypto::PublicKey as SchemaPublicKey;
+
+    fn mock_upload() -> PreKeyUpload {
+        PreKeyUpload {
+            identity_key: None,
+            registration_id: None,
+            signed_pre_key: SignedPreKey {
+                key_id: 1,
+                public_key: SchemaPublicKey("A".repeat(44)),
+                signature: crate::api::schemas::crypto::Signature("B".repeat(88)),
+            },
+            one_time_pre_keys: vec![],
+        }
+    }
+
+    #[test]
+    fn test_upload_validation_standard_refill() {
+        let upload = mock_upload();
+        assert!(upload.validate().is_ok());
+    }
+
+    #[test]
+    fn test_upload_validation_takeover_valid() {
+        let mut upload = mock_upload();
+        upload.identity_key = Some(SchemaPublicKey("C".repeat(44)));
+        upload.registration_id = Some(456);
+        assert!(upload.validate().is_ok());
+    }
+
+    #[test]
+    fn test_upload_validation_takeover_missing_id() {
+        let mut upload = mock_upload();
+        upload.identity_key = Some(SchemaPublicKey("C".repeat(44)));
+        upload.registration_id = None;
+        let res = upload.validate();
+        assert!(res.is_err());
+        assert_eq!(res.unwrap_err(), "registrationId is required when identityKey is provided");
+    }
+
+    #[test]
+    fn test_upload_validation_duplicate_keys() {
+        let mut upload = mock_upload();
+        upload.one_time_pre_keys = vec![
+            OneTimePreKey { key_id: 1, public_key: SchemaPublicKey("A".repeat(44)) },
+            OneTimePreKey { key_id: 1, public_key: SchemaPublicKey("B".repeat(44)) },
+        ];
+        let res = upload.validate();
+        assert!(res.is_err());
+        assert_eq!(res.unwrap_err(), "Duplicate prekey ID: 1");
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreKeyBundle {

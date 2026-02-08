@@ -86,9 +86,6 @@ impl KeyService {
     pub(crate) async fn upsert_keys(&self, conn: &mut PgConnection, params: KeyUploadParams) -> Result<bool> {
         let mut is_takeover = false;
 
-        // 0. Uniqueness check (CPU only, outside transaction)
-        OneTimePreKey::validate_uniqueness(&params.one_time_pre_keys)?;
-
         // 1. Identify/Verify Identity Key
         let ik = if let Some(new_ik) = params.identity_key {
             // Fetch existing identity key with LOCK
@@ -146,7 +143,7 @@ impl KeyService {
         if is_takeover {
             let reg_id = params
                 .registration_id
-                .ok_or_else(|| AppError::BadRequest("registrationId required for takeover".into()))?;
+                .expect("registration_id must be present for takeover (validated at boundary)");
 
             self.key_repo.delete_all_signed_pre_keys(&mut *conn, params.user_id).await?;
             self.key_repo.delete_all_one_time_pre_keys(&mut *conn, params.user_id).await?;
