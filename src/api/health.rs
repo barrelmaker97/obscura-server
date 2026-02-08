@@ -1,6 +1,6 @@
 use crate::api::MgmtState;
+use crate::api::dto::health::HealthResponse;
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
-use serde_json::json;
 
 /// Liveness probe: returns 200 OK as long as the server is running.
 pub async fn livez() -> impl IntoResponse {
@@ -31,12 +31,11 @@ pub async fn readyz(State(state): State<MgmtState>) -> impl IntoResponse {
         "ok"
     };
 
-    (
-        status_code,
-        Json(json!({
-            "status": if status_code == StatusCode::OK { "ok" } else { "error" },
-            "database": db_status,
-            "storage": storage_status,
-        })),
-    )
+    let response = HealthResponse {
+        status: if status_code == StatusCode::OK { "ok" } else { "error" }.to_string(),
+        database: db_status.to_string(),
+        storage: storage_status.to_string(),
+    };
+
+    (status_code, Json(response))
 }
