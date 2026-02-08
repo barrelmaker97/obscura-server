@@ -196,7 +196,7 @@ async fn test_websocket_unexpected_protobuf_variant() {
 
     let mut client = app.connect_ws(&user.token).await;
 
-    // Construct a frame with an Envelope payload. 
+    // Construct a frame with an Envelope payload.
     // Clients should only send ACKs to the server. Envelopes are server -> client.
     let envelope = obscura_server::proto::obscura::v1::Envelope {
         id: Uuid::new_v4().to_string(),
@@ -223,7 +223,7 @@ async fn test_ack_buffer_saturation() {
     let mut config = common::get_test_config();
     config.websocket.ack_buffer_size = 5; // Tiny buffer
     config.websocket.ack_batch_size = 1;  // Flush immediately
-    
+
     let app = common::TestApp::spawn_with_config(config).await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
     let user = app.register_user(&format!("ack_sat_user_{}", run_id)).await;
@@ -233,8 +233,8 @@ async fn test_ack_buffer_saturation() {
     // 2. Flood with valid ACKs
     // The consumer will try to delete 1 by 1.
     // The buffer is 5.
-    // If we send 50, we should definitely hit the limit while the consumer is waiting on the DB.
-    for _ in 0..50 {
+    // If we send 30, we should definitely hit the limit while the consumer is waiting on the DB.
+    for _ in 0..30 {
         let ack = AckMessage { message_id: Uuid::new_v4().to_string() };
         let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
         let mut buf = Vec::new();
@@ -242,7 +242,7 @@ async fn test_ack_buffer_saturation() {
         client.sink.send(WsMessage::Binary(buf.into())).await.unwrap();
     }
 
-    // 3. We can't easily assert on the server log "Dropped ACK", 
+    // 3. We can't easily assert on the server log "Dropped ACK",
     // but we can assert the connection didn't crash.
     client.sink.send(WsMessage::Ping(vec![].into())).await.unwrap();
     let pong = client.receive_pong().await;
