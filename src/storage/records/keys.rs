@@ -5,7 +5,8 @@ use uuid::Uuid;
 
 #[derive(sqlx::FromRow)]
 pub(crate) struct IdentityKeyRecord {
-    pub user_id: Uuid,
+    #[sqlx(rename = "user_id")]
+    pub _user_id: Uuid,
     pub identity_key: Vec<u8>,
     pub registration_id: i32,
 }
@@ -20,10 +21,12 @@ impl TryFrom<IdentityKeyRecord> for PublicKey {
 #[derive(sqlx::FromRow)]
 pub(crate) struct SignedPreKeyRecord {
     pub id: i32,
-    pub user_id: Uuid,
+    #[sqlx(rename = "user_id")]
+    pub _user_id: Uuid,
     pub public_key: Vec<u8>,
     pub signature: Vec<u8>,
-    pub created_at: Option<OffsetDateTime>,
+    #[sqlx(rename = "created_at")]
+    pub _created_at: Option<OffsetDateTime>,
 }
 
 impl TryFrom<SignedPreKeyRecord> for SignedPreKey {
@@ -42,10 +45,13 @@ impl TryFrom<SignedPreKeyRecord> for SignedPreKey {
 #[derive(sqlx::FromRow)]
 pub(crate) struct OneTimePreKeyRecord {
     pub id: i32,
-    pub user_id: Uuid,
+    #[sqlx(rename = "user_id")]
+    pub _user_id: Uuid,
     pub public_key: Vec<u8>,
-    pub created_at: Option<OffsetDateTime>,
+    #[sqlx(rename = "created_at")]
+    pub _created_at: Option<OffsetDateTime>,
 }
+
 
 impl TryFrom<OneTimePreKeyRecord> for OneTimePreKey {
     type Error = String;
