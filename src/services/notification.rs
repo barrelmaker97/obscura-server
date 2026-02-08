@@ -127,7 +127,7 @@ mod tests {
 
         let mut rx = notifier.subscribe(user_id);
         notifier.notify(user_id, UserEvent::MessageReceived);
-        
+
         let event = rx.recv().await.unwrap();
         assert_eq!(event, UserEvent::MessageReceived);
     }
@@ -146,7 +146,7 @@ mod tests {
 
         // Wait for GC
         tokio::time::sleep(Duration::from_millis(1500)).await;
-        
+
         let mut success = false;
         for _ in 0..10 {
             if notifier.channels.is_empty() {
@@ -165,9 +165,9 @@ mod tests {
         let user_id = Uuid::new_v4();
 
         let _rx = notifier.subscribe(user_id);
-        
+
         tokio::time::sleep(Duration::from_millis(1500)).await;
-        
+
         assert_eq!(notifier.channels.len(), 1);
     }
 
@@ -180,9 +180,9 @@ mod tests {
 
         let mut rx1 = notifier.subscribe(user1);
         let mut rx2 = notifier.subscribe(user2);
-        
+
         notifier.notify(user1, UserEvent::MessageReceived);
-        
+
         assert_eq!(rx1.recv().await.unwrap(), UserEvent::MessageReceived);
         assert!(tokio::time::timeout(std::time::Duration::from_millis(50), rx2.recv()).await.is_err());
     }

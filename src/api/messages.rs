@@ -1,12 +1,14 @@
 use crate::api::AppState;
 use crate::api::middleware::AuthUser;
-use crate::error::Result;
+use crate::error::{AppError, Result};
+use crate::proto::obscura::v1::EncryptedMessage;
 use axum::{
     body::Bytes,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
 };
+use prost::Message;
 use uuid::Uuid;
 
 pub async fn send_message(
@@ -15,6 +17,9 @@ pub async fn send_message(
     Path(recipient_id): Path<Uuid>,
     body: Bytes,
 ) -> Result<impl IntoResponse> {
-    state.message_service.send_message(auth_user.user_id, recipient_id, body).await?;
+    let msg = EncryptedMessage::decode(body)
+        .map_err(|e| AppError::BadRequest(format!("Invalid EncryptedMessage protobuf: {}", e)))?;
+
+    state.message_service.send_message(auth_user.user_id, recipient_id, msg.r#type, msg.content).await?;
     Ok(StatusCode::CREATED)
 }

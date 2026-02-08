@@ -1,5 +1,5 @@
-use crate::core::gateway::GatewayMetrics;
-use crate::core::message_service::MessageService;
+use crate::services::gateway::GatewayMetrics;
+use crate::services::message_service::MessageService;
 use crate::proto::obscura::v1::{EncryptedMessage, Envelope, WebSocketFrame, web_socket_frame::Payload};
 use axum::extract::ws::Message as WsMessage;
 use opentelemetry::KeyValue;

@@ -1,4 +1,5 @@
 use crate::api::AppState;
+use crate::api::schemas::attachments::Attachment as AttachmentSchema;
 use crate::api::middleware::AuthUser;
 use crate::error::Result;
 use axum::{
@@ -8,7 +9,6 @@ use axum::{
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
-use serde_json::json;
 use tokio_util::io::ReaderStream;
 use uuid::Uuid;
 
@@ -34,7 +34,7 @@ pub async fn upload_attachment(
 
     let (id, expires_at) = state.attachment_service.upload(content_len, body).await?;
 
-    Ok((StatusCode::CREATED, Json(json!({ "id": id, "expiresAt": expires_at }))))
+    Ok((StatusCode::CREATED, Json(AttachmentSchema { id, expires_at })))
 }
 
 pub async fn download_attachment(

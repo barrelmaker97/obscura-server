@@ -1,8 +1,7 @@
-use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone)]
 pub struct Message {
     pub id: Uuid,
     pub sender_id: Uuid,
@@ -11,4 +10,10 @@ pub struct Message {
     pub content: Vec<u8>,
     pub created_at: Option<OffsetDateTime>,
     pub expires_at: OffsetDateTime,
+}
+
+impl Message {
+    pub fn is_expired_at(&self, now: OffsetDateTime) -> bool {
+        self.expires_at < now
+    }
 }

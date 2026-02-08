@@ -1,5 +1,6 @@
-use crate::core::user::User;
+use crate::domain::user::User;
 use crate::error::Result;
+use crate::storage::records::User as UserRecord;
 use sqlx::{Executor, Postgres};
 
 #[derive(Clone, Default)]
@@ -15,7 +16,7 @@ impl UserRepository {
     where
         E: Executor<'e, Database = Postgres>,
     {
-        let user = sqlx::query_as::<_, User>(
+        let user = sqlx::query_as::<_, UserRecord>(
             r#"
             INSERT INTO users (username, password_hash)
             VALUES ($1, $2)
@@ -27,7 +28,7 @@ impl UserRepository {
         .fetch_one(executor)
         .await?;
 
-        Ok(user)
+        Ok(user.into())
     }
 
     #[tracing::instrument(level = "debug", skip(self, executor))]
@@ -35,7 +36,7 @@ impl UserRepository {
     where
         E: Executor<'e, Database = Postgres>,
     {
-        let user = sqlx::query_as::<_, User>(
+        let user = sqlx::query_as::<_, UserRecord>(
             r#"
             SELECT id, username, password_hash, created_at
             FROM users
@@ -46,6 +47,6 @@ impl UserRepository {
         .fetch_optional(executor)
         .await?;
 
-        Ok(user)
+        Ok(user.map(Into::into))
     }
 }

@@ -1,21 +1,17 @@
 use crate::config::MessagingConfig;
-use crate::core::auth::verify_signature;
-use crate::core::crypto_types::PublicKey;
-use crate::core::notification::{Notifier, UserEvent};
-use crate::core::user::{OneTimePreKey, PreKeyBundle, SignedPreKey};
+use crate::domain::crypto::PublicKey;
+use crate::domain::keys::{OneTimePreKey, PreKeyBundle, SignedPreKey};
 use crate::error::{AppError, Result};
 use crate::proto::obscura::v1::PreKeyStatus;
 use crate::storage::key_repo::KeyRepository;
-use crate::storage::message_repo::MessageRepository;
+use crate::services::crypto_service::CryptoService;
 use opentelemetry::{global, metrics::Counter};
 use sqlx::{PgConnection, PgPool};
-use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Clone)]
 struct KeyMetrics {
     keys_prekey_low_total: Counter<u64>,
-    keys_takeovers_total: Counter<u64>,
 }
 
 impl KeyMetrics {
@@ -26,10 +22,6 @@ impl KeyMetrics {
                 .u64_counter("keys_prekey_low_total")
                 .with_description("Events where users dipped below prekey threshold")
                 .build(),
-            keys_takeovers_total: meter
-                .u64_counter("keys_takeovers_total")
-                .with_description("Total number of device takeover events")
-                .build(),
         }
     }
 }
@@ -38,8 +30,7 @@ impl KeyMetrics {
 pub struct KeyService {
     pool: PgPool,
     key_repo: KeyRepository,
-    message_repo: MessageRepository,
-    notifier: Arc<dyn Notifier>,
+    crypto_service: CryptoService,
     config: MessagingConfig,
     metrics: KeyMetrics,
 }
@@ -56,28 +47,16 @@ impl KeyService {
     pub fn new(
         pool: PgPool,
         key_repo: KeyRepository,
-        message_repo: MessageRepository,
-        notifier: Arc<dyn Notifier>,
+        crypto_service: CryptoService,
         config: MessagingConfig,
     ) -> Self {
         Self {
             pool,
             key_repo,
-            message_repo,
-            notifier,
+            crypto_service,
             config,
             metrics: KeyMetrics::new(),
         }
-    }
-
-    pub fn validate_otpk_uniqueness(keys: &[OneTimePreKey]) -> Result<()> {
-        let mut unique_ids = std::collections::HashSet::with_capacity(keys.len());
-        for pk in keys {
-            if !unique_ids.insert(pk.key_id) {
-                return Err(AppError::BadRequest(format!("Duplicate prekey ID: {}", pk.key_id)));
-            }
-        }
-        Ok(())
     }
 
     #[tracing::instrument(err, skip(self), fields(user_id = %user_id))]
@@ -106,37 +85,9 @@ impl KeyService {
         }
     }
 
-    /// Public entry point for key uploads.
-    #[tracing::instrument(
-        skip(self, params),
-        fields(user_id = %params.user_id),
-        err(level = "warn")
-    )]
-    pub async fn upload_keys(&self, params: KeyUploadParams) -> Result<()> {
-        let user_id = params.user_id;
-
-        // 0. Uniqueness check (CPU only, outside transaction)
-        Self::validate_otpk_uniqueness(&params.one_time_pre_keys)?;
-
-        let mut tx = self.pool.begin().await?;
-
-        let is_takeover = self.upload_keys_internal(&mut tx, params).await?;
-
-        tx.commit().await?;
-
-        if is_takeover {
-            tracing::warn!("Device takeover detected");
-            self.metrics.keys_takeovers_total.add(1, &[]);
-
-            self.notifier.notify(user_id, UserEvent::Disconnect);
-        }
-
-        Ok(())
-    }
-
     /// Internal implementation that accepts a mutable connection.
     #[tracing::instrument(level = "debug", skip(self, conn, params), err(level = "debug"))]
-    pub(crate) async fn upload_keys_internal(&self, conn: &mut PgConnection, params: KeyUploadParams) -> Result<bool> {
+    pub(crate) async fn upsert_keys(&self, conn: &mut PgConnection, params: KeyUploadParams) -> Result<bool> {
         let mut is_takeover = false;
 
         // 1. Identify/Verify Identity Key
@@ -154,7 +105,7 @@ impl KeyService {
                 is_takeover = true;
             }
 
-            verify_keys(&new_ik, &params.signed_pre_key)?;
+            self.verify_keys(&new_ik, &params.signed_pre_key)?;
             new_ik
         } else {
             // Must exist
@@ -165,7 +116,7 @@ impl KeyService {
                 .ok_or_else(|| AppError::BadRequest("Identity key missing".into()))?;
 
             // Verify signature with the stored key
-            verify_keys(&ik, &params.signed_pre_key)?;
+            self.verify_keys(&ik, &params.signed_pre_key)?;
             ik
         };
 
@@ -196,11 +147,12 @@ impl KeyService {
         if is_takeover {
             let reg_id = params
                 .registration_id
-                .ok_or_else(|| AppError::BadRequest("registrationId required for takeover".into()))?;
+                .expect("registration_id must be present for takeover (validated at boundary)");
 
             self.key_repo.delete_all_signed_pre_keys(&mut *conn, params.user_id).await?;
             self.key_repo.delete_all_one_time_pre_keys(&mut *conn, params.user_id).await?;
-            self.message_repo.delete_all_for_user(&mut *conn, params.user_id).await?;
+            
+            // Note: Message deletion and notification are now handled by the orchestrator.
 
             // Upsert Identity Key
             self.key_repo.upsert_identity_key(&mut *conn, params.user_id, &ik, reg_id).await?;
@@ -234,32 +186,38 @@ impl KeyService {
 
         Ok(is_takeover)
     }
-}
 
-fn verify_keys(ik: &PublicKey, signed_pre_key: &SignedPreKey) -> Result<()> {
-    let raw_32 = signed_pre_key.public_key.as_crypto_bytes();
-    let wire_33 = signed_pre_key.public_key.as_bytes();
+    fn verify_keys(&self, ik: &PublicKey, signed_pre_key: &SignedPreKey) -> Result<()> {
+        let raw_32 = signed_pre_key.public_key.as_crypto_bytes();
+        let wire_33 = signed_pre_key.public_key.as_bytes();
 
-    // libsignal-protocol-typescript's generateSignedPreKey signs the 33-byte publicKey ArrayBuffer.
-    // However, some versions or test polyfills might sign the 32-byte raw key.
-    // We try both to be absolutely robust.
+        // libsignal-protocol-typescript's generateSignedPreKey signs the 33-byte publicKey ArrayBuffer.
+        // However, some versions or test polyfills might sign the 32-byte raw key.
+        // We try both to be absolutely robust.
 
-    if verify_signature(ik, wire_33, &signed_pre_key.signature).is_ok() {
-        return Ok(());
+        if self.crypto_service.verify_signature(ik, wire_33, &signed_pre_key.signature).is_ok() {
+            return Ok(());
+        }
+
+        self.crypto_service.verify_signature(ik, raw_32, &signed_pre_key.signature)
     }
-
-    verify_signature(ik, raw_32, &signed_pre_key.signature)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::crypto_types::{PublicKey, Signature};
+    use crate::domain::crypto::{PublicKey, Signature, DJB_KEY_PREFIX};
     use curve25519_dalek::edwards::CompressedEdwardsY;
     use rand::RngCore;
     use rand::rngs::OsRng;
     use xeddsa::xed25519::PrivateKey;
     use xeddsa::{CalculateKeyPair, Sign};
+
+    fn setup_service() -> KeyService {
+        let config = MessagingConfig::default();
+        let pool = PgPool::connect_lazy("postgres://localhost").unwrap();
+        KeyService::new(pool, KeyRepository::new(), CryptoService::new(), config)
+    }
 
     fn generate_keys() -> (PrivateKey, PublicKey, PrivateKey, PublicKey, Signature) {
         let mut ik_bytes = [0u8; 32];
@@ -269,7 +227,7 @@ mod tests {
         let (_, ik_pub_ed) = ik.calculate_key_pair(0);
         let ik_pub_mont = CompressedEdwardsY(ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
         let mut ik_pub_wire = [0u8; 33];
-        ik_pub_wire[0] = 0x05;
+        ik_pub_wire[0] = DJB_KEY_PREFIX;
         ik_pub_wire[1..].copy_from_slice(&ik_pub_mont);
         let ik_pub = PublicKey::new(ik_pub_wire);
 
@@ -279,22 +237,23 @@ mod tests {
         let (_, spk_pub_ed) = spk.calculate_key_pair(0);
         let spk_pub_mont = CompressedEdwardsY(spk_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
         let mut spk_pub_wire = [0u8; 33];
-        spk_pub_wire[0] = 0x05;
+        spk_pub_wire[0] = DJB_KEY_PREFIX;
         spk_pub_wire[1..].copy_from_slice(&spk_pub_mont);
         let spk_pub = PublicKey::new(spk_pub_wire);
 
         // Sign the 33-byte wire format (prefix + raw X25519)
-        let signature_bytes: [u8; 64] = ik.sign(spk_pub.as_bytes(), OsRng);
+        let signature_bytes: [u8; 64] = ik.sign(spk_pub_wire.as_slice(), OsRng);
         let signature = Signature::new(signature_bytes);
 
         (ik, ik_pub, spk, spk_pub, signature)
     }
 
-    #[test]
-    fn test_verify_keys_client_format() {
+    #[tokio::test]
+    async fn test_verify_keys_client_format() {
+        let service = setup_service();
         let (_, ik_pub, _, spk_pub, signature) = generate_keys();
         let spk = SignedPreKey { key_id: 1, public_key: spk_pub, signature };
 
-        assert!(verify_keys(&ik_pub, &spk).is_ok());
+        assert!(service.verify_keys(&ik_pub, &spk).is_ok());
     }
 }

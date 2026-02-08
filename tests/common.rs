@@ -4,7 +4,7 @@ use futures::{SinkExt, StreamExt};
 use obscura_server::{
     api::{ServiceContainer, app_router},
     config::Config,
-    core::{
+    services::{
         account_service::AccountService,
         attachment_service::AttachmentService,
         gateway::GatewayService,
@@ -249,12 +249,13 @@ impl TestApp {
         let refresh_repo = RefreshTokenRepository::new();
         let attachment_repo = AttachmentRepository::new();
 
+        let crypto_service = obscura_server::services::crypto_service::CryptoService::new();
+
         // Initialize Services
         let key_service = KeyService::new(
             pool.clone(),
             key_repo,
-            message_repo.clone(),
-            notifier.clone(),
+            crypto_service.clone(),
             config.messaging.clone(),
         );
 
@@ -266,11 +267,10 @@ impl TestApp {
             config.ttl_days,
         );
 
-        let account_service = AccountService::new(
-            pool.clone(),
+        let identity_service = obscura_server::services::identity_service::IdentityService::new(user_repo);
+
+        let auth_service = obscura_server::services::auth_service::AuthService::new(
             config.auth.clone(),
-            key_service.clone(),
-            user_repo,
             refresh_repo,
         );
 
@@ -280,6 +280,15 @@ impl TestApp {
             notifier.clone(),
             config.messaging.clone(),
             config.ttl_days,
+        );
+
+        let account_service = AccountService::new(
+            pool.clone(),
+            identity_service.clone(),
+            auth_service.clone(),
+            key_service.clone(),
+            message_service.clone(),
+            notifier.clone(),
         );
 
         let gateway_service = GatewayService::new(
@@ -302,6 +311,7 @@ impl TestApp {
             key_service,
             attachment_service,
             account_service,
+            auth_service,
             message_service,
             gateway_service,
             rate_limit_service,
