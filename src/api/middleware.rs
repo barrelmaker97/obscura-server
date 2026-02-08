@@ -1,5 +1,5 @@
 use crate::api::AppState;
-use crate::domain::auth::Claims;
+use crate::domain::auth::Jwt;
 use crate::error::AppError;
 use axum::http::HeaderValue;
 use axum::{
@@ -27,12 +27,13 @@ impl FromRequestParts<AppState> for AuthUser {
         }
 
         let token = &auth_str[7..];
+        let jwt = Jwt::new(token.to_string());
 
-        let claims = Claims::decode(token, &state.config.auth.jwt_secret).map_err(|_| AppError::AuthError)?;
+        let user_id = state.auth_service.verify_token(jwt).map_err(|_| AppError::AuthError)?;
 
-        tracing::Span::current().record("user.id", tracing::field::display(claims.sub));
+        tracing::Span::current().record("user.id", tracing::field::display(user_id));
 
-        Ok(AuthUser { user_id: claims.sub })
+        Ok(AuthUser { user_id })
     }
 }
 

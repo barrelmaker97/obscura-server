@@ -308,6 +308,7 @@ impl TestApp {
             key_service,
             attachment_service,
             account_service,
+            auth_service,
             message_service,
             gateway_service,
             rate_limit_service,

@@ -116,6 +116,7 @@ async fn main() -> anyhow::Result<()> {
             gateway_service,
             rate_limit_service,
             health_service,
+            auth_service,
         ) = {
             let _span = tracing::info_span!("service_initialization").entered();
             let key_service = KeyService::new(
@@ -180,6 +181,7 @@ async fn main() -> anyhow::Result<()> {
                 gateway_service,
                 rate_limit_service,
                 health_service,
+                auth_service,
             )
         };
 
@@ -200,6 +202,7 @@ async fn main() -> anyhow::Result<()> {
             key_service,
             attachment_service,
             account_service,
+            auth_service,
             message_service,
             gateway_service,
             rate_limit_service,

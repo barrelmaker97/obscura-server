@@ -2,6 +2,7 @@ use crate::api::rate_limit::log_rate_limit_events;
 use crate::config::Config;
 use crate::services::account_service::AccountService;
 use crate::services::attachment_service::AttachmentService;
+use crate::services::auth_service::AuthService;
 use crate::services::gateway::GatewayService;
 use crate::services::health_service::HealthService;
 use crate::services::key_service::KeyService;
@@ -37,6 +38,7 @@ pub struct AppState {
     pub key_service: KeyService,
     pub attachment_service: AttachmentService,
     pub account_service: AccountService,
+    pub auth_service: AuthService,
     pub message_service: MessageService,
     pub gateway_service: GatewayService,
     pub rate_limit_service: RateLimitService,
@@ -52,6 +54,7 @@ pub struct ServiceContainer {
     pub key_service: KeyService,
     pub attachment_service: AttachmentService,
     pub account_service: AccountService,
+    pub auth_service: AuthService,
     pub message_service: MessageService,
     pub gateway_service: GatewayService,
     pub rate_limit_service: RateLimitService,
@@ -89,6 +92,7 @@ pub fn app_router(
         key_service: services.key_service,
         attachment_service: services.attachment_service,
         account_service: services.account_service,
+        auth_service: services.auth_service,
         message_service: services.message_service,
         gateway_service: services.gateway_service,
         rate_limit_service: services.rate_limit_service,
