@@ -11,20 +11,20 @@ use opentelemetry::{global, metrics::Counter};
 use std::sync::Arc;
 
 #[derive(Clone)]
-struct AccountMetrics {
-    users_registered_total: Counter<u64>,
-    keys_takeovers_total: Counter<u64>,
+struct Metrics {
+    registered_total: Counter<u64>,
+    takeovers_total: Counter<u64>,
 }
 
-impl AccountMetrics {
+impl Metrics {
     fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
-            users_registered_total: meter
+            registered_total: meter
                 .u64_counter("users_registered_total")
                 .with_description("Total number of successful user registrations")
                 .build(),
-            keys_takeovers_total: meter
+            takeovers_total: meter
                 .u64_counter("keys_takeovers_total")
                 .with_description("Total number of device takeover events")
                 .build(),
@@ -40,7 +40,7 @@ pub struct AccountService {
     auth_service: AuthService,
     key_service: KeyService,
     notifier: Arc<dyn NotificationService>,
-    metrics: AccountMetrics,
+    metrics: Metrics,
 }
 
 impl AccountService {
@@ -59,7 +59,7 @@ impl AccountService {
             auth_service,
             key_service,
             notifier,
-            metrics: AccountMetrics::new(),
+            metrics: Metrics::new(),
         }
     }
 
@@ -103,7 +103,7 @@ impl AccountService {
         tx.commit().await?;
 
         tracing::info!("User registered successfully");
-        self.metrics.users_registered_total.add(1, &[]);
+        self.metrics.registered_total.add(1, &[]);
 
         Ok(session)
     }
@@ -128,7 +128,7 @@ impl AccountService {
 
         if is_takeover {
             tracing::warn!("Device takeover detected");
-            self.metrics.keys_takeovers_total.add(1, &[]);
+            self.metrics.takeovers_total.add(1, &[]);
 
             self.notifier.notify(user_id, UserEvent::Disconnect);
         }

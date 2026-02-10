@@ -11,25 +11,25 @@ use tracing::Instrument;
 use uuid::Uuid;
 
 #[derive(Clone)]
-struct MessageMetrics {
-    messages_sent_total: Counter<u64>,
-    messaging_fetch_batch_size: Histogram<u64>,
-    messaging_inbox_overflow_total: Counter<u64>,
+struct Metrics {
+    sent_total: Counter<u64>,
+    fetch_batch_size: Histogram<u64>,
+    inbox_overflow_total: Counter<u64>,
 }
 
-impl MessageMetrics {
+impl Metrics {
     fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
-            messages_sent_total: meter
+            sent_total: meter
                 .u64_counter("messages_sent_total")
                 .with_description("Total messages successfully sent")
                 .build(),
-            messaging_fetch_batch_size: meter
+            fetch_batch_size: meter
                 .u64_histogram("messaging_fetch_batch_size")
                 .with_description("Number of messages fetched in a single batch")
                 .build(),
-            messaging_inbox_overflow_total: meter
+            inbox_overflow_total: meter
                 .u64_counter("messaging_inbox_overflow_total")
                 .with_description("Total messages deleted due to inbox overflow")
                 .build(),
@@ -44,7 +44,7 @@ pub struct MessageService {
     notifier: Arc<dyn NotificationService>,
     config: MessagingConfig,
     ttl_days: i64,
-    metrics: MessageMetrics,
+    metrics: Metrics,
 }
 
 impl MessageService {
@@ -61,7 +61,7 @@ impl MessageService {
             notifier,
             config,
             ttl_days,
-            metrics: MessageMetrics::new(),
+            metrics: Metrics::new(),
         }
     }
 
@@ -76,13 +76,13 @@ impl MessageService {
         match self.repo.create(&mut conn, sender_id, recipient_id, message_type, content, self.ttl_days).await {
             Ok(_) => {
                 tracing::debug!("Message stored for delivery");
-                self.metrics.messages_sent_total.add(1, &[KeyValue::new("status", "success")]);
+                self.metrics.sent_total.add(1, &[KeyValue::new("status", "success")]);
 
                 self.notifier.notify(recipient_id, UserEvent::MessageReceived);
                 Ok(())
             }
             Err(e) => {
-                self.metrics.messages_sent_total.add(1, &[KeyValue::new("status", "failure")]);
+                self.metrics.sent_total.add(1, &[KeyValue::new("status", "failure")]);
                 Err(e)
             }
         }
@@ -119,7 +119,7 @@ impl MessageService {
         let mut conn = self.pool.acquire().await?;
         let messages = self.repo.fetch_pending_batch(&mut conn, recipient_id, cursor, limit).await?;
 
-        self.metrics.messaging_fetch_batch_size.record(messages.len() as u64, &[]);
+        self.metrics.fetch_batch_size.record(messages.len() as u64, &[]);
 
         Ok(messages)
     }
@@ -175,7 +175,7 @@ impl MessageService {
                             Ok(count) => {
                                 if count > 0 {
                                     tracing::info!(count = %count, "Pruned overflow messages");
-                                    self.metrics.messaging_inbox_overflow_total.add(count, &[]);
+                                    self.metrics.inbox_overflow_total.add(count, &[]);
                                 }
                             }
                             Err(e) => tracing::error!(error = ?e, "Cleanup loop error (overflow)"),

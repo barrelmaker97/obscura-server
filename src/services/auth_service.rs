@@ -10,6 +10,7 @@ use argon2::{
 };
 use base64::Engine;
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use opentelemetry::{global, metrics::Counter};
 use rand::{RngCore, rngs::OsRng};
 use sha2::{Digest, Sha256};
 use sqlx::PgConnection;
@@ -17,15 +18,48 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 #[derive(Clone)]
+struct Metrics {
+    login_total: Counter<u64>,
+    refresh_total: Counter<u64>,
+    logout_total: Counter<u64>,
+}
+
+impl Metrics {
+    fn new() -> Self {
+        let meter = global::meter("obscura-server");
+        Self {
+            login_total: meter
+                .u64_counter("auth_login_total")
+                .with_description("Total number of successful login attempts")
+                .build(),
+            refresh_total: meter
+                .u64_counter("auth_refresh_total")
+                .with_description("Total number of successful token rotations")
+                .build(),
+            logout_total: meter
+                .u64_counter("auth_logout_total")
+                .with_description("Total number of successful logout attempts")
+                .build(),
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct AuthService {
     config: AuthConfig,
     user_repo: UserRepository,
     refresh_repo: RefreshTokenRepository,
+    metrics: Metrics,
 }
 
 impl AuthService {
     pub fn new(config: AuthConfig, user_repo: UserRepository, refresh_repo: RefreshTokenRepository) -> Self {
-        Self { config, user_repo, refresh_repo }
+        Self {
+            config,
+            user_repo,
+            refresh_repo,
+            metrics: Metrics::new(),
+        }
     }
 
     #[tracing::instrument(
@@ -51,9 +85,10 @@ impl AuthService {
             return Err(AppError::AuthError);
         }
 
-        // Generate Tokens - Note: Transaction must be managed by the entry point if multiple ops are needed.
-        // But create_session currently does a single insert.
-        self.create_session(conn, user.id).await
+        // Generate Tokens
+        let session = self.create_session(conn, user.id).await?;
+        self.metrics.login_total.add(1, &[]);
+        Ok(session)
     }
 
     #[tracing::instrument(err, skip(self, password))]
@@ -130,6 +165,7 @@ impl AuthService {
         let new_jwt = self.encode_jwt(&claims)?;
 
         tracing::info!("Tokens rotated successfully");
+        self.metrics.refresh_total.add(1, &[]);
 
         Ok(AuthSession {
             token: new_jwt.as_str().to_string(),
@@ -142,9 +178,9 @@ impl AuthService {
     pub async fn logout(&self, conn: &mut PgConnection, user_id: Uuid, refresh_token: String) -> Result<()> {
         let hash = self.hash_opaque_token(&refresh_token);
         self.refresh_repo.delete_owned(conn, &hash, user_id).await?;
+        self.metrics.logout_total.add(1, &[]);
         Ok(())
     }
-
     /// Verifies a JWT access token and returns the user ID (subject).
     pub fn verify_token(&self, jwt: Jwt) -> Result<Uuid> {
         let token_data = decode::<Claims>(
@@ -153,7 +189,7 @@ impl AuthService {
             &Validation::default(),
         )
         .map_err(|_| AppError::AuthError)?;
-        
+
         Ok(token_data.claims.sub)
     }
 
@@ -164,7 +200,7 @@ impl AuthService {
             &EncodingKey::from_secret(self.config.jwt_secret.as_bytes()),
         )
         .map_err(|_| AppError::Internal)?;
-        
+
         Ok(Jwt(token))
     }
 

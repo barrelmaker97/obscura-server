@@ -1,4 +1,4 @@
-use crate::services::gateway::GatewayMetrics;
+use crate::services::gateway::Metrics;
 use crate::services::message_service::MessageService;
 use crate::proto::obscura::v1::{EncryptedMessage, Envelope, WebSocketFrame, web_socket_frame::Payload};
 use axum::extract::ws::Message as WsMessage;
@@ -20,7 +20,7 @@ impl MessagePump {
         user_id: Uuid,
         message_service: MessageService,
         outbound_tx: mpsc::Sender<WsMessage>,
-        metrics: GatewayMetrics,
+        metrics: Metrics,
         batch_limit: i64,
     ) -> Self {
         // Channel size 1 effectively coalesces notifications while a fetch is in progress.
@@ -57,7 +57,7 @@ impl MessagePump {
         mut rx: mpsc::Receiver<()>,
         message_service: MessageService,
         outbound_tx: mpsc::Sender<WsMessage>,
-        metrics: GatewayMetrics,
+        metrics: Metrics,
         limit: i64,
     ) {
         let mut cursor: Option<(time::OffsetDateTime, Uuid)> = None;
@@ -80,7 +80,7 @@ impl MessagePump {
         user_id: Uuid,
         service: &MessageService,
         outbound_tx: &mpsc::Sender<WsMessage>,
-        metrics: &GatewayMetrics,
+        metrics: &Metrics,
         limit: i64,
         cursor: &mut Option<(time::OffsetDateTime, Uuid)>,
     ) -> crate::error::Result<bool> {
@@ -121,7 +121,7 @@ impl MessagePump {
                 && outbound_tx.send(WsMessage::Binary(buf.into())).await.is_err()
             {
                 metrics
-                    .websocket_outbound_dropped_total
+                    .outbound_dropped_total
                     .add(1, &[KeyValue::new("reason", "buffer_full")]);
                 return Ok(false);
             }

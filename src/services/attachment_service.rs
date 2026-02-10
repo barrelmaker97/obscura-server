@@ -17,20 +17,20 @@ use tracing::Instrument;
 use uuid::Uuid;
 
 #[derive(Clone)]
-struct AttachmentMetrics {
-    attachments_uploaded_bytes: Counter<u64>,
-    attachments_upload_size_bytes: Histogram<u64>,
+struct Metrics {
+    uploaded_bytes: Counter<u64>,
+    upload_size_bytes: Histogram<u64>,
 }
 
-impl AttachmentMetrics {
+impl Metrics {
     fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
-            attachments_uploaded_bytes: meter
+            uploaded_bytes: meter
                 .u64_counter("attachments_uploaded_bytes")
                 .with_description("Total bytes of attachments uploaded")
                 .build(),
-            attachments_upload_size_bytes: meter
+            upload_size_bytes: meter
                 .u64_histogram("attachments_upload_size_bytes")
                 .with_description("Distribution of attachment upload sizes")
                 .build(),
@@ -72,7 +72,7 @@ pub struct AttachmentService {
     s3_client: Client,
     config: StorageConfig,
     ttl_days: i64,
-    metrics: AttachmentMetrics,
+    metrics: Metrics,
 }
 
 impl AttachmentService {
@@ -83,7 +83,7 @@ impl AttachmentService {
             s3_client,
             config,
             ttl_days,
-            metrics: AttachmentMetrics::new(),
+            metrics: Metrics::new(),
         }
     }
 
@@ -167,8 +167,8 @@ impl AttachmentService {
         tracing::debug!(attachment_id = %id, expires_at = %expires_at, "Attachment uploaded");
 
         if let Some(len) = content_len {
-            self.metrics.attachments_uploaded_bytes.add(len as u64, &[]);
-            self.metrics.attachments_upload_size_bytes.record(len as u64, &[]);
+            self.metrics.uploaded_bytes.add(len as u64, &[]);
+            self.metrics.upload_size_bytes.record(len as u64, &[]);
         }
 
         Ok((id, expires_at.unix_timestamp()))

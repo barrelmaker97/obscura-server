@@ -6,15 +6,15 @@ use std::time::Duration;
 use tokio::time::timeout;
 
 #[derive(Clone)]
-pub struct HealthMetrics {
-    pub health_status: Gauge<i64>,
+pub struct Metrics {
+    pub status: Gauge<i64>,
 }
 
-impl HealthMetrics {
+impl Metrics {
     pub fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
-            health_status: meter
+            status: meter
                 .i64_gauge("health_status")
                 .with_description("Status of health checks (1 for ok, 0 for error)")
                 .build(),
@@ -22,7 +22,7 @@ impl HealthMetrics {
     }
 }
 
-impl Default for HealthMetrics {
+impl Default for Metrics {
     fn default() -> Self {
         Self::new()
     }
@@ -34,7 +34,7 @@ pub struct HealthService {
     s3_client: Client,
     storage_bucket: String,
     config: HealthConfig,
-    metrics: HealthMetrics,
+    metrics: Metrics,
 }
 
 impl HealthService {
@@ -44,7 +44,7 @@ impl HealthService {
             s3_client,
             storage_bucket,
             config,
-            metrics: HealthMetrics::new(),
+            metrics: Metrics::new(),
         }
     }
 
@@ -53,15 +53,15 @@ impl HealthService {
         
         match timeout(db_timeout, sqlx::query("SELECT 1").execute(&self.pool)).await {
             Ok(Ok(_)) => {
-                self.metrics.health_status.record(1, &[KeyValue::new("component", "database")]);
+                self.metrics.status.record(1, &[KeyValue::new("component", "database")]);
                 Ok(())
             }
             Ok(Err(e)) => {
-                self.metrics.health_status.record(0, &[KeyValue::new("component", "database")]);
+                self.metrics.status.record(0, &[KeyValue::new("component", "database")]);
                 Err(format!("Database connection failed: {:?}", e))
             }
             Err(_) => {
-                self.metrics.health_status.record(0, &[KeyValue::new("component", "database")]);
+                self.metrics.status.record(0, &[KeyValue::new("component", "database")]);
                 Err("Database connection timed out".to_string())
             }
         }
@@ -72,15 +72,15 @@ impl HealthService {
 
         match timeout(storage_timeout, self.s3_client.head_bucket().bucket(&self.storage_bucket).send()).await {
             Ok(Ok(_)) => {
-                self.metrics.health_status.record(1, &[KeyValue::new("component", "storage")]);
+                self.metrics.status.record(1, &[KeyValue::new("component", "storage")]);
                 Ok(())
             }
             Ok(Err(e)) => {
-                self.metrics.health_status.record(0, &[KeyValue::new("component", "storage")]);
+                self.metrics.status.record(0, &[KeyValue::new("component", "storage")]);
                 Err(format!("Storage connection failed for bucket {}: {:?}", self.storage_bucket, e))
             }
             Err(_) => {
-                self.metrics.health_status.record(0, &[KeyValue::new("component", "storage")]);
+                self.metrics.status.record(0, &[KeyValue::new("component", "storage")]);
                 Err("Storage connection timed out".to_string())
             }
         }

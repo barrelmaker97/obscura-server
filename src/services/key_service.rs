@@ -10,15 +10,15 @@ use sqlx::{PgConnection, PgPool};
 use uuid::Uuid;
 
 #[derive(Clone)]
-struct KeyMetrics {
-    keys_prekey_low_total: Counter<u64>,
+struct Metrics {
+    prekey_low_total: Counter<u64>,
 }
 
-impl KeyMetrics {
+impl Metrics {
     fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
-            keys_prekey_low_total: meter
+            prekey_low_total: meter
                 .u64_counter("keys_prekey_low_total")
                 .with_description("Events where users dipped below prekey threshold")
                 .build(),
@@ -32,7 +32,7 @@ pub struct KeyService {
     key_repo: KeyRepository,
     crypto_service: CryptoService,
     config: MessagingConfig,
-    metrics: KeyMetrics,
+    metrics: Metrics,
 }
 
 pub struct KeyUploadParams {
@@ -55,7 +55,7 @@ impl KeyService {
             key_repo,
             crypto_service,
             config,
-            metrics: KeyMetrics::new(),
+            metrics: Metrics::new(),
         }
     }
 
@@ -76,7 +76,7 @@ impl KeyService {
         let mut conn = self.pool.acquire().await?;
         let count = self.key_repo.count_one_time_pre_keys(&mut conn, user_id).await?;
         if count < self.config.pre_key_refill_threshold as i64 {
-            self.metrics.keys_prekey_low_total.add(1, &[]);
+            self.metrics.prekey_low_total.add(1, &[]);
 
             Ok(Some(PreKeyStatus {
                 one_time_pre_key_count: count as i32,

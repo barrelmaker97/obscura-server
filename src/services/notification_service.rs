@@ -5,15 +5,15 @@ use tokio::sync::broadcast;
 use uuid::Uuid;
 
 #[derive(Clone)]
-struct NotificationMetrics {
-    notification_sends_total: Counter<u64>,
+struct Metrics {
+    sends_total: Counter<u64>,
 }
 
-impl NotificationMetrics {
+impl Metrics {
     fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
-            notification_sends_total: meter
+            sends_total: meter
                 .u64_counter("notification_sends_total")
                 .with_description("Total notification send attempts")
                 .build(),
@@ -41,7 +41,7 @@ pub struct InMemoryNotificationService {
     // Wrapped in Arc to share with background GC task.
     channels: std::sync::Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
     channel_capacity: usize,
-    metrics: NotificationMetrics,
+    metrics: Metrics,
 }
 
 impl InMemoryNotificationService {
@@ -69,7 +69,7 @@ impl InMemoryNotificationService {
         Self {
             channels,
             channel_capacity: config.notifications.channel_capacity,
-            metrics: NotificationMetrics::new(),
+            metrics: Metrics::new(),
         }
     }
 }
@@ -94,9 +94,9 @@ impl NotificationService for InMemoryNotificationService {
         if let Some(tx) = self.channels.get(&user_id) {
             // We ignore errors (e.g., if no one is listening)
             match tx.send(event) {
-                Ok(_) => self.metrics.notification_sends_total.add(1, &[KeyValue::new("status", "sent")]),
+                Ok(_) => self.metrics.sends_total.add(1, &[KeyValue::new("status", "sent")]),
                 Err(_) => {
-                    self.metrics.notification_sends_total.add(1, &[KeyValue::new("status", "no_receivers")])
+                    self.metrics.sends_total.add(1, &[KeyValue::new("status", "no_receivers")])
                 }
             }
         }
