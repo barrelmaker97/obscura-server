@@ -269,7 +269,7 @@ impl TestApp {
 
         let auth_service = obscura_server::services::auth_service::AuthService::new(
             config.auth.clone(),
-            refresh_repo,
+            refresh_repo.clone(),
         );
 
         let message_service = MessageService::new(
@@ -283,9 +283,10 @@ impl TestApp {
         let account_service = AccountService::new(
             pool.clone(),
             user_repo,
+            message_repo.clone(),
+            refresh_repo.clone(),
             auth_service.clone(),
             key_service.clone(),
-            message_service.clone(),
             notifier.clone(),
         );
 

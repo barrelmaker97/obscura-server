@@ -1,12 +1,13 @@
 use crate::services::auth_service::AuthService;
 use crate::services::key_service::{KeyService, KeyUploadParams};
-use crate::services::message_service::MessageService;
 use crate::services::notification_service::{NotificationService, UserEvent};
 use crate::domain::keys::{OneTimePreKey, SignedPreKey};
 use crate::domain::auth_session::AuthSession;
 use crate::error::{AppError, Result};
 use crate::storage::DbPool;
 use crate::storage::user_repo::UserRepository;
+use crate::storage::message_repo::MessageRepository;
+use crate::storage::refresh_token_repo::RefreshTokenRepository;
 use opentelemetry::{global, metrics::Counter};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -37,9 +38,10 @@ impl AccountMetrics {
 pub struct AccountService {
     pool: DbPool,
     user_repo: UserRepository,
+    message_repo: MessageRepository,
+    refresh_token_repo: RefreshTokenRepository,
     auth_service: AuthService,
     key_service: KeyService,
-    message_service: MessageService,
     notifier: Arc<dyn NotificationService>,
     metrics: AccountMetrics,
 }
@@ -48,17 +50,19 @@ impl AccountService {
     pub fn new(
         pool: DbPool,
         user_repo: UserRepository,
+        message_repo: MessageRepository,
+        refresh_token_repo: RefreshTokenRepository,
         auth_service: AuthService,
         key_service: KeyService,
-        message_service: MessageService,
         notifier: Arc<dyn NotificationService>,
     ) -> Self {
         Self {
             pool,
             user_repo,
+            message_repo,
+            refresh_token_repo,
             auth_service,
             key_service,
-            message_service,
             notifier,
             metrics: AccountMetrics::new(),
         }
@@ -122,7 +126,7 @@ impl AccountService {
         let is_takeover = self.key_service.upsert_keys(&mut tx, params).await?;
 
         if is_takeover {
-            self.message_service.delete_all_for_user(&mut tx, user_id).await?;
+            self.message_repo.delete_all_for_user(&mut tx, user_id).await?;
         }
 
         tx.commit().await?;
@@ -184,7 +188,8 @@ impl AccountService {
     #[tracing::instrument(err, skip(self, refresh_token), fields(user_id = %user_id))]
     pub async fn logout(&self, user_id: Uuid, refresh_token: String) -> Result<()> {
         let mut conn = self.pool.acquire().await?;
-        self.auth_service.logout(&mut conn, user_id, refresh_token).await?;
+        let hash = self.auth_service.hash_opaque_token(&refresh_token);
+        self.refresh_token_repo.delete_owned(&mut conn, &hash, user_id).await?;
         tracing::info!("User logged out");
         Ok(())
     }

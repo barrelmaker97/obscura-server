@@ -110,13 +110,6 @@ impl AuthService {
         })
     }
 
-    #[tracing::instrument(err, skip(self, conn, refresh_token), fields(user_id = %user_id))]
-    pub async fn logout(&self, conn: &mut PgConnection, user_id: Uuid, refresh_token: String) -> Result<()> {
-        let hash = self.hash_opaque_token(&refresh_token);
-        self.refresh_repo.delete_owned(conn, &hash, user_id).await?;
-        Ok(())
-    }
-
     /// Verifies a JWT access token and returns the user ID (subject).
     pub fn verify_token(&self, jwt: Jwt) -> Result<Uuid> {
         let token_data = decode::<Claims>(
@@ -146,7 +139,7 @@ impl AuthService {
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
     }
 
-    fn hash_opaque_token(&self, token: &str) -> String {
+    pub(crate) fn hash_opaque_token(&self, token: &str) -> String {
         let mut hasher = Sha256::new();
         hasher.update(token.as_bytes());
         hex::encode(hasher.finalize())
