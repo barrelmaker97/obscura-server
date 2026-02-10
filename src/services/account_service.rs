@@ -2,7 +2,7 @@ use crate::services::auth_service::AuthService;
 use crate::services::identity_service::IdentityService;
 use crate::services::key_service::{KeyService, KeyUploadParams};
 use crate::services::message_service::MessageService;
-use crate::services::notification::{Notifier, UserEvent};
+use crate::services::notification_service::{NotificationService, UserEvent};
 use crate::domain::keys::{OneTimePreKey, SignedPreKey};
 use crate::domain::auth_session::AuthSession;
 use crate::error::{AppError, Result};
@@ -40,7 +40,7 @@ pub struct AccountService {
     auth_service: AuthService,
     key_service: KeyService,
     message_service: MessageService,
-    notifier: Arc<dyn Notifier>,
+    notifier: Arc<dyn NotificationService>,
     metrics: AccountMetrics,
 }
 
@@ -51,7 +51,7 @@ impl AccountService {
         auth_service: AuthService,
         key_service: KeyService,
         message_service: MessageService,
-        notifier: Arc<dyn Notifier>,
+        notifier: Arc<dyn NotificationService>,
     ) -> Self {
         Self {
             pool,

@@ -1,5 +1,5 @@
 use crate::config::MessagingConfig;
-use crate::services::notification::{Notifier, UserEvent};
+use crate::services::notification_service::{NotificationService, UserEvent};
 use crate::domain::message::Message;
 use crate::error::Result;
 use crate::storage::DbPool;
@@ -41,7 +41,7 @@ impl MessageMetrics {
 pub struct MessageService {
     pool: DbPool,
     repo: MessageRepository,
-    notifier: Arc<dyn Notifier>,
+    notifier: Arc<dyn NotificationService>,
     config: MessagingConfig,
     ttl_days: i64,
     metrics: MessageMetrics,
@@ -51,7 +51,7 @@ impl MessageService {
     pub fn new(
         pool: DbPool,
         repo: MessageRepository,
-        notifier: Arc<dyn Notifier>,
+        notifier: Arc<dyn NotificationService>,
         config: MessagingConfig,
         ttl_days: i64,
     ) -> Self {

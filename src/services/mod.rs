@@ -7,5 +7,5 @@ pub mod health_service;
 pub mod identity_service;
 pub mod key_service;
 pub mod message_service;
-pub mod notification;
+pub mod notification_service;
 pub mod rate_limit_service;
