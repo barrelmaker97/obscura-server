@@ -82,7 +82,7 @@ impl AuthService {
         let hash = self.hash_opaque_token(&refresh_token);
 
         let mut tx = pool.begin().await?;
-        let user_id = self.refresh_repo.verify_and_consume(&mut *tx, &hash).await?.ok_or(AppError::AuthError)?;
+        let user_id = self.refresh_repo.verify_and_consume(&mut tx, &hash).await?.ok_or(AppError::AuthError)?;
 
         tracing::Span::current().record("user.id", tracing::field::display(user_id));
 
@@ -98,7 +98,7 @@ impl AuthService {
         let new_refresh_token = self.generate_opaque_token();
         let new_refresh_hash = self.hash_opaque_token(&new_refresh_token);
 
-        self.refresh_repo.create(&mut *tx, user_id, &new_refresh_hash, self.config.refresh_token_ttl_days).await?;
+        self.refresh_repo.create(&mut tx, user_id, &new_refresh_hash, self.config.refresh_token_ttl_days).await?;
         tx.commit().await?;
 
         tracing::info!("Tokens rotated successfully");

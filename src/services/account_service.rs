@@ -83,7 +83,7 @@ impl AccountService {
         let mut tx = self.pool.begin().await?;
 
         // 1. Create User
-        let user = self.identity_service.create_user(&mut *tx, &username, &password_hash).await?;
+        let user = self.identity_service.create_user(&mut tx, &username, &password_hash).await?;
 
         tracing::Span::current().record("user.id", tracing::field::display(user.id));
 
@@ -96,10 +96,10 @@ impl AccountService {
             one_time_pre_keys,
         };
 
-        self.key_service.upsert_keys(&mut *tx, key_params).await?;
+        self.key_service.upsert_keys(&mut tx, key_params).await?;
 
         // 3. Create Session (Auth)
-        let session = self.auth_service.create_session(&mut *tx, user.id).await?;
+        let session = self.auth_service.create_session(&mut tx, user.id).await?;
 
         tx.commit().await?;
 
@@ -119,10 +119,10 @@ impl AccountService {
 
         let mut tx = self.pool.begin().await?;
 
-        let is_takeover = self.key_service.upsert_keys(&mut *tx, params).await?;
+        let is_takeover = self.key_service.upsert_keys(&mut tx, params).await?;
 
         if is_takeover {
-            self.message_service.delete_all_for_user(&mut *tx, user_id).await?;
+            self.message_service.delete_all_for_user(&mut tx, user_id).await?;
         }
 
         tx.commit().await?;
@@ -164,7 +164,7 @@ impl AccountService {
 
         // Generate Tokens
         let mut tx = self.pool.begin().await?;
-        let session = self.auth_service.create_session(&mut *tx, user.id).await?;
+        let session = self.auth_service.create_session(&mut tx, user.id).await?;
         tx.commit().await?;
 
         tracing::info!("User logged in successfully");
