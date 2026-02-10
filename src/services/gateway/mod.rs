@@ -5,7 +5,7 @@ pub mod message_pump;
 use crate::config::WsConfig;
 use crate::services::key_service::KeyService;
 use crate::services::message_service::MessageService;
-use crate::services::notification::Notifier;
+use crate::services::notification_service::NotificationService;
 use crate::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
 use crate::services::gateway::session::Session;
 use axum::extract::ws::{Message as WsMessage, WebSocket};
@@ -57,7 +57,7 @@ impl Default for GatewayMetrics {
 pub struct GatewayService {
     message_service: MessageService,
     key_service: KeyService,
-    notifier: Arc<dyn Notifier>,
+    notifier: Arc<dyn NotificationService>,
     config: WsConfig,
     metrics: GatewayMetrics,
 }
@@ -66,7 +66,7 @@ impl GatewayService {
     pub fn new(
         message_service: MessageService,
         key_service: KeyService,
-        notifier: Arc<dyn Notifier>,
+        notifier: Arc<dyn NotificationService>,
         config: WsConfig,
     ) -> Self {
         Self {

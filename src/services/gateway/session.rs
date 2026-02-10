@@ -1,6 +1,6 @@
 use crate::config::WsConfig;
 use crate::services::message_service::MessageService;
-use crate::services::notification::{Notifier, UserEvent};
+use crate::services::notification_service::{NotificationService, UserEvent};
 use crate::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
 use crate::services::gateway::{GatewayMetrics, ack_batcher::AckBatcher, message_pump::MessagePump};
 use axum::extract::ws::{Message as WsMessage, WebSocket};
@@ -15,7 +15,7 @@ pub struct Session {
     pub request_id: String,
     pub socket: WebSocket,
     pub message_service: MessageService,
-    pub notifier: Arc<dyn Notifier>,
+    pub notifier: Arc<dyn NotificationService>,
     pub metrics: GatewayMetrics,
     pub config: WsConfig,
     pub shutdown_rx: tokio::sync::watch::Receiver<bool>,
