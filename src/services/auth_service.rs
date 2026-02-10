@@ -79,10 +79,16 @@ impl AuthService {
 
     #[tracing::instrument(err, skip(self, refresh_token))]
     pub async fn refresh_session(&self, pool: &DbPool, refresh_token: String) -> Result<AuthSession> {
-        let hash = self.hash_opaque_token(&refresh_token);
+        let old_hash = self.hash_opaque_token(&refresh_token);
+        let new_refresh_token = self.generate_opaque_token();
+        let new_hash = self.hash_opaque_token(&new_refresh_token);
 
-        let mut tx = pool.begin().await?;
-        let user_id = self.refresh_repo.verify_and_consume(&mut tx, &hash).await?.ok_or(AppError::AuthError)?;
+        let mut conn = pool.acquire().await?;
+        let user_id = self
+            .refresh_repo
+            .rotate(&mut conn, &old_hash, &new_hash, self.config.refresh_token_ttl_days)
+            .await?
+            .ok_or(AppError::AuthError)?;
 
         tracing::Span::current().record("user.id", tracing::field::display(user_id));
 
@@ -94,19 +100,13 @@ impl AuthService {
 
         let claims = Claims::new(user_id, exp);
         let new_jwt = self.encode_jwt(&claims)?;
-        
-        let new_refresh_token = self.generate_opaque_token();
-        let new_refresh_hash = self.hash_opaque_token(&new_refresh_token);
-
-        self.refresh_repo.create(&mut tx, user_id, &new_refresh_hash, self.config.refresh_token_ttl_days).await?;
-        tx.commit().await?;
 
         tracing::info!("Tokens rotated successfully");
 
-        Ok(AuthSession { 
-            token: new_jwt.as_str().to_string(), 
-            refresh_token: new_refresh_token, 
-            expires_at: exp as i64 
+        Ok(AuthSession {
+            token: new_jwt.as_str().to_string(),
+            refresh_token: new_refresh_token,
+            expires_at: exp as i64,
         })
     }
 

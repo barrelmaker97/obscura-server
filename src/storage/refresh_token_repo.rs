@@ -78,6 +78,42 @@ impl RefreshTokenRepository {
         }
     }
 
+    /// Atomically rotates a refresh token.
+    /// Deletes the old token and inserts a new one only if the old one was not expired.
+    /// Returns the user_id if successful, or None if the old token was invalid or expired.
+    #[tracing::instrument(level = "debug", skip(self, conn, old_hash, new_hash))]
+    pub async fn rotate(
+        &self,
+        conn: &mut PgConnection,
+        old_hash: &str,
+        new_hash: &str,
+        ttl_days: i64,
+    ) -> Result<Option<Uuid>> {
+        let expires_at = OffsetDateTime::now_utc() + time::Duration::days(ttl_days);
+
+        let user_id = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            WITH deleted AS (
+                DELETE FROM refresh_tokens
+                WHERE token_hash = $1
+                RETURNING user_id, expires_at
+            )
+            INSERT INTO refresh_tokens (token_hash, user_id, expires_at)
+            SELECT $2, user_id, $3
+            FROM deleted
+            WHERE expires_at > NOW()
+            RETURNING user_id
+            "#,
+        )
+        .bind(old_hash)
+        .bind(new_hash)
+        .bind(expires_at)
+        .fetch_optional(conn)
+        .await?;
+
+        Ok(user_id)
+    }
+
     /// Revokes a specific refresh token owned by the user (Logout).
     #[tracing::instrument(level = "debug", skip(self, conn, token_hash))]
     pub async fn delete_owned(&self, conn: &mut PgConnection, token_hash: &str, user_id: Uuid) -> Result<()> {
