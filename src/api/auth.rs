@@ -8,7 +8,8 @@ use crate::error::{AppError, Result};
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 
 pub async fn login(State(state): State<AppState>, Json(payload): Json<Login>) -> Result<impl IntoResponse> {
-    let session = state.account_service.login(payload.username, payload.password).await?;
+    let mut conn = state.pool.acquire().await?;
+    let session = state.auth_service.login(&mut conn, payload.username, payload.password).await?;
     let auth_response = map_session(session);
     Ok(Json(auth_response))
 }
@@ -40,7 +41,8 @@ pub async fn register(
 }
 
 pub async fn refresh(State(state): State<AppState>, Json(payload): Json<Refresh>) -> Result<impl IntoResponse> {
-    let session = state.account_service.refresh(payload.refresh_token).await?;
+    let mut conn = state.pool.acquire().await?;
+    let session = state.auth_service.refresh_session(&mut conn, payload.refresh_token).await?;
     let auth_response = map_session(session);
     Ok(Json(auth_response))
 }
@@ -50,7 +52,8 @@ pub async fn logout(
     State(state): State<AppState>,
     Json(payload): Json<Logout>,
 ) -> Result<impl IntoResponse> {
-    state.account_service.logout(auth_user.user_id, payload.refresh_token).await?;
+    let mut conn = state.pool.acquire().await?;
+    state.auth_service.logout(&mut conn, auth_user.user_id, payload.refresh_token).await?;
     Ok(StatusCode::OK)
 }
 

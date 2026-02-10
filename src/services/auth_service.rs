@@ -3,7 +3,7 @@ use crate::domain::auth::{Claims, Jwt};
 use crate::domain::auth_session::AuthSession;
 use crate::error::{AppError, Result};
 use crate::storage::refresh_token_repo::RefreshTokenRepository;
-use crate::storage::DbPool;
+use crate::storage::user_repo::UserRepository;
 use argon2::{
     Argon2,
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
@@ -19,12 +19,41 @@ use uuid::Uuid;
 #[derive(Clone)]
 pub struct AuthService {
     config: AuthConfig,
+    user_repo: UserRepository,
     refresh_repo: RefreshTokenRepository,
 }
 
 impl AuthService {
-    pub fn new(config: AuthConfig, refresh_repo: RefreshTokenRepository) -> Self {
-        Self { config, refresh_repo }
+    pub fn new(config: AuthConfig, user_repo: UserRepository, refresh_repo: RefreshTokenRepository) -> Self {
+        Self { config, user_repo, refresh_repo }
+    }
+
+    #[tracing::instrument(
+        skip(self, conn, username, password),
+        fields(user_id = tracing::field::Empty),
+        err(level = "warn")
+    )]
+    pub async fn login(&self, conn: &mut PgConnection, username: String, password: String) -> Result<AuthSession> {
+        let user = match self.user_repo.find_by_username(conn, &username).await? {
+            Some(u) => u,
+            None => {
+                tracing::warn!("Login failed: user not found");
+                return Err(AppError::AuthError);
+            }
+        };
+
+        tracing::Span::current().record("user.id", tracing::field::display(user.id));
+
+        let is_valid = self.verify_password(&password, &user.password_hash).await?;
+
+        if !is_valid {
+            tracing::warn!("Login failed: invalid password");
+            return Err(AppError::AuthError);
+        }
+
+        // Generate Tokens - Note: Transaction must be managed by the entry point if multiple ops are needed.
+        // But create_session currently does a single insert.
+        self.create_session(conn, user.id).await
     }
 
     #[tracing::instrument(err, skip(self, password))]
@@ -77,16 +106,15 @@ impl AuthService {
         })
     }
 
-    #[tracing::instrument(err, skip(self, refresh_token))]
-    pub async fn refresh_session(&self, pool: &DbPool, refresh_token: String) -> Result<AuthSession> {
+    #[tracing::instrument(err, skip(self, conn, refresh_token))]
+    pub async fn refresh_session(&self, conn: &mut PgConnection, refresh_token: String) -> Result<AuthSession> {
         let old_hash = self.hash_opaque_token(&refresh_token);
         let new_refresh_token = self.generate_opaque_token();
         let new_hash = self.hash_opaque_token(&new_refresh_token);
 
-        let mut conn = pool.acquire().await?;
         let user_id = self
             .refresh_repo
-            .rotate(&mut conn, &old_hash, &new_hash, self.config.refresh_token_ttl_days)
+            .rotate(conn, &old_hash, &new_hash, self.config.refresh_token_ttl_days)
             .await?
             .ok_or(AppError::AuthError)?;
 
@@ -108,6 +136,13 @@ impl AuthService {
             refresh_token: new_refresh_token,
             expires_at: exp as i64,
         })
+    }
+
+    #[tracing::instrument(err, skip(self, conn, refresh_token), fields(user_id = %user_id))]
+    pub async fn logout(&self, conn: &mut PgConnection, user_id: Uuid, refresh_token: String) -> Result<()> {
+        let hash = self.hash_opaque_token(&refresh_token);
+        self.refresh_repo.delete_owned(conn, &hash, user_id).await?;
+        Ok(())
     }
 
     /// Verifies a JWT access token and returns the user ID (subject).
@@ -139,13 +174,12 @@ impl AuthService {
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
     }
 
-    pub(crate) fn hash_opaque_token(&self, token: &str) -> String {
+    fn hash_opaque_token(&self, token: &str) -> String {
         let mut hasher = Sha256::new();
         hasher.update(token.as_bytes());
         hex::encode(hasher.finalize())
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,7 +192,7 @@ mod tests {
             access_token_ttl_secs: 3600,
             refresh_token_ttl_days: 7,
         };
-        AuthService::new(config, RefreshTokenRepository::new())
+        AuthService::new(config, UserRepository::new(), RefreshTokenRepository::new())
     }
 
     #[test]
@@ -167,10 +201,10 @@ mod tests {
         let user_id = Uuid::new_v4();
         let exp = 10000000000;
         let claims = Claims::new(user_id, exp);
-        
+
         let jwt = service.encode_jwt(&claims).unwrap();
         let decoded_id = service.verify_token(jwt).unwrap();
-        
+
         assert_eq!(user_id, decoded_id);
     }
 
@@ -179,7 +213,7 @@ mod tests {
         let service = setup_service();
         let password = "password12345";
         let hash = service.hash_password(password).await.unwrap();
-        
+
         assert!(service.verify_password(password, &hash).await.unwrap());
         assert!(!service.verify_password("wrong_password", &hash).await.unwrap());
     }
@@ -189,9 +223,9 @@ mod tests {
         let service = setup_service();
         let token1 = service.generate_opaque_token();
         let token2 = service.generate_opaque_token();
-        
+
         assert_ne!(token1, token2);
-        
+
         let hash1 = service.hash_opaque_token(&token1);
         let hash2 = service.hash_opaque_token(&token1);
         assert_eq!(hash1, hash2);

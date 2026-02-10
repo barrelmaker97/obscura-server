@@ -35,6 +35,7 @@ pub mod schemas;
 #[derive(Clone)]
 pub struct AppState {
     pub config: Config,
+    pub pool: crate::storage::DbPool,
     pub key_service: KeyService,
     pub attachment_service: AttachmentService,
     pub account_service: AccountService,
@@ -51,6 +52,7 @@ pub struct MgmtState {
 }
 
 pub struct ServiceContainer {
+    pub pool: crate::storage::DbPool,
     pub key_service: KeyService,
     pub attachment_service: AttachmentService,
     pub account_service: AccountService,
@@ -65,7 +67,7 @@ pub fn app_router(
     services: ServiceContainer,
     shutdown_rx: tokio::sync::watch::Receiver<bool>,
 ) -> Router {
-    // Standard Tier: For general API usage
+    // ... (rate limit config remains same)
     let std_interval_ns = 1_000_000_000 / config.rate_limit.per_second.max(1);
     let standard_conf = Arc::new(
         GovernorConfigBuilder::default()
@@ -89,6 +91,7 @@ pub fn app_router(
 
     let state = AppState {
         config,
+        pool: services.pool,
         key_service: services.key_service,
         attachment_service: services.attachment_service,
         account_service: services.account_service,

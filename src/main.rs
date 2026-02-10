@@ -139,6 +139,7 @@ async fn main() -> anyhow::Result<()> {
 
             let auth_service = obscura_server::services::auth_service::AuthService::new(
                 config.auth.clone(),
+                user_repo.clone(),
                 refresh_repo.clone(),
             );
 
@@ -154,7 +155,6 @@ async fn main() -> anyhow::Result<()> {
                 pool.clone(),
                 user_repo,
                 message_repo.clone(),
-                refresh_repo.clone(),
                 auth_service.clone(),
                 key_service.clone(),
                 notifier.clone(),
@@ -202,6 +202,7 @@ async fn main() -> anyhow::Result<()> {
         });
 
         let services = ServiceContainer {
+            pool: pool.clone(),
             key_service,
             attachment_service,
             account_service,

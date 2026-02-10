@@ -3,14 +3,12 @@ use crate::services::key_service::{KeyService, KeyUploadParams};
 use crate::services::notification_service::{NotificationService, UserEvent};
 use crate::domain::keys::{OneTimePreKey, SignedPreKey};
 use crate::domain::auth_session::AuthSession;
-use crate::error::{AppError, Result};
+use crate::error::Result;
 use crate::storage::DbPool;
 use crate::storage::user_repo::UserRepository;
 use crate::storage::message_repo::MessageRepository;
-use crate::storage::refresh_token_repo::RefreshTokenRepository;
 use opentelemetry::{global, metrics::Counter};
 use std::sync::Arc;
-use uuid::Uuid;
 
 #[derive(Clone)]
 struct AccountMetrics {
@@ -39,7 +37,6 @@ pub struct AccountService {
     pool: DbPool,
     user_repo: UserRepository,
     message_repo: MessageRepository,
-    refresh_token_repo: RefreshTokenRepository,
     auth_service: AuthService,
     key_service: KeyService,
     notifier: Arc<dyn NotificationService>,
@@ -51,7 +48,6 @@ impl AccountService {
         pool: DbPool,
         user_repo: UserRepository,
         message_repo: MessageRepository,
-        refresh_token_repo: RefreshTokenRepository,
         auth_service: AuthService,
         key_service: KeyService,
         notifier: Arc<dyn NotificationService>,
@@ -60,7 +56,6 @@ impl AccountService {
             pool,
             user_repo,
             message_repo,
-            refresh_token_repo,
             auth_service,
             key_service,
             notifier,
@@ -138,59 +133,6 @@ impl AccountService {
             self.notifier.notify(user_id, UserEvent::Disconnect);
         }
 
-        Ok(())
-    }
-
-    #[tracing::instrument(
-        skip(self, username, password),
-        fields(user_id = tracing::field::Empty),
-        err(level = "warn")
-    )]
-    pub async fn login(&self, username: String, password: String) -> Result<AuthSession> {
-        let mut conn = self.pool.acquire().await?;
-        let user = match self.user_repo.find_by_username(&mut conn, &username).await? {
-            Some(u) => u,
-            None => {
-                tracing::warn!("Login failed: user not found");
-                return Err(AppError::AuthError);
-            }
-        };
-
-        tracing::Span::current().record("user.id", tracing::field::display(user.id));
-
-        let is_valid = self.auth_service.verify_password(&password, &user.password_hash).await?;
-
-        if !is_valid {
-            tracing::Span::current().record("user_id", tracing::field::display(user.id));
-            tracing::warn!("Login failed: invalid password");
-            return Err(AppError::AuthError);
-        }
-
-        // Generate Tokens
-        let mut tx = self.pool.begin().await?;
-        let session = self.auth_service.create_session(&mut tx, user.id).await?;
-        tx.commit().await?;
-
-        tracing::info!("User logged in successfully");
-
-        Ok(session)
-    }
-
-    #[tracing::instrument(
-        skip(self, refresh_token),
-        fields(user_id = tracing::field::Empty),
-        err(level = "warn")
-    )]
-    pub async fn refresh(&self, refresh_token: String) -> Result<AuthSession> {
-        self.auth_service.refresh_session(&self.pool, refresh_token).await
-    }
-
-    #[tracing::instrument(err, skip(self, refresh_token), fields(user_id = %user_id))]
-    pub async fn logout(&self, user_id: Uuid, refresh_token: String) -> Result<()> {
-        let mut conn = self.pool.acquire().await?;
-        let hash = self.auth_service.hash_opaque_token(&refresh_token);
-        self.refresh_token_repo.delete_owned(&mut conn, &hash, user_id).await?;
-        tracing::info!("User logged out");
         Ok(())
     }
 }
