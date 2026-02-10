@@ -1,7 +1,7 @@
 use crate::domain::user::User;
 use crate::error::Result;
 use crate::storage::records::User as UserRecord;
-use sqlx::{Executor, Postgres};
+use sqlx::PgConnection;
 
 #[derive(Clone, Default)]
 pub struct UserRepository {}
@@ -11,11 +11,8 @@ impl UserRepository {
         Self {}
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor, password_hash))]
-    pub async fn create<'e, E>(&self, executor: E, username: &str, password_hash: &str) -> Result<User>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
+    #[tracing::instrument(level = "debug", skip(self, conn, password_hash))]
+    pub async fn create(&self, conn: &mut PgConnection, username: &str, password_hash: &str) -> Result<User> {
         let user = sqlx::query_as::<_, UserRecord>(
             r#"
             INSERT INTO users (username, password_hash)
@@ -25,17 +22,14 @@ impl UserRepository {
         )
         .bind(username)
         .bind(password_hash)
-        .fetch_one(executor)
+        .fetch_one(conn)
         .await?;
 
         Ok(user.into())
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor))]
-    pub async fn find_by_username<'e, E>(&self, executor: E, username: &str) -> Result<Option<User>>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub async fn find_by_username(&self, conn: &mut PgConnection, username: &str) -> Result<Option<User>> {
         let user = sqlx::query_as::<_, UserRecord>(
             r#"
             SELECT id, username, password_hash, created_at
@@ -44,7 +38,7 @@ impl UserRepository {
             "#,
         )
         .bind(username)
-        .fetch_optional(executor)
+        .fetch_optional(conn)
         .await?;
 
         Ok(user.map(Into::into))

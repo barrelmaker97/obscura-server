@@ -12,7 +12,7 @@ use base64::Engine;
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use rand::{RngCore, rngs::OsRng};
 use sha2::{Digest, Sha256};
-use sqlx::{Executor, Postgres};
+use sqlx::PgConnection;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
@@ -54,11 +54,8 @@ impl AuthService {
         .map_err(|_| AppError::Internal)?
     }
 
-    #[tracing::instrument(err, skip(self, executor), fields(user_id = %user_id))]
-    pub async fn create_session<'e, E>(&self, executor: E, user_id: Uuid) -> Result<AuthSession>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
+    #[tracing::instrument(err, skip(self, conn), fields(user_id = %user_id))]
+    pub async fn create_session(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<AuthSession> {
         let exp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or(std::time::Duration::from_secs(0))
@@ -71,7 +68,7 @@ impl AuthService {
         let refresh_token = self.generate_opaque_token();
         let refresh_hash = self.hash_opaque_token(&refresh_token);
 
-        self.refresh_repo.create(executor, user_id, &refresh_hash, self.config.refresh_token_ttl_days).await?;
+        self.refresh_repo.create(conn, user_id, &refresh_hash, self.config.refresh_token_ttl_days).await?;
 
         Ok(AuthSession { 
             token: jwt.as_str().to_string(), 
@@ -85,7 +82,7 @@ impl AuthService {
         let hash = self.hash_opaque_token(&refresh_token);
 
         let mut tx = pool.begin().await?;
-        let user_id = self.refresh_repo.verify_and_consume(&mut tx, &hash).await?.ok_or(AppError::AuthError)?;
+        let user_id = self.refresh_repo.verify_and_consume(&mut *tx, &hash).await?.ok_or(AppError::AuthError)?;
 
         tracing::Span::current().record("user.id", tracing::field::display(user_id));
 
@@ -113,10 +110,10 @@ impl AuthService {
         })
     }
 
-    #[tracing::instrument(err, skip(self, refresh_token), fields(user_id = %user_id))]
-    pub async fn logout(&self, pool: &DbPool, user_id: Uuid, refresh_token: String) -> Result<()> {
+    #[tracing::instrument(err, skip(self, conn, refresh_token), fields(user_id = %user_id))]
+    pub async fn logout(&self, conn: &mut PgConnection, user_id: Uuid, refresh_token: String) -> Result<()> {
         let hash = self.hash_opaque_token(&refresh_token);
-        self.refresh_repo.delete_owned(pool, &hash, user_id).await?;
+        self.refresh_repo.delete_owned(conn, &hash, user_id).await?;
         Ok(())
     }
 

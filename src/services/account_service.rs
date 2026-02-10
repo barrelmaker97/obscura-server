@@ -96,7 +96,7 @@ impl AccountService {
             one_time_pre_keys,
         };
 
-        self.key_service.upsert_keys(&mut tx, key_params).await?;
+        self.key_service.upsert_keys(&mut *tx, key_params).await?;
 
         // 3. Create Session (Auth)
         let session = self.auth_service.create_session(&mut *tx, user.id).await?;
@@ -119,7 +119,7 @@ impl AccountService {
 
         let mut tx = self.pool.begin().await?;
 
-        let is_takeover = self.key_service.upsert_keys(&mut tx, params).await?;
+        let is_takeover = self.key_service.upsert_keys(&mut *tx, params).await?;
 
         if is_takeover {
             self.message_service.delete_all_for_user(&mut *tx, user_id).await?;
@@ -143,7 +143,8 @@ impl AccountService {
         err(level = "warn")
     )]
     pub async fn login(&self, username: String, password: String) -> Result<AuthSession> {
-        let user = match self.identity_service.find_by_username(&self.pool, &username).await? {
+        let mut conn = self.pool.acquire().await?;
+        let user = match self.identity_service.find_by_username(&mut conn, &username).await? {
             Some(u) => u,
             None => {
                 tracing::warn!("Login failed: user not found");
@@ -182,7 +183,8 @@ impl AccountService {
 
     #[tracing::instrument(err, skip(self, refresh_token), fields(user_id = %user_id))]
     pub async fn logout(&self, user_id: Uuid, refresh_token: String) -> Result<()> {
-        self.auth_service.logout(&self.pool, user_id, refresh_token).await?;
+        let mut conn = self.pool.acquire().await?;
+        self.auth_service.logout(&mut conn, user_id, refresh_token).await?;
         tracing::info!("User logged out");
         Ok(())
     }

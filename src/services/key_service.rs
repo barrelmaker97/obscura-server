@@ -67,12 +67,14 @@ impl KeyService {
 
     #[tracing::instrument(err, skip(self), fields(user_id = %user_id))]
     pub async fn fetch_identity_key(&self, user_id: Uuid) -> Result<Option<PublicKey>> {
-        self.key_repo.fetch_identity_key(&self.pool, user_id).await
+        let mut conn = self.pool.acquire().await?;
+        self.key_repo.fetch_identity_key(&mut conn, user_id).await
     }
 
     #[tracing::instrument(err, skip(self), fields(user_id = %user_id))]
     pub async fn check_pre_key_status(&self, user_id: Uuid) -> Result<Option<PreKeyStatus>> {
-        let count = self.key_repo.count_one_time_pre_keys(&self.pool, user_id).await?;
+        let mut conn = self.pool.acquire().await?;
+        let count = self.key_repo.count_one_time_pre_keys(&mut conn, user_id).await?;
         if count < self.config.pre_key_refill_threshold as i64 {
             self.metrics.keys_prekey_low_total.add(1, &[]);
 

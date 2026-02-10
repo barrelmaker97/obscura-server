@@ -1,7 +1,7 @@
 use crate::domain::message::Message;
 use crate::error::{AppError, Result};
 use crate::storage::records::Message as MessageRecord;
-use sqlx::{Executor, Postgres};
+use sqlx::PgConnection;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
@@ -13,19 +13,16 @@ impl MessageRepository {
         Self {}
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor, content))]
-    pub async fn create<'e, E>(
+    #[tracing::instrument(level = "debug", skip(self, conn, content))]
+    pub async fn create(
         &self,
-        executor: E,
+        conn: &mut PgConnection,
         sender_id: Uuid,
         recipient_id: Uuid,
         message_type: i32,
         content: Vec<u8>,
         ttl_days: i64,
-    ) -> Result<Message>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
+    ) -> Result<Message> {
         let expires_at = OffsetDateTime::now_utc() + Duration::days(ttl_days);
 
         let result = sqlx::query_as::<_, MessageRecord>(
@@ -40,7 +37,7 @@ impl MessageRepository {
         .bind(message_type)
         .bind(content)
         .bind(expires_at)
-        .fetch_one(executor)
+        .fetch_one(conn)
         .await;
 
         match result {
@@ -53,11 +50,8 @@ impl MessageRepository {
         }
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor))]
-    pub async fn find_by_id<'e, E>(&self, executor: E, id: Uuid) -> Result<Option<Message>>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub async fn find_by_id(&self, conn: &mut PgConnection, id: Uuid) -> Result<Option<Message>> {
         let record = sqlx::query_as::<_, MessageRecord>(
             r#"
             SELECT id, sender_id, recipient_id, message_type, content, created_at, expires_at
@@ -66,23 +60,20 @@ impl MessageRepository {
             "#,
         )
         .bind(id)
-        .fetch_optional(executor)
+        .fetch_optional(conn)
         .await?;
 
         Ok(record.map(Into::into))
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor))]
-    pub async fn fetch_pending_batch<'e, E>(
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub async fn fetch_pending_batch(
         &self,
-        executor: E,
+        conn: &mut PgConnection,
         recipient_id: Uuid,
         cursor: Option<(OffsetDateTime, Uuid)>,
         limit: i64,
-    ) -> Result<Vec<Message>>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
+    ) -> Result<Vec<Message>> {
         let messages = match cursor {
             Some((last_ts, last_id)) => {
                 sqlx::query_as::<_, MessageRecord>(
@@ -100,7 +91,7 @@ impl MessageRepository {
                 .bind(last_ts)
                 .bind(last_id)
                 .bind(limit)
-                .fetch_all(executor)
+                .fetch_all(conn)
                 .await?
             }
             None => {
@@ -116,7 +107,7 @@ impl MessageRepository {
                 )
                 .bind(recipient_id)
                 .bind(limit)
-                .fetch_all(executor)
+                .fetch_all(conn)
                 .await?
             }
         };
@@ -124,32 +115,23 @@ impl MessageRepository {
         Ok(messages.into_iter().map(Into::into).collect())
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor))]
-    pub async fn delete_batch<'e, E>(&self, executor: E, message_ids: &[Uuid]) -> Result<()>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub async fn delete_batch(&self, conn: &mut PgConnection, message_ids: &[Uuid]) -> Result<()> {
         if message_ids.is_empty() {
             return Ok(());
         }
-        sqlx::query("DELETE FROM messages WHERE id = ANY($1)").bind(message_ids).execute(executor).await?;
+        sqlx::query("DELETE FROM messages WHERE id = ANY($1)").bind(message_ids).execute(conn).await?;
         Ok(())
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor))]
-    pub async fn delete_expired<'e, E>(&self, executor: E) -> Result<u64>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
-        let result = sqlx::query("DELETE FROM messages WHERE expires_at < NOW()").execute(executor).await?;
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub async fn delete_expired(&self, conn: &mut PgConnection) -> Result<u64> {
+        let result = sqlx::query("DELETE FROM messages WHERE expires_at < NOW()").execute(conn).await?;
         Ok(result.rows_affected())
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor))]
-    pub async fn delete_global_overflow<'e, E>(&self, executor: E, limit: i64) -> Result<u64>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub async fn delete_global_overflow(&self, conn: &mut PgConnection, limit: i64) -> Result<u64> {
         // Deletes messages that exceed the 'limit' per recipient
         let result = sqlx::query(
             r#"
@@ -163,18 +145,15 @@ impl MessageRepository {
             "#,
         )
         .bind(limit)
-        .execute(executor)
+        .execute(conn)
         .await?;
         Ok(result.rows_affected())
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor))]
-    pub async fn delete_all_for_user<'e, E>(&self, executor: E, user_id: Uuid) -> Result<u64>
-    where
-        E: sqlx::Executor<'e, Database = sqlx::Postgres>,
-    {
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub async fn delete_all_for_user(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<u64> {
         let result =
-            sqlx::query("DELETE FROM messages WHERE recipient_id = $1").bind(user_id).execute(executor).await?;
+            sqlx::query("DELETE FROM messages WHERE recipient_id = $1").bind(user_id).execute(conn).await?;
         Ok(result.rows_affected())
     }
 }

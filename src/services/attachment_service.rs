@@ -161,7 +161,8 @@ impl AttachmentService {
             })?;
 
         let expires_at = OffsetDateTime::now_utc() + Duration::days(self.ttl_days);
-        self.repo.create(&self.pool, id, expires_at).await?;
+        let mut conn = self.pool.acquire().await?;
+        self.repo.create(&mut conn, id, expires_at).await?;
 
         tracing::debug!(attachment_id = %id, expires_at = %expires_at, "Attachment uploaded");
 
@@ -180,7 +181,8 @@ impl AttachmentService {
     )]
     pub async fn download(&self, id: Uuid) -> Result<(u64, ByteStream)> {
         // 1. Check Existence & Expiry using Domain Logic
-        match self.repo.find_by_id(&self.pool, id).await? {
+        let mut conn = self.pool.acquire().await?;
+        match self.repo.find_by_id(&mut conn, id).await? {
             Some(attachment) => {
                 if attachment.is_expired_at(OffsetDateTime::now_utc()) {
                     return Err(AppError::NotFound);
@@ -235,7 +237,8 @@ impl AttachmentService {
     async fn cleanup_batch(&self) -> Result<()> {
         loop {
             // Fetch expired attachments
-            let ids = self.repo.fetch_expired(&self.pool, self.config.cleanup_batch_size as i64).await?;
+            let mut conn = self.pool.acquire().await?;
+            let ids = self.repo.fetch_expired(&mut conn, self.config.cleanup_batch_size as i64).await?;
 
             if ids.is_empty() {
                 break;
@@ -269,7 +272,8 @@ impl AttachmentService {
                     }
 
                     // Only delete from DB if S3 deletion was successful
-                    self.repo.delete(&self.pool, id).await
+                    let mut conn = self.pool.acquire().await?;
+                    self.repo.delete(&mut conn, id).await
                 }
                 .instrument(tracing::info_span!("delete_attachment", "attachment.id" = %id))
                 .await;
