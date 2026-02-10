@@ -23,7 +23,15 @@ impl UserRepository {
         .bind(username)
         .bind(password_hash)
         .fetch_one(conn)
-        .await?;
+        .await
+        .map_err(|e| {
+            if let sqlx::Error::Database(ref db_err) = e
+                && db_err.code().as_deref() == Some("23505")
+            {
+                return crate::error::AppError::Conflict("Username already exists".into());
+            }
+            crate::error::AppError::Database(e)
+        })?;
 
         Ok(user.into())
     }

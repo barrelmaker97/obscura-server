@@ -1,5 +1,4 @@
 use crate::services::auth_service::AuthService;
-use crate::services::identity_service::IdentityService;
 use crate::services::key_service::{KeyService, KeyUploadParams};
 use crate::services::message_service::MessageService;
 use crate::services::notification_service::{NotificationService, UserEvent};
@@ -7,6 +6,7 @@ use crate::domain::keys::{OneTimePreKey, SignedPreKey};
 use crate::domain::auth_session::AuthSession;
 use crate::error::{AppError, Result};
 use crate::storage::DbPool;
+use crate::storage::user_repo::UserRepository;
 use opentelemetry::{global, metrics::Counter};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -36,7 +36,7 @@ impl AccountMetrics {
 #[derive(Clone)]
 pub struct AccountService {
     pool: DbPool,
-    identity_service: IdentityService,
+    user_repo: UserRepository,
     auth_service: AuthService,
     key_service: KeyService,
     message_service: MessageService,
@@ -47,7 +47,7 @@ pub struct AccountService {
 impl AccountService {
     pub fn new(
         pool: DbPool,
-        identity_service: IdentityService,
+        user_repo: UserRepository,
         auth_service: AuthService,
         key_service: KeyService,
         message_service: MessageService,
@@ -55,7 +55,7 @@ impl AccountService {
     ) -> Self {
         Self {
             pool,
-            identity_service,
+            user_repo,
             auth_service,
             key_service,
             message_service,
@@ -83,7 +83,7 @@ impl AccountService {
         let mut tx = self.pool.begin().await?;
 
         // 1. Create User
-        let user = self.identity_service.create_user(&mut tx, &username, &password_hash).await?;
+        let user = self.user_repo.create(&mut tx, &username, &password_hash).await?;
 
         tracing::Span::current().record("user.id", tracing::field::display(user.id));
 
@@ -144,7 +144,7 @@ impl AccountService {
     )]
     pub async fn login(&self, username: String, password: String) -> Result<AuthSession> {
         let mut conn = self.pool.acquire().await?;
-        let user = match self.identity_service.find_by_username(&mut conn, &username).await? {
+        let user = match self.user_repo.find_by_username(&mut conn, &username).await? {
             Some(u) => u,
             None => {
                 tracing::warn!("Login failed: user not found");

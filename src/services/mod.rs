@@ -4,7 +4,6 @@ pub mod auth_service;
 pub mod crypto_service;
 pub mod gateway;
 pub mod health_service;
-pub mod identity_service;
 pub mod key_service;
 pub mod message_service;
 pub mod notification_service;

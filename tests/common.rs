@@ -267,8 +267,6 @@ impl TestApp {
             config.ttl_days,
         );
 
-        let identity_service = obscura_server::services::identity_service::IdentityService::new(user_repo);
-
         let auth_service = obscura_server::services::auth_service::AuthService::new(
             config.auth.clone(),
             refresh_repo,
@@ -284,7 +282,7 @@ impl TestApp {
 
         let account_service = AccountService::new(
             pool.clone(),
-            identity_service.clone(),
+            user_repo,
             auth_service.clone(),
             key_service.clone(),
             message_service.clone(),
