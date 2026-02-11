@@ -11,25 +11,25 @@ use tracing::Instrument;
 use uuid::Uuid;
 
 #[derive(Clone)]
-struct MessageMetrics {
-    messages_sent_total: Counter<u64>,
-    messaging_fetch_batch_size: Histogram<u64>,
-    messaging_inbox_overflow_total: Counter<u64>,
+struct Metrics {
+    sent_total: Counter<u64>,
+    fetch_batch_size: Histogram<u64>,
+    inbox_overflow_total: Counter<u64>,
 }
 
-impl MessageMetrics {
+impl Metrics {
     fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
-            messages_sent_total: meter
+            sent_total: meter
                 .u64_counter("messages_sent_total")
                 .with_description("Total messages successfully sent")
                 .build(),
-            messaging_fetch_batch_size: meter
+            fetch_batch_size: meter
                 .u64_histogram("messaging_fetch_batch_size")
                 .with_description("Number of messages fetched in a single batch")
                 .build(),
-            messaging_inbox_overflow_total: meter
+            inbox_overflow_total: meter
                 .u64_counter("messaging_inbox_overflow_total")
                 .with_description("Total messages deleted due to inbox overflow")
                 .build(),
@@ -44,7 +44,7 @@ pub struct MessageService {
     notifier: Arc<dyn NotificationService>,
     config: MessagingConfig,
     ttl_days: i64,
-    metrics: MessageMetrics,
+    metrics: Metrics,
 }
 
 impl MessageService {
@@ -61,7 +61,7 @@ impl MessageService {
             notifier,
             config,
             ttl_days,
-            metrics: MessageMetrics::new(),
+            metrics: Metrics::new(),
         }
     }
 
@@ -72,35 +72,20 @@ impl MessageService {
     )]
     pub async fn send_message(&self, sender_id: Uuid, recipient_id: Uuid, message_type: i32, content: Vec<u8>) -> Result<()> {
         // Limits are enforced asynchronously by the background cleanup loop to optimize the send path.
-        match self.repo.create(&self.pool, sender_id, recipient_id, message_type, content, self.ttl_days).await {
+        let mut conn = self.pool.acquire().await?;
+        match self.repo.create(&mut conn, sender_id, recipient_id, message_type, content, self.ttl_days).await {
             Ok(_) => {
                 tracing::debug!("Message stored for delivery");
-                self.metrics.messages_sent_total.add(1, &[KeyValue::new("status", "success")]);
+                self.metrics.sent_total.add(1, &[KeyValue::new("status", "success")]);
 
                 self.notifier.notify(recipient_id, UserEvent::MessageReceived);
                 Ok(())
             }
             Err(e) => {
-                self.metrics.messages_sent_total.add(1, &[KeyValue::new("status", "failure")]);
+                self.metrics.sent_total.add(1, &[KeyValue::new("status", "failure")]);
                 Err(e)
             }
         }
-    }
-
-    #[tracing::instrument(
-        err,
-        skip(self, content),
-        fields(recipient_id = %recipient_id, message_type = %message_type)
-    )]
-    pub async fn enqueue_message(
-        &self,
-        sender_id: Uuid,
-        recipient_id: Uuid,
-        message_type: i32,
-        content: Vec<u8>,
-    ) -> Result<()> {
-        self.repo.create(&self.pool, sender_id, recipient_id, message_type, content, self.ttl_days).await?;
-        Ok(())
     }
 
     #[tracing::instrument(
@@ -114,24 +99,12 @@ impl MessageService {
         cursor: Option<(time::OffsetDateTime, Uuid)>,
         limit: i64,
     ) -> Result<Vec<Message>> {
-        let messages = self.repo.fetch_pending_batch(&self.pool, recipient_id, cursor, limit).await?;
+        let mut conn = self.pool.acquire().await?;
+        let messages = self.repo.fetch_pending_batch(&mut conn, recipient_id, cursor, limit).await?;
 
-        self.metrics.messaging_fetch_batch_size.record(messages.len() as u64, &[]);
+        self.metrics.fetch_batch_size.record(messages.len() as u64, &[]);
 
         Ok(messages)
-    }
-
-    #[tracing::instrument(
-        err,
-        skip(self, executor),
-        fields(user_id = %user_id)
-    )]
-    pub async fn delete_all_for_user<'e, E>(&self, executor: E, user_id: Uuid) -> Result<()>
-    where
-        E: sqlx::Executor<'e, Database = sqlx::Postgres>,
-    {
-        self.repo.delete_all_for_user(executor, user_id).await?;
-        Ok(())
     }
 
     #[tracing::instrument(
@@ -140,7 +113,8 @@ impl MessageService {
         fields(batch_count = message_ids.len())
     )]
     pub async fn delete_batch(&self, message_ids: &[Uuid]) -> Result<()> {
-        self.repo.delete_batch(&self.pool, message_ids).await
+        let mut conn = self.pool.acquire().await?;
+        self.repo.delete_batch(&mut conn, message_ids).await
     }
 
     pub fn batch_limit(&self) -> i64 {
@@ -158,24 +132,36 @@ impl MessageService {
                         tracing::debug!("Running message cleanup (expiry + limits)...");
 
                         // Delete messages exceeding TTL
-                        match self.repo.delete_expired(&self.pool).await {
+                        let res_expiry = if let Ok(mut conn) = self.pool.acquire().await {
+                             self.repo.delete_expired(&mut conn).await
+                        } else {
+                             Err(crate::error::AppError::Internal)
+                        };
+
+                        match res_expiry {
                             Ok(count) => {
                                 if count > 0 {
                                     tracing::info!(count = %count, "Deleted expired messages");
                                 }
                             }
-                            Err(e) => tracing::error!(error = %e, "Cleanup loop error (expiry)"),
+                            Err(e) => tracing::error!(error = ?e, "Cleanup loop error (expiry)"),
                         }
 
                         // Enforce global inbox size limits (prune oldest messages)
-                        match self.repo.delete_global_overflow(&self.pool, self.config.max_inbox_size).await {
+                        let res_overflow = if let Ok(mut conn) = self.pool.acquire().await {
+                            self.repo.delete_global_overflow(&mut conn, self.config.max_inbox_size).await
+                        } else {
+                            Err(crate::error::AppError::Internal)
+                        };
+
+                        match res_overflow {
                             Ok(count) => {
                                 if count > 0 {
                                     tracing::info!(count = %count, "Pruned overflow messages");
-                                    self.metrics.messaging_inbox_overflow_total.add(count, &[]);
+                                    self.metrics.inbox_overflow_total.add(count, &[]);
                                 }
                             }
-                            Err(e) => tracing::error!(error = %e, "Cleanup loop error (overflow)"),
+                            Err(e) => tracing::error!(error = ?e, "Cleanup loop error (overflow)"),
                         }
                     }
                     .instrument(tracing::info_span!("message_cleanup_iteration"))

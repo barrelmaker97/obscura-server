@@ -2,7 +2,7 @@ use crate::config::WsConfig;
 use crate::services::message_service::MessageService;
 use crate::services::notification_service::{NotificationService, UserEvent};
 use crate::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
-use crate::services::gateway::{GatewayMetrics, ack_batcher::AckBatcher, message_pump::MessagePump};
+use crate::services::gateway::{Metrics, ack_batcher::AckBatcher, message_pump::MessagePump};
 use axum::extract::ws::{Message as WsMessage, WebSocket};
 use futures::{SinkExt, StreamExt};
 use prost::Message;
@@ -16,7 +16,7 @@ pub struct Session {
     pub socket: WebSocket,
     pub message_service: MessageService,
     pub notifier: Arc<dyn NotificationService>,
-    pub metrics: GatewayMetrics,
+    pub metrics: Metrics,
     pub config: WsConfig,
     pub shutdown_rx: tokio::sync::watch::Receiver<bool>,
 }
@@ -46,7 +46,7 @@ impl Session {
             ..
         } = self;
 
-        metrics.websocket_active_connections.add(1, &[]);
+        metrics.active_connections.add(1, &[]);
         tracing::info!("WebSocket connected");
 
         let mut notification_rx = notifier.subscribe(user_id);
@@ -164,7 +164,7 @@ impl Session {
         ack_batcher.abort();
         message_pump.abort();
 
-        metrics.websocket_active_connections.add(-1, &[]);
+        metrics.active_connections.add(-1, &[]);
         tracing::info!("WebSocket disconnected");
     }
 }

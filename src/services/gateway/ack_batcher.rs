@@ -1,4 +1,4 @@
-use crate::services::gateway::GatewayMetrics;
+use crate::services::gateway::Metrics;
 use crate::services::message_service::MessageService;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -9,7 +9,7 @@ use uuid::Uuid;
 /// reduces database overhead by batching multiple deletions into a single query.
 pub struct AckBatcher {
     tx: mpsc::Sender<Uuid>,
-    metrics: GatewayMetrics,
+    metrics: Metrics,
     task: tokio::task::JoinHandle<()>,
 }
 
@@ -17,7 +17,7 @@ impl AckBatcher {
     pub fn new(
         user_id: Uuid,
         message_service: MessageService,
-        metrics: GatewayMetrics,
+        metrics: Metrics,
         buffer_size: usize,
         batch_size: usize,
         flush_interval_ms: u64,
@@ -45,7 +45,7 @@ impl AckBatcher {
     pub fn push(&self, msg_id: Uuid) {
         if self.tx.try_send(msg_id).is_err() {
             tracing::warn!(message_id = %msg_id, "Dropped ACK due to full buffer");
-            self.metrics.websocket_ack_queue_dropped_total.add(1, &[]);
+            self.metrics.ack_queue_dropped_total.add(1, &[]);
         }
     }
 
@@ -56,7 +56,7 @@ impl AckBatcher {
     async fn run_background(
         mut rx: mpsc::Receiver<Uuid>,
         message_service: MessageService,
-        metrics: GatewayMetrics,
+        metrics: Metrics,
         batch_size: usize,
         flush_interval_ms: u64,
     ) {
@@ -81,7 +81,7 @@ impl AckBatcher {
             }
 
             if !batch.is_empty() {
-                metrics.websocket_ack_batch_size.record(batch.len() as u64, &[]);
+                metrics.ack_batch_size.record(batch.len() as u64, &[]);
                 let _ = message_service.delete_batch(&batch).await;
             }
         }

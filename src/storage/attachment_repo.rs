@@ -1,7 +1,7 @@
 use crate::domain::attachment::Attachment;
 use crate::error::Result;
 use crate::storage::records::Attachment as AttachmentRecord;
-use sqlx::{Executor, Postgres};
+use sqlx::PgConnection;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -13,49 +13,37 @@ impl AttachmentRepository {
         Self {}
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor))]
-    pub async fn create<'e, E>(&self, executor: E, id: Uuid, expires_at: OffsetDateTime) -> Result<()>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub async fn create(&self, conn: &mut PgConnection, id: Uuid, expires_at: OffsetDateTime) -> Result<()> {
         sqlx::query("INSERT INTO attachments (id, expires_at) VALUES ($1, $2)")
             .bind(id)
             .bind(expires_at)
-            .execute(executor)
+            .execute(conn)
             .await?;
         Ok(())
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor))]
-    pub async fn find_by_id<'e, E>(&self, executor: E, id: Uuid) -> Result<Option<Attachment>>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub async fn find_by_id(&self, conn: &mut PgConnection, id: Uuid) -> Result<Option<Attachment>> {
         let record = sqlx::query_as::<_, AttachmentRecord>("SELECT id, expires_at FROM attachments WHERE id = $1")
             .bind(id)
-            .fetch_optional(executor)
+            .fetch_optional(conn)
             .await?;
 
         Ok(record.map(Into::into))
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor))]
-    pub async fn delete<'e, E>(&self, executor: E, id: Uuid) -> Result<()>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
-        sqlx::query("DELETE FROM attachments WHERE id = $1").bind(id).execute(executor).await?;
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub async fn delete(&self, conn: &mut PgConnection, id: Uuid) -> Result<()> {
+        sqlx::query("DELETE FROM attachments WHERE id = $1").bind(id).execute(conn).await?;
         Ok(())
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor))]
-    pub async fn fetch_expired<'e, E>(&self, executor: E, limit: i64) -> Result<Vec<Uuid>>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub async fn fetch_expired(&self, conn: &mut PgConnection, limit: i64) -> Result<Vec<Uuid>> {
         let rows = sqlx::query_as::<_, AttachmentRecord>("SELECT id, expires_at FROM attachments WHERE expires_at < NOW() LIMIT $1")
             .bind(limit)
-            .fetch_all(executor)
+            .fetch_all(conn)
             .await?;
 
         Ok(rows.into_iter().map(|r| r.id).collect())

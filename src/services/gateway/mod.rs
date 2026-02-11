@@ -16,30 +16,30 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Clone)]
-pub struct GatewayMetrics {
-    pub websocket_ack_batch_size: Histogram<u64>,
-    pub websocket_outbound_dropped_total: Counter<u64>,
-    pub websocket_active_connections: UpDownCounter<i64>,
-    pub websocket_ack_queue_dropped_total: Counter<u64>,
+pub struct Metrics {
+    pub ack_batch_size: Histogram<u64>,
+    pub outbound_dropped_total: Counter<u64>,
+    pub active_connections: UpDownCounter<i64>,
+    pub ack_queue_dropped_total: Counter<u64>,
 }
 
-impl GatewayMetrics {
+impl Metrics {
     pub fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
-            websocket_ack_batch_size: meter
+            ack_batch_size: meter
                 .u64_histogram("websocket_ack_batch_size")
                 .with_description("Size of ACK batches processed")
                 .build(),
-            websocket_outbound_dropped_total: meter
+            outbound_dropped_total: meter
                 .u64_counter("websocket_outbound_dropped_total")
                 .with_description("Total messages dropped due to full outbound buffer")
                 .build(),
-            websocket_active_connections: meter
+            active_connections: meter
                 .i64_up_down_counter("websocket_active_connections")
                 .with_description("Number of active WebSocket connections")
                 .build(),
-            websocket_ack_queue_dropped_total: meter
+            ack_queue_dropped_total: meter
                 .u64_counter("websocket_ack_queue_dropped_total")
                 .with_description("Total ACKs dropped due to full buffer")
                 .build(),
@@ -47,7 +47,7 @@ impl GatewayMetrics {
     }
 }
 
-impl Default for GatewayMetrics {
+impl Default for Metrics {
     fn default() -> Self {
         Self::new()
     }
@@ -59,7 +59,7 @@ pub struct GatewayService {
     key_service: KeyService,
     notifier: Arc<dyn NotificationService>,
     config: WsConfig,
-    metrics: GatewayMetrics,
+    metrics: Metrics,
 }
 
 impl GatewayService {
@@ -74,7 +74,7 @@ impl GatewayService {
             key_service,
             notifier,
             config,
-            metrics: GatewayMetrics::new(),
+            metrics: Metrics::new(),
         }
     }
 

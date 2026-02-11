@@ -54,7 +54,8 @@ async fn test_expired_message_cleanup() {
     assert_eq!(count, 2);
 
     // 4. Run cleanup
-    let deleted = repo.delete_expired(&pool).await.unwrap();
+    let mut conn = pool.acquire().await.unwrap();
+    let deleted = repo.delete_expired(&mut conn).await.unwrap();
     assert!(deleted >= 1);
 
     // 5. Verify only active one remains

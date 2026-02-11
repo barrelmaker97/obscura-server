@@ -17,20 +17,20 @@ use tracing::Instrument;
 use uuid::Uuid;
 
 #[derive(Clone)]
-struct AttachmentMetrics {
-    attachments_uploaded_bytes: Counter<u64>,
-    attachments_upload_size_bytes: Histogram<u64>,
+struct Metrics {
+    uploaded_bytes: Counter<u64>,
+    upload_size_bytes: Histogram<u64>,
 }
 
-impl AttachmentMetrics {
+impl Metrics {
     fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
-            attachments_uploaded_bytes: meter
+            uploaded_bytes: meter
                 .u64_counter("attachments_uploaded_bytes")
                 .with_description("Total bytes of attachments uploaded")
                 .build(),
-            attachments_upload_size_bytes: meter
+            upload_size_bytes: meter
                 .u64_histogram("attachments_upload_size_bytes")
                 .with_description("Distribution of attachment upload sizes")
                 .build(),
@@ -72,7 +72,7 @@ pub struct AttachmentService {
     s3_client: Client,
     config: StorageConfig,
     ttl_days: i64,
-    metrics: AttachmentMetrics,
+    metrics: Metrics,
 }
 
 impl AttachmentService {
@@ -83,7 +83,7 @@ impl AttachmentService {
             s3_client,
             config,
             ttl_days,
-            metrics: AttachmentMetrics::new(),
+            metrics: Metrics::new(),
         }
     }
 
@@ -161,13 +161,14 @@ impl AttachmentService {
             })?;
 
         let expires_at = OffsetDateTime::now_utc() + Duration::days(self.ttl_days);
-        self.repo.create(&self.pool, id, expires_at).await?;
+        let mut conn = self.pool.acquire().await?;
+        self.repo.create(&mut conn, id, expires_at).await?;
 
         tracing::debug!(attachment_id = %id, expires_at = %expires_at, "Attachment uploaded");
 
         if let Some(len) = content_len {
-            self.metrics.attachments_uploaded_bytes.add(len as u64, &[]);
-            self.metrics.attachments_upload_size_bytes.record(len as u64, &[]);
+            self.metrics.uploaded_bytes.add(len as u64, &[]);
+            self.metrics.upload_size_bytes.record(len as u64, &[]);
         }
 
         Ok((id, expires_at.unix_timestamp()))
@@ -180,7 +181,8 @@ impl AttachmentService {
     )]
     pub async fn download(&self, id: Uuid) -> Result<(u64, ByteStream)> {
         // 1. Check Existence & Expiry using Domain Logic
-        match self.repo.find_by_id(&self.pool, id).await? {
+        let mut conn = self.pool.acquire().await?;
+        match self.repo.find_by_id(&mut conn, id).await? {
             Some(attachment) => {
                 if attachment.is_expired_at(OffsetDateTime::now_utc()) {
                     return Err(AppError::NotFound);
@@ -235,7 +237,8 @@ impl AttachmentService {
     async fn cleanup_batch(&self) -> Result<()> {
         loop {
             // Fetch expired attachments
-            let ids = self.repo.fetch_expired(&self.pool, self.config.cleanup_batch_size as i64).await?;
+            let mut conn = self.pool.acquire().await?;
+            let ids = self.repo.fetch_expired(&mut conn, self.config.cleanup_batch_size as i64).await?;
 
             if ids.is_empty() {
                 break;
@@ -269,7 +272,8 @@ impl AttachmentService {
                     }
 
                     // Only delete from DB if S3 deletion was successful
-                    self.repo.delete(&self.pool, id).await
+                    let mut conn = self.pool.acquire().await?;
+                    self.repo.delete(&mut conn, id).await
                 }
                 .instrument(tracing::info_span!("delete_attachment", "attachment.id" = %id))
                 .await;

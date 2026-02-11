@@ -1,31 +1,30 @@
 use crate::services::auth_service::AuthService;
-use crate::services::identity_service::IdentityService;
 use crate::services::key_service::{KeyService, KeyUploadParams};
-use crate::services::message_service::MessageService;
 use crate::services::notification_service::{NotificationService, UserEvent};
 use crate::domain::keys::{OneTimePreKey, SignedPreKey};
 use crate::domain::auth_session::AuthSession;
-use crate::error::{AppError, Result};
+use crate::error::Result;
 use crate::storage::DbPool;
+use crate::storage::user_repo::UserRepository;
+use crate::storage::message_repo::MessageRepository;
 use opentelemetry::{global, metrics::Counter};
 use std::sync::Arc;
-use uuid::Uuid;
 
 #[derive(Clone)]
-struct AccountMetrics {
-    users_registered_total: Counter<u64>,
-    keys_takeovers_total: Counter<u64>,
+struct Metrics {
+    registered_total: Counter<u64>,
+    takeovers_total: Counter<u64>,
 }
 
-impl AccountMetrics {
+impl Metrics {
     fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
-            users_registered_total: meter
+            registered_total: meter
                 .u64_counter("users_registered_total")
                 .with_description("Total number of successful user registrations")
                 .build(),
-            keys_takeovers_total: meter
+            takeovers_total: meter
                 .u64_counter("keys_takeovers_total")
                 .with_description("Total number of device takeover events")
                 .build(),
@@ -36,31 +35,31 @@ impl AccountMetrics {
 #[derive(Clone)]
 pub struct AccountService {
     pool: DbPool,
-    identity_service: IdentityService,
+    user_repo: UserRepository,
+    message_repo: MessageRepository,
     auth_service: AuthService,
     key_service: KeyService,
-    message_service: MessageService,
     notifier: Arc<dyn NotificationService>,
-    metrics: AccountMetrics,
+    metrics: Metrics,
 }
 
 impl AccountService {
     pub fn new(
         pool: DbPool,
-        identity_service: IdentityService,
+        user_repo: UserRepository,
+        message_repo: MessageRepository,
         auth_service: AuthService,
         key_service: KeyService,
-        message_service: MessageService,
         notifier: Arc<dyn NotificationService>,
     ) -> Self {
         Self {
             pool,
-            identity_service,
+            user_repo,
+            message_repo,
             auth_service,
             key_service,
-            message_service,
             notifier,
-            metrics: AccountMetrics::new(),
+            metrics: Metrics::new(),
         }
     }
 
@@ -83,7 +82,7 @@ impl AccountService {
         let mut tx = self.pool.begin().await?;
 
         // 1. Create User
-        let user = self.identity_service.create_user(&mut *tx, &username, &password_hash).await?;
+        let user = self.user_repo.create(&mut tx, &username, &password_hash).await?;
 
         tracing::Span::current().record("user.id", tracing::field::display(user.id));
 
@@ -99,12 +98,12 @@ impl AccountService {
         self.key_service.upsert_keys(&mut tx, key_params).await?;
 
         // 3. Create Session (Auth)
-        let session = self.auth_service.create_session(&mut *tx, user.id).await?;
+        let session = self.auth_service.create_session(&mut tx, user.id).await?;
 
         tx.commit().await?;
 
         tracing::info!("User registered successfully");
-        self.metrics.users_registered_total.add(1, &[]);
+        self.metrics.registered_total.add(1, &[]);
 
         Ok(session)
     }
@@ -122,68 +121,18 @@ impl AccountService {
         let is_takeover = self.key_service.upsert_keys(&mut tx, params).await?;
 
         if is_takeover {
-            self.message_service.delete_all_for_user(&mut *tx, user_id).await?;
+            self.message_repo.delete_all_for_user(&mut tx, user_id).await?;
         }
 
         tx.commit().await?;
 
         if is_takeover {
             tracing::warn!("Device takeover detected");
-            self.metrics.keys_takeovers_total.add(1, &[]);
+            self.metrics.takeovers_total.add(1, &[]);
 
             self.notifier.notify(user_id, UserEvent::Disconnect);
         }
 
-        Ok(())
-    }
-
-    #[tracing::instrument(
-        skip(self, username, password),
-        fields(user_id = tracing::field::Empty),
-        err(level = "warn")
-    )]
-    pub async fn login(&self, username: String, password: String) -> Result<AuthSession> {
-        let user = match self.identity_service.find_by_username(&self.pool, &username).await? {
-            Some(u) => u,
-            None => {
-                tracing::warn!("Login failed: user not found");
-                return Err(AppError::AuthError);
-            }
-        };
-
-        tracing::Span::current().record("user.id", tracing::field::display(user.id));
-
-        let is_valid = self.auth_service.verify_password(&password, &user.password_hash).await?;
-
-        if !is_valid {
-            tracing::Span::current().record("user_id", tracing::field::display(user.id));
-            tracing::warn!("Login failed: invalid password");
-            return Err(AppError::AuthError);
-        }
-
-        // Generate Tokens
-        let mut tx = self.pool.begin().await?;
-        let session = self.auth_service.create_session(&mut *tx, user.id).await?;
-        tx.commit().await?;
-
-        tracing::info!("User logged in successfully");
-
-        Ok(session)
-    }
-
-    #[tracing::instrument(
-        skip(self, refresh_token),
-        fields(user_id = tracing::field::Empty),
-        err(level = "warn")
-    )]
-    pub async fn refresh(&self, refresh_token: String) -> Result<AuthSession> {
-        self.auth_service.refresh_session(&self.pool, refresh_token).await
-    }
-
-    #[tracing::instrument(err, skip(self, refresh_token), fields(user_id = %user_id))]
-    pub async fn logout(&self, user_id: Uuid, refresh_token: String) -> Result<()> {
-        self.auth_service.logout(&self.pool, user_id, refresh_token).await?;
-        tracing::info!("User logged out");
         Ok(())
     }
 }

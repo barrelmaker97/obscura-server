@@ -8,15 +8,15 @@ use axum::http::Request;
 use tracing::warn;
 
 #[derive(Clone)]
-pub struct RateLimitMetrics {
-    pub rate_limit_decisions_total: Counter<u64>,
+pub struct Metrics {
+    pub decisions_total: Counter<u64>,
 }
 
-impl RateLimitMetrics {
+impl Metrics {
     pub fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
-            rate_limit_decisions_total: meter
+            decisions_total: meter
                 .u64_counter("rate_limit_decisions_total")
                 .with_description("Rate limit decisions (allowed/throttled)")
                 .build(),
@@ -24,7 +24,7 @@ impl RateLimitMetrics {
     }
 }
 
-impl Default for RateLimitMetrics {
+impl Default for Metrics {
     fn default() -> Self {
         Self::new()
     }
@@ -84,14 +84,14 @@ impl KeyExtractor for IpKeyExtractor {
 #[derive(Clone)]
 pub struct RateLimitService {
     pub extractor: IpKeyExtractor,
-    pub metrics: RateLimitMetrics,
+    pub metrics: Metrics,
 }
 
 impl RateLimitService {
     pub fn new(trusted_proxies: Vec<IpNetwork>) -> Self {
         Self {
             extractor: IpKeyExtractor::new(trusted_proxies),
-            metrics: RateLimitMetrics::new(),
+            metrics: Metrics::new(),
         }
     }
 
@@ -105,6 +105,6 @@ impl RateLimitService {
             "allowed"
         };
 
-        self.metrics.rate_limit_decisions_total.add(1, &[KeyValue::new("status", label)]);
+        self.metrics.decisions_total.add(1, &[KeyValue::new("status", label)]);
     }
 }

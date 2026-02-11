@@ -4,21 +4,22 @@ use crate::domain::keys::{OneTimePreKey, PreKeyBundle, SignedPreKey};
 use crate::error::{AppError, Result};
 use crate::proto::obscura::v1::PreKeyStatus;
 use crate::storage::key_repo::KeyRepository;
+use crate::storage::DbPool;
 use crate::services::crypto_service::CryptoService;
 use opentelemetry::{global, metrics::Counter};
-use sqlx::{PgConnection, PgPool};
+use sqlx::PgConnection;
 use uuid::Uuid;
 
 #[derive(Clone)]
-struct KeyMetrics {
-    keys_prekey_low_total: Counter<u64>,
+struct Metrics {
+    prekey_low_total: Counter<u64>,
 }
 
-impl KeyMetrics {
+impl Metrics {
     fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
-            keys_prekey_low_total: meter
+            prekey_low_total: meter
                 .u64_counter("keys_prekey_low_total")
                 .with_description("Events where users dipped below prekey threshold")
                 .build(),
@@ -28,11 +29,11 @@ impl KeyMetrics {
 
 #[derive(Clone)]
 pub struct KeyService {
-    pool: PgPool,
-    key_repo: KeyRepository,
+    pool: DbPool,
+    repo: KeyRepository,
     crypto_service: CryptoService,
     config: MessagingConfig,
-    metrics: KeyMetrics,
+    metrics: Metrics,
 }
 
 pub struct KeyUploadParams {
@@ -45,36 +46,38 @@ pub struct KeyUploadParams {
 
 impl KeyService {
     pub fn new(
-        pool: PgPool,
-        key_repo: KeyRepository,
+        pool: DbPool,
+        repo: KeyRepository,
         crypto_service: CryptoService,
         config: MessagingConfig,
     ) -> Self {
         Self {
             pool,
-            key_repo,
+            repo,
             crypto_service,
             config,
-            metrics: KeyMetrics::new(),
+            metrics: Metrics::new(),
         }
     }
 
     #[tracing::instrument(err, skip(self), fields(user_id = %user_id))]
     pub async fn get_pre_key_bundle(&self, user_id: Uuid) -> Result<Option<PreKeyBundle>> {
         let mut conn = self.pool.acquire().await?;
-        self.key_repo.fetch_pre_key_bundle(&mut conn, user_id).await
+        self.repo.fetch_pre_key_bundle(&mut conn, user_id).await
     }
 
     #[tracing::instrument(err, skip(self), fields(user_id = %user_id))]
     pub async fn fetch_identity_key(&self, user_id: Uuid) -> Result<Option<PublicKey>> {
-        self.key_repo.fetch_identity_key(&self.pool, user_id).await
+        let mut conn = self.pool.acquire().await?;
+        self.repo.fetch_identity_key(&mut conn, user_id).await
     }
 
     #[tracing::instrument(err, skip(self), fields(user_id = %user_id))]
     pub async fn check_pre_key_status(&self, user_id: Uuid) -> Result<Option<PreKeyStatus>> {
-        let count = self.key_repo.count_one_time_pre_keys(&self.pool, user_id).await?;
+        let mut conn = self.pool.acquire().await?;
+        let count = self.repo.count_one_time_pre_keys(&mut conn, user_id).await?;
         if count < self.config.pre_key_refill_threshold as i64 {
-            self.metrics.keys_prekey_low_total.add(1, &[]);
+            self.metrics.prekey_low_total.add(1, &[]);
 
             Ok(Some(PreKeyStatus {
                 one_time_pre_key_count: count as i32,
@@ -93,7 +96,7 @@ impl KeyService {
         // 1. Identify/Verify Identity Key
         let ik = if let Some(new_ik) = params.identity_key {
             // Fetch existing identity key with LOCK
-            let existing_ik_opt = self.key_repo.fetch_identity_key_for_update(&mut *conn, params.user_id).await?;
+            let existing_ik_opt = self.repo.fetch_identity_key_for_update(&mut *conn, params.user_id).await?;
 
             if let Some(existing_ik) = existing_ik_opt {
                 if existing_ik != new_ik {
@@ -110,7 +113,7 @@ impl KeyService {
         } else {
             // Must exist
             let ik = self
-                .key_repo
+                .repo
                 .fetch_identity_key_for_update(&mut *conn, params.user_id)
                 .await?
                 .ok_or_else(|| AppError::BadRequest("Identity key missing".into()))?;
@@ -122,7 +125,7 @@ impl KeyService {
 
         // 2. Monotonic ID Check (Prevent Replay / Rollback)
         if !is_takeover {
-            let max_id = self.key_repo.get_max_signed_pre_key_id(&mut *conn, params.user_id).await?;
+            let max_id = self.repo.find_max_signed_pre_key_id(&mut *conn, params.user_id).await?;
             if let Some(current_max) = max_id
                 && params.signed_pre_key.key_id <= current_max
             {
@@ -135,7 +138,7 @@ impl KeyService {
 
         // 3. Limit Check (Atomic within transaction)
         let current_count =
-            if is_takeover { 0 } else { self.key_repo.count_one_time_pre_keys(&mut *conn, params.user_id).await? };
+            if is_takeover { 0 } else { self.repo.count_one_time_pre_keys(&mut *conn, params.user_id).await? };
 
         let new_keys_count = params.one_time_pre_keys.len() as i64;
 
@@ -149,23 +152,23 @@ impl KeyService {
                 .registration_id
                 .expect("registration_id must be present for takeover (validated at boundary)");
 
-            self.key_repo.delete_all_signed_pre_keys(&mut *conn, params.user_id).await?;
-            self.key_repo.delete_all_one_time_pre_keys(&mut *conn, params.user_id).await?;
+            self.repo.delete_all_signed_pre_keys(&mut *conn, params.user_id).await?;
+            self.repo.delete_all_one_time_pre_keys(&mut *conn, params.user_id).await?;
             
             // Note: Message deletion and notification are now handled by the orchestrator.
 
             // Upsert Identity Key
-            self.key_repo.upsert_identity_key(&mut *conn, params.user_id, &ik, reg_id).await?;
+            self.repo.upsert_identity_key(&mut *conn, params.user_id, &ik, reg_id).await?;
         } else {
             // If not a takeover, we might need to prune old keys to make room for new ones
             if current_count + new_keys_count > self.config.max_pre_keys {
                 let to_delete = (current_count + new_keys_count) - self.config.max_pre_keys;
-                self.key_repo.delete_oldest_one_time_pre_keys(&mut *conn, params.user_id, to_delete).await?;
+                self.repo.delete_oldest_one_time_pre_keys(&mut *conn, params.user_id, to_delete).await?;
             }
         }
 
         // 5. Common flow: Upsert Keys
-        self.key_repo
+        self.repo
             .upsert_signed_pre_key(
                 &mut *conn,
                 params.user_id,
@@ -177,12 +180,12 @@ impl KeyService {
 
         // 6. Cleanup old Signed Pre-Keys
         if !is_takeover {
-            self.key_repo
+            self.repo
                 .delete_signed_pre_keys_older_than(&mut *conn, params.user_id, params.signed_pre_key.key_id)
                 .await?;
         }
 
-        self.key_repo.insert_one_time_pre_keys(&mut *conn, params.user_id, &params.one_time_pre_keys).await?;
+        self.repo.insert_one_time_pre_keys(&mut *conn, params.user_id, &params.one_time_pre_keys).await?;
 
         Ok(is_takeover)
     }
@@ -215,7 +218,7 @@ mod tests {
 
     fn setup_service() -> KeyService {
         let config = MessagingConfig::default();
-        let pool = PgPool::connect_lazy("postgres://localhost").unwrap();
+        let pool = sqlx::PgPool::connect_lazy("postgres://localhost").unwrap();
         KeyService::new(pool, KeyRepository::new(), CryptoService::new(), config)
     }
 

@@ -2,7 +2,7 @@ use crate::domain::crypto::{PublicKey, Signature};
 use crate::domain::keys::{OneTimePreKey, PreKeyBundle, SignedPreKey};
 use crate::error::{AppError, Result};
 use crate::storage::records::{IdentityKey as IdentityKeyRecord, OneTimePreKey as OneTimePreKeyRecord, SignedPreKey as SignedPreKeyRecord};
-use sqlx::{Executor, PgConnection, Postgres};
+use sqlx::PgConnection;
 use uuid::Uuid;
 
 #[derive(Clone, Default)]
@@ -13,17 +13,14 @@ impl KeyRepository {
         Self {}
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor, identity_key))]
-    pub async fn upsert_identity_key<'e, E>(
+    #[tracing::instrument(level = "debug", skip(self, conn, identity_key))]
+    pub async fn upsert_identity_key(
         &self,
-        executor: E,
+        conn: &mut PgConnection,
         user_id: Uuid,
         identity_key: &PublicKey,
         registration_id: i32,
-    ) -> Result<()>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
+    ) -> Result<()> {
         sqlx::query(
             r#"
             INSERT INTO identity_keys (user_id, identity_key, registration_id)
@@ -35,23 +32,20 @@ impl KeyRepository {
         .bind(user_id)
         .bind(identity_key.as_bytes())
         .bind(registration_id)
-        .execute(executor)
+        .execute(conn)
         .await?;
         Ok(())
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor, public_key, signature))]
-    pub async fn upsert_signed_pre_key<'e, E>(
+    #[tracing::instrument(level = "debug", skip(self, conn, public_key, signature))]
+    pub async fn upsert_signed_pre_key(
         &self,
-        executor: E,
+        conn: &mut PgConnection,
         user_id: Uuid,
         key_id: i32,
         public_key: &PublicKey,
         signature: &Signature,
-    ) -> Result<()>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
+    ) -> Result<()> {
         sqlx::query(
             r#"
             INSERT INTO signed_pre_keys (id, user_id, public_key, signature)
@@ -64,21 +58,18 @@ impl KeyRepository {
         .bind(key_id)
         .bind(public_key.as_bytes())
         .bind(signature.as_bytes())
-        .execute(executor)
+        .execute(conn)
         .await?;
         Ok(())
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor, keys))]
-    pub async fn insert_one_time_pre_keys<'e, E>(
+    #[tracing::instrument(level = "debug", skip(self, conn, keys))]
+    pub async fn insert_one_time_pre_keys(
         &self,
-        executor: E,
+        conn: &mut PgConnection,
         user_id: Uuid,
         keys: &[OneTimePreKey],
-    ) -> Result<()>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
+    ) -> Result<()> {
         if keys.is_empty() {
             return Ok(());
         }
@@ -103,16 +94,16 @@ impl KeyRepository {
         .bind(&ids)
         .bind(&user_ids)
         .bind(&pub_keys)
-        .execute(executor)
+        .execute(conn)
         .await?;
 
         Ok(())
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor))]
+    #[tracing::instrument(level = "debug", skip(self, conn))]
     pub async fn fetch_pre_key_bundle(
         &self,
-        executor: &mut PgConnection,
+        conn: &mut PgConnection,
         user_id: Uuid,
     ) -> Result<Option<PreKeyBundle>> {
         // Fetch identity
@@ -120,7 +111,7 @@ impl KeyRepository {
             "SELECT user_id, identity_key, registration_id FROM identity_keys WHERE user_id = $1",
         )
         .bind(user_id)
-        .fetch_optional(&mut *executor)
+        .fetch_optional(&mut *conn)
         .await?;
 
         let Some(identity_rec) = identity_rec else {
@@ -142,7 +133,7 @@ impl KeyRepository {
             "#,
         )
         .bind(user_id)
-        .fetch_optional(&mut *executor)
+        .fetch_optional(&mut *conn)
         .await?;
 
         let Some(signed_rec) = signed_rec else {
@@ -165,7 +156,7 @@ impl KeyRepository {
             "#,
         )
         .bind(user_id)
-        .fetch_optional(&mut *executor)
+        .fetch_optional(&mut *conn)
         .await?;
 
         let one_time_pre_key = match otpk_rec {
@@ -182,16 +173,13 @@ impl KeyRepository {
         Ok(Some(PreKeyBundle { registration_id, identity_key, signed_pre_key, one_time_pre_key }))
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor))]
-    pub async fn fetch_identity_key<'e, E>(&self, executor: E, user_id: Uuid) -> Result<Option<PublicKey>>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub async fn fetch_identity_key(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Option<PublicKey>> {
         let rec = sqlx::query_as::<_, IdentityKeyRecord>(
             "SELECT user_id, identity_key, registration_id FROM identity_keys WHERE user_id = $1",
         )
         .bind(user_id)
-        .fetch_optional(executor)
+        .fetch_optional(conn)
         .await?;
 
         match rec {
@@ -206,16 +194,13 @@ impl KeyRepository {
         }
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor))]
-    pub async fn fetch_identity_key_for_update<'e, E>(&self, executor: E, user_id: Uuid) -> Result<Option<PublicKey>>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub async fn fetch_identity_key_for_update(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Option<PublicKey>> {
         let rec = sqlx::query_as::<_, IdentityKeyRecord>(
             "SELECT user_id, identity_key, registration_id FROM identity_keys WHERE user_id = $1 FOR UPDATE",
         )
         .bind(user_id)
-        .fetch_optional(executor)
+        .fetch_optional(conn)
         .await?;
 
         match rec {
@@ -230,71 +215,53 @@ impl KeyRepository {
         }
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor))]
-    pub async fn delete_all_signed_pre_keys<'e, E>(&self, executor: E, user_id: Uuid) -> Result<()>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
-        sqlx::query("DELETE FROM signed_pre_keys WHERE user_id = $1").bind(user_id).execute(executor).await?;
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub async fn delete_all_signed_pre_keys(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<()> {
+        sqlx::query("DELETE FROM signed_pre_keys WHERE user_id = $1").bind(user_id).execute(conn).await?;
         Ok(())
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor))]
-    pub async fn delete_all_one_time_pre_keys<'e, E>(&self, executor: E, user_id: Uuid) -> Result<()>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
-        sqlx::query("DELETE FROM one_time_pre_keys WHERE user_id = $1").bind(user_id).execute(executor).await?;
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub async fn delete_all_one_time_pre_keys(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<()> {
+        sqlx::query("DELETE FROM one_time_pre_keys WHERE user_id = $1").bind(user_id).execute(conn).await?;
         Ok(())
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor))]
-    pub async fn count_one_time_pre_keys<'e, E>(&self, executor: E, user_id: Uuid) -> Result<i64>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub async fn count_one_time_pre_keys(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<i64> {
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM one_time_pre_keys WHERE user_id = $1")
             .bind(user_id)
-            .fetch_one(executor)
+            .fetch_one(conn)
             .await?;
         Ok(count)
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor))]
-    pub async fn get_max_signed_pre_key_id<'e, E>(&self, executor: E, user_id: Uuid) -> Result<Option<i32>>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub async fn find_max_signed_pre_key_id(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Option<i32>> {
         let max_id: Option<i32> = sqlx::query_scalar("SELECT MAX(id) FROM signed_pre_keys WHERE user_id = $1")
             .bind(user_id)
-            .fetch_one(executor)
+            .fetch_one(conn)
             .await?;
         Ok(max_id)
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor))]
-    pub async fn delete_signed_pre_keys_older_than<'e, E>(
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub async fn delete_signed_pre_keys_older_than(
         &self,
-        executor: E,
+        conn: &mut PgConnection,
         user_id: Uuid,
         threshold_id: i32,
-    ) -> Result<()>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
+    ) -> Result<()> {
         sqlx::query("DELETE FROM signed_pre_keys WHERE user_id = $1 AND id < $2")
             .bind(user_id)
             .bind(threshold_id)
-            .execute(executor)
+            .execute(conn)
             .await?;
         Ok(())
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor))]
-    pub async fn delete_oldest_one_time_pre_keys<'e, E>(&self, executor: E, user_id: Uuid, limit: i64) -> Result<()>
-    where
-        E: Executor<'e, Database = Postgres>,
-    {
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub async fn delete_oldest_one_time_pre_keys(&self, conn: &mut PgConnection, user_id: Uuid, limit: i64) -> Result<()> {
         sqlx::query(
             r#"
             DELETE FROM one_time_pre_keys
@@ -308,7 +275,7 @@ impl KeyRepository {
         )
         .bind(user_id)
         .bind(limit)
-        .execute(executor)
+        .execute(conn)
         .await?;
         Ok(())
     }
