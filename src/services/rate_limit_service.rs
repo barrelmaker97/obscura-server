@@ -13,6 +13,7 @@ pub struct Metrics {
 }
 
 impl Metrics {
+    #[must_use]
     pub fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
@@ -36,10 +37,12 @@ pub struct IpKeyExtractor {
 }
 
 impl IpKeyExtractor {
+    #[must_use]
     pub fn new(trusted_proxies: Vec<IpNetwork>) -> Self {
         Self { trusted_proxies }
     }
 
+    #[must_use]
     pub fn identify_client_ip(&self, headers: &axum::http::HeaderMap, peer_addr: IpAddr) -> IpAddr {
         if !self.is_trusted(&peer_addr) {
             return peer_addr;
@@ -86,6 +89,7 @@ pub struct RateLimitService {
 }
 
 impl RateLimitService {
+    #[must_use]
     pub fn new(trusted_proxies: Vec<IpNetwork>) -> Self {
         Self { extractor: IpKeyExtractor::new(trusted_proxies), metrics: Metrics::new() }
     }

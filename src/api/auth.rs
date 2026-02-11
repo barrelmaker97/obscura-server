@@ -5,12 +5,21 @@ use crate::domain::auth_session::AuthSession;
 use crate::error::{AppError, Result};
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 
+/// Authenticates a user and returns a session.
+///
+/// # Errors
+/// Returns `AppError::AuthError` if the credentials are invalid.
 pub async fn login(State(state): State<AppState>, Json(payload): Json<Login>) -> Result<impl IntoResponse> {
     let session = state.auth_service.login(payload.username, payload.password).await?;
     let auth_response = map_session(session);
     Ok(Json(auth_response))
 }
 
+/// Registers a new user.
+///
+/// # Errors
+/// Returns `AppError::BadRequest` if validation fails or keys are malformed.
+/// Returns `AppError::Conflict` if the username is already taken.
 pub async fn register(State(state): State<AppState>, Json(payload): Json<Registration>) -> Result<impl IntoResponse> {
     payload.validate().map_err(AppError::BadRequest)?;
 
@@ -35,12 +44,20 @@ pub async fn register(State(state): State<AppState>, Json(payload): Json<Registr
     Ok((StatusCode::CREATED, Json(auth_response)))
 }
 
+/// Rotates a session using a refresh token.
+///
+/// # Errors
+/// Returns `AppError::AuthError` if the refresh token is invalid or expired.
 pub async fn refresh(State(state): State<AppState>, Json(payload): Json<Refresh>) -> Result<impl IntoResponse> {
     let session = state.auth_service.refresh_session(payload.refresh_token).await?;
     let auth_response = map_session(session);
     Ok(Json(auth_response))
 }
 
+/// Invalidates a refresh token.
+///
+/// # Errors
+/// Returns `AppError::AuthError` if the user is not authorized.
 pub async fn logout(
     auth_user: AuthUser,
     State(state): State<AppState>,

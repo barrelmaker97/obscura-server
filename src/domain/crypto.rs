@@ -2,25 +2,34 @@
 pub const DJB_KEY_PREFIX: u8 = 0x05;
 
 /// Strong type for public keys.
-/// We store the full 33-byte wire format (DJB_KEY_PREFIX + 32-byte Montgomery key).
+/// We store the full 33-byte wire format (`DJB_KEY_PREFIX` + 32-byte Montgomery key).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PublicKey([u8; 33]);
 
 impl PublicKey {
+    #[must_use]
     pub fn new(bytes: [u8; 33]) -> Self {
         Self(bytes)
     }
 
     /// Returns the inner 32 bytes for cryptographic operations.
+    ///
+    /// # Panics
+    /// Panics if the internal buffer is not exactly 33 bytes.
+    #[must_use]
     pub fn as_crypto_bytes(&self) -> &[u8; 32] {
         self.0[1..].try_into().expect("PublicKey must be 33 bytes")
     }
 
+    #[must_use]
     pub fn as_bytes(&self) -> &[u8; 33] {
         &self.0
     }
 
-    /// Tries to create a PublicKey from wire bytes (MUST be 33 bytes with 0x05 prefix).
+    /// Tries to create a `PublicKey` from wire bytes (MUST be 33 bytes with 0x05 prefix).
+    ///
+    /// # Errors
+    /// Returns an error if the length is not 33 bytes or the prefix is incorrect.
     pub fn try_from_bytes(bytes: &[u8]) -> std::result::Result<Self, String> {
         if bytes.len() != 33 {
             return Err(format!("Invalid key length: {} (expected 33 bytes with 0x05 prefix)", bytes.len()));
@@ -59,10 +68,12 @@ impl From<PublicKey> for Vec<u8> {
 pub struct Signature([u8; 64]);
 
 impl Signature {
+    #[must_use]
     pub fn new(bytes: [u8; 64]) -> Self {
         Self(bytes)
     }
 
+    #[must_use]
     pub fn as_bytes(&self) -> &[u8; 64] {
         &self.0
     }

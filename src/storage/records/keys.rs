@@ -5,14 +5,15 @@ use uuid::Uuid;
 pub(crate) struct IdentityKey {
     #[sqlx(rename = "user_id")]
     pub _user_id: Uuid,
-    pub identity_key: Vec<u8>,
+    #[sqlx(rename = "identity_key")]
+    pub key: Vec<u8>,
     pub registration_id: i32,
 }
 
 impl TryFrom<IdentityKey> for crate::domain::crypto::PublicKey {
     type Error = String;
     fn try_from(record: IdentityKey) -> Result<Self, Self::Error> {
-        crate::domain::crypto::PublicKey::try_from_bytes(&record.identity_key)
+        crate::domain::crypto::PublicKey::try_from_bytes(&record.key)
     }
 }
 

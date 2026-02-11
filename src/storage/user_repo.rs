@@ -7,10 +7,16 @@ use sqlx::PgConnection;
 pub struct UserRepository {}
 
 impl UserRepository {
+    #[must_use]
     pub fn new() -> Self {
         Self {}
     }
 
+    /// Creates a new user record.
+    ///
+    /// # Errors
+    /// Returns `AppError::Conflict` if the username already exists.
+    /// Returns `AppError::Database` for other database failures.
     #[tracing::instrument(level = "debug", skip(self, conn, password_hash))]
     pub async fn create(&self, conn: &mut PgConnection, username: &str, password_hash: &str) -> Result<User> {
         let user = sqlx::query_as::<_, UserRecord>(
@@ -36,6 +42,10 @@ impl UserRepository {
         Ok(user.into())
     }
 
+    /// Finds a user by their username.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the query fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
     pub async fn find_by_username(&self, conn: &mut PgConnection, username: &str) -> Result<Option<User>> {
         let user = sqlx::query_as::<_, UserRecord>(

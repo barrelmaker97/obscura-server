@@ -14,6 +14,10 @@ pub struct Registration {
 }
 
 impl Registration {
+    /// Validates the registration payload.
+    ///
+    /// # Errors
+    /// Returns an error if the password is too short or if there are duplicate pre-key IDs.
     pub fn validate(&self) -> Result<(), String> {
         if self.password.len() < 12 {
             return Err("Password must be at least 12 characters long".into());

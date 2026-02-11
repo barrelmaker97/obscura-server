@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use tracing::Instrument;
 use uuid::Uuid;
 
-/// MessagePump coalesces multiple delivery notifications into a single background
+/// `MessagePump` coalesces multiple delivery notifications into a single background
 /// database poll to avoid overwhelming the database with redundant queries.
 pub struct MessagePump {
     notify_tx: mpsc::Sender<()>,
@@ -93,8 +93,8 @@ impl MessagePump {
 
         for msg in messages {
             let timestamp = msg.created_at.map_or_else(
-                || (time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000) as u64,
-                |ts| (ts.unix_timestamp_nanos() / 1_000_000) as u64,
+                || u64::try_from(time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000).unwrap_or(0),
+                |ts| u64::try_from(ts.unix_timestamp_nanos() / 1_000_000).unwrap_or(0),
             );
 
             let envelope = Envelope {
@@ -113,6 +113,6 @@ impl MessagePump {
             }
         }
 
-        Ok(batch_size >= limit as usize)
+        Ok(batch_size >= usize::try_from(limit).unwrap_or(usize::MAX))
     }
 }

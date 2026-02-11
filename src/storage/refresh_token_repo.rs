@@ -9,12 +9,16 @@ use uuid::Uuid;
 pub struct RefreshTokenRepository {}
 
 impl RefreshTokenRepository {
+    #[must_use]
     pub fn new() -> Self {
         Self {}
     }
 
     /// Creates a new refresh token record.
     /// Note: We store the HASH, not the raw token.
+    ///
+    /// # Errors
+    /// Returns `AppError::Database` if the insert fails.
     #[tracing::instrument(level = "debug", skip(self, conn, token_hash))]
     pub async fn create(&self, conn: &mut PgConnection, user_id: Uuid, token_hash: &str, ttl_days: i64) -> Result<()> {
         let expires_at = OffsetDateTime::now_utc() + time::Duration::days(ttl_days);
@@ -34,6 +38,9 @@ impl RefreshTokenRepository {
     /// If valid: Returns the `user_id` and DELETES the token from the DB.
     /// If invalid/expired: Returns None.
     /// The caller MUST commit the transaction.
+    ///
+    /// # Errors
+    /// Returns `AppError::Database` if the database operation fails.
     #[tracing::instrument(level = "debug", skip(self, conn, token_hash), fields(user_id = tracing::field::Empty))]
     pub async fn verify_and_consume(&self, conn: &mut PgConnection, token_hash: &str) -> Result<Option<Uuid>> {
         // 1. Fetch and Lock
@@ -81,6 +88,9 @@ impl RefreshTokenRepository {
     /// Atomically rotates a refresh token.
     /// Deletes the old token and inserts a new one only if the old one was not expired.
     /// Returns the `user_id` if successful, or None if the old token was invalid or expired.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the operation fails.
     #[tracing::instrument(level = "debug", skip(self, conn, old_hash, new_hash))]
     pub async fn rotate(
         &self,
@@ -115,6 +125,9 @@ impl RefreshTokenRepository {
     }
 
     /// Revokes a specific refresh token owned by the user (Logout).
+    ///
+    /// # Errors
+    /// Returns `AppError::Database` if the deletion fails.
     #[tracing::instrument(level = "debug", skip(self, conn, token_hash))]
     pub async fn delete_owned(&self, conn: &mut PgConnection, token_hash: &str, user_id: Uuid) -> Result<()> {
         sqlx::query("DELETE FROM refresh_tokens WHERE token_hash = $1 AND user_id = $2")

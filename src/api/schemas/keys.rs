@@ -56,6 +56,10 @@ pub struct PreKeyUpload {
 }
 
 impl PreKeyUpload {
+    /// Validates the pre-key upload payload.
+    ///
+    /// # Errors
+    /// Returns an error if the registration ID is missing during a takeover or if there are duplicate pre-key IDs.
     pub fn validate(&self) -> Result<(), String> {
         if self.identity_key.is_some() && self.registration_id.is_none() {
             return Err("registrationId is required when identityKey is provided".into());

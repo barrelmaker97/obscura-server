@@ -9,10 +9,15 @@ use uuid::Uuid;
 pub struct AttachmentRepository {}
 
 impl AttachmentRepository {
+    #[must_use]
     pub fn new() -> Self {
         Self {}
     }
 
+    /// Records a new attachment in the database.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the insert fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
     pub async fn create(&self, conn: &mut PgConnection, id: Uuid, expires_at: OffsetDateTime) -> Result<()> {
         sqlx::query("INSERT INTO attachments (id, expires_at) VALUES ($1, $2)")
@@ -23,6 +28,10 @@ impl AttachmentRepository {
         Ok(())
     }
 
+    /// Finds an attachment by its ID.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the query fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
     pub async fn find_by_id(&self, conn: &mut PgConnection, id: Uuid) -> Result<Option<Attachment>> {
         let record = sqlx::query_as::<_, AttachmentRecord>("SELECT id, expires_at FROM attachments WHERE id = $1")
@@ -33,12 +42,20 @@ impl AttachmentRepository {
         Ok(record.map(Into::into))
     }
 
+    /// Deletes an attachment record.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the deletion fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
     pub async fn delete(&self, conn: &mut PgConnection, id: Uuid) -> Result<()> {
         sqlx::query("DELETE FROM attachments WHERE id = $1").bind(id).execute(conn).await?;
         Ok(())
     }
 
+    /// Fetches a batch of expired attachment IDs.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the query fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
     pub async fn fetch_expired(&self, conn: &mut PgConnection, limit: i64) -> Result<Vec<Uuid>> {
         let rows = sqlx::query_as::<_, AttachmentRecord>(

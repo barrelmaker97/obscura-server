@@ -22,7 +22,7 @@ use tokio::sync::watch;
 async fn main() -> anyhow::Result<()> {
     let config = Config::load();
 
-    let telemetry_guard = telemetry::init_telemetry(config.telemetry.clone())?;
+    let telemetry_guard = telemetry::init_telemetry(&config.telemetry)?;
 
     let boot_span = tracing::info_span!("server_boot");
     use tracing::Instrument;
@@ -70,7 +70,7 @@ async fn main() -> anyhow::Result<()> {
             let _ = signal_tx.send(true);
         });
 
-        let notifier = Arc::new(InMemoryNotificationService::new(config.clone(), shutdown_rx.clone()));
+        let notifier = Arc::new(InMemoryNotificationService::new(&config, shutdown_rx.clone()));
 
         // Storage Setup
         let s3_client = {

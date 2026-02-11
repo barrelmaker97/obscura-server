@@ -6,6 +6,7 @@ use ed25519_dalek::Verifier;
 pub struct CryptoService;
 
 impl CryptoService {
+    #[must_use]
     pub fn new() -> Self {
         Self
     }
@@ -15,6 +16,9 @@ impl CryptoService {
     /// `XEdDSA` is used to verify Ed25519 signatures against Curve25519 (Montgomery) public keys.
     /// Because a Montgomery X-coordinate corresponds to two Edwards points (sign bit 0 and 1),
     /// we try both to ensure compatibility with various client implementations and environments.
+    ///
+    /// # Errors
+    /// Returns `AppError::BadRequest` if the signature is invalid.
     #[tracing::instrument(skip(self, public_key, message, signature), level = "debug")]
     pub fn verify_signature(&self, public_key: &PublicKey, message: &[u8], signature: &Signature) -> Result<()> {
         let pk = xeddsa::xed25519::PublicKey(*public_key.as_crypto_bytes());

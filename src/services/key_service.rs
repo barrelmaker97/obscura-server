@@ -45,22 +45,35 @@ pub struct KeyUploadParams {
 }
 
 impl KeyService {
+    #[must_use]
     pub fn new(pool: DbPool, repo: KeyRepository, crypto_service: CryptoService, config: MessagingConfig) -> Self {
         Self { pool, repo, crypto_service, config, metrics: Metrics::new() }
     }
 
+    /// Fetches a pre-key bundle for a user.
+    ///
+    /// # Errors
+    /// Returns `AppError::Database` if the database operation fails.
     #[tracing::instrument(err, skip(self), fields(user_id = %user_id))]
     pub async fn get_pre_key_bundle(&self, user_id: Uuid) -> Result<Option<PreKeyBundle>> {
         let mut conn = self.pool.acquire().await?;
         self.repo.fetch_pre_key_bundle(&mut conn, user_id).await
     }
 
+    /// Fetches the identity key for a user.
+    ///
+    /// # Errors
+    /// Returns `AppError::Database` if the database operation fails.
     #[tracing::instrument(err, skip(self), fields(user_id = %user_id))]
     pub async fn fetch_identity_key(&self, user_id: Uuid) -> Result<Option<PublicKey>> {
         let mut conn = self.pool.acquire().await?;
         self.repo.fetch_identity_key(&mut conn, user_id).await
     }
 
+    /// Checks if a user needs to refill their one-time pre-keys.
+    ///
+    /// # Errors
+    /// Returns `AppError::Database` if the database operation fails.
     #[tracing::instrument(err, skip(self), fields(user_id = %user_id))]
     pub async fn check_pre_key_status(&self, user_id: Uuid) -> Result<Option<PreKeyStatus>> {
         let mut conn = self.pool.acquire().await?;
@@ -69,7 +82,7 @@ impl KeyService {
             self.metrics.prekey_low_total.add(1, &[]);
 
             Ok(Some(PreKeyStatus {
-                one_time_pre_key_count: count as i32,
+                one_time_pre_key_count: i32::try_from(count).unwrap_or(i32::MAX),
                 min_threshold: self.config.pre_key_refill_threshold,
             }))
         } else {
@@ -129,7 +142,7 @@ impl KeyService {
         let current_count =
             if is_takeover { 0 } else { self.repo.count_one_time_pre_keys(&mut *conn, params.user_id).await? };
 
-        let new_keys_count = params.one_time_pre_keys.len() as i64;
+        let new_keys_count = i64::try_from(params.one_time_pre_keys.len()).unwrap_or(i64::MAX);
 
         if new_keys_count > self.config.max_pre_keys {
             return Err(AppError::BadRequest(format!("Batch too large. Limit is {}", self.config.max_pre_keys)));

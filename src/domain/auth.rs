@@ -24,6 +24,7 @@ pub struct Claims {
 }
 
 impl Claims {
+    #[must_use]
     pub fn new(user_id: Uuid, exp: usize) -> Self {
         Self { sub: user_id, exp }
     }
@@ -33,10 +34,12 @@ impl Claims {
 pub struct Jwt(pub String);
 
 impl Jwt {
+    #[must_use]
     pub fn new(token: String) -> Self {
         Self(token)
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }

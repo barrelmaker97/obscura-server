@@ -5,6 +5,10 @@ use axum::http::{Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
 
+/// Middleware to log rate limit events and add Retry-After headers.
+///
+/// # Panics
+/// Panics if the `x-ratelimit-after` header value cannot be parsed as a string.
 pub async fn log_rate_limit_events(State(state): State<AppState>, req: Request<Body>, next: Next) -> Response {
     let mut response = next.run(req).await;
 

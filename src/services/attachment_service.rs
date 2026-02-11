@@ -79,6 +79,7 @@ pub struct AttachmentService {
 }
 
 impl AttachmentService {
+    #[must_use]
     pub fn new(
         pool: DbPool,
         repo: AttachmentRepository,
@@ -94,6 +95,11 @@ impl AttachmentService {
         skip(self, body),
         fields(attachment_id = tracing::field::Empty, attachment_size = tracing::field::Empty)
     )]
+    /// Uploads an attachment to S3 and records it in the database.
+    ///
+    /// # Errors
+    /// Returns `AppError::BadRequest` if the attachment exceeds the size limit.
+    /// Returns `AppError::Internal` if S3 or the database fails.
     pub async fn upload(&self, content_len: Option<usize>, body: Body) -> Result<(Uuid, i64)> {
         if let Some(len) = content_len {
             tracing::Span::current().record("attachment.size", len);
@@ -153,7 +159,7 @@ impl AttachmentService {
             .put_object()
             .bucket(&self.config.bucket)
             .key(&key)
-            .set_content_length(content_len.map(|l| l as i64))
+            .set_content_length(content_len.map(|l| i64::try_from(l).unwrap_or(i64::MAX)))
             .body(byte_stream)
             .send()
             .await
@@ -181,6 +187,10 @@ impl AttachmentService {
         skip(self),
         fields(attachment_id = %id, attachment_size = tracing::field::Empty)
     )]
+    /// Downloads an attachment from S3.
+    ///
+    /// # Errors
+    /// Returns `AppError::NotFound` if the attachment does not exist or has expired.
     pub async fn download(&self, id: Uuid) -> Result<(u64, ByteStream)> {
         // 1. Check Existence & Expiry using Domain Logic
         let mut conn = self.pool.acquire().await?;
@@ -204,7 +214,7 @@ impl AttachmentService {
         tracing::Span::current().record("attachment.size", content_length);
 
         tracing::debug!("Attachment download successful");
-        Ok((content_length as u64, output.body))
+        Ok((u64::try_from(content_length).unwrap_or(0), output.body))
     }
 
     pub async fn run_cleanup_loop(&self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
@@ -240,7 +250,10 @@ impl AttachmentService {
         loop {
             // Fetch expired attachments
             let mut conn = self.pool.acquire().await?;
-            let ids = self.repo.fetch_expired(&mut conn, self.config.cleanup_batch_size as i64).await?;
+            let ids = self
+                .repo
+                .fetch_expired(&mut conn, i64::try_from(self.config.cleanup_batch_size).unwrap_or(i64::MAX))
+                .await?;
 
             if ids.is_empty() {
                 break;

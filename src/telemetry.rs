@@ -18,24 +18,24 @@ use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::Subscr
 /// A guard that ensures OpenTelemetry providers are properly shut down and flushed when dropped.
 // ... (TelemetryGuard implementation remains the same)
 pub struct TelemetryGuard {
-    tracer_provider: Option<SdkTracerProvider>,
-    meter_provider: Option<SdkMeterProvider>,
-    logger_provider: Option<SdkLoggerProvider>,
+    tracer: Option<SdkTracerProvider>,
+    meter: Option<SdkMeterProvider>,
+    logger: Option<SdkLoggerProvider>,
 }
 
 impl TelemetryGuard {
     pub fn shutdown(self) {
-        if let Some(provider) = self.tracer_provider
+        if let Some(provider) = self.tracer
             && let Err(err) = provider.shutdown()
         {
             eprintln!("Error shutting down tracer provider: {err:?}");
         }
-        if let Some(provider) = self.meter_provider
+        if let Some(provider) = self.meter
             && let Err(err) = provider.shutdown()
         {
             eprintln!("Error shutting down meter provider: {err:?}");
         }
-        if let Some(provider) = self.logger_provider {
+        if let Some(provider) = self.logger {
             // SdkLoggerProvider::shutdown returns a CompletableResultCode in some versions,
             // or a Result in others. We just call it to trigger the flush.
             let _ = provider.shutdown();
@@ -44,7 +44,13 @@ impl TelemetryGuard {
 }
 
 /// Initializes the OpenTelemetry tracing, metrics, and logging providers and hooks them into the tracing subscriber.
-pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<TelemetryGuard> {
+///
+/// # Errors
+/// Returns an error if any of the OTLP exporters fail to initialize.
+///
+/// # Panics
+/// Panics if the default `EnvFilter` or tracing subscriber cannot be initialized.
+pub fn init_telemetry(config: &TelemetryConfig) -> anyhow::Result<TelemetryGuard> {
     // 1. Build the Registry with EnvFilter
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "info".into())
@@ -119,14 +125,14 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<TelemetryGuard>
         let layer = OtelLogLayer::new(logger);
 
         let guard = TelemetryGuard {
-            tracer_provider: Some(tracer_provider),
-            meter_provider: Some(meter_provider),
-            logger_provider: Some(logger_provider),
+            tracer: Some(tracer_provider),
+            meter: Some(meter_provider),
+            logger: Some(logger_provider),
         };
 
         (Some(OpenTelemetryLayer::new(tracer)), Some(layer), guard)
     } else {
-        let guard = TelemetryGuard { tracer_provider: None, meter_provider: None, logger_provider: None };
+        let guard = TelemetryGuard { tracer: None, meter: None, logger: None };
         (None, None, guard)
     };
 

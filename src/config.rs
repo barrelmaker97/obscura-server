@@ -59,6 +59,7 @@ impl Default for Config {
 }
 
 impl Config {
+    #[must_use]
     pub fn load() -> Self {
         Self::parse()
     }

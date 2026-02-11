@@ -61,6 +61,11 @@ impl MessageService {
         Self { pool, repo, notifier, config, ttl_days, metrics: Metrics::new() }
     }
 
+    /// Sends a message to a recipient.
+    ///
+    /// # Errors
+    /// Returns `AppError::NotFound` if the recipient does not exist.
+    /// Returns `AppError::Database` if the message cannot be stored.
     #[tracing::instrument(
         err(level = "warn"),
         skip(self, content, sender_id, recipient_id),
@@ -90,6 +95,10 @@ impl MessageService {
         }
     }
 
+    /// Fetches a batch of pending messages for a recipient.
+    ///
+    /// # Errors
+    /// Returns `AppError::Database` if the query fails.
     #[tracing::instrument(
         err(level = "warn"),
         skip(self),
@@ -109,6 +118,10 @@ impl MessageService {
         Ok(messages)
     }
 
+    /// Deletes a batch of messages.
+    ///
+    /// # Errors
+    /// Returns `AppError::Database` if the deletion fails.
     #[tracing::instrument(
         err,
         skip(self),
@@ -119,6 +132,7 @@ impl MessageService {
         self.repo.delete_batch(&mut conn, message_ids).await
     }
 
+    #[must_use]
     pub fn batch_limit(&self) -> i64 {
         self.config.batch_limit
     }

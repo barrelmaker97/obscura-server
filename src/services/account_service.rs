@@ -60,6 +60,11 @@ impl AccountService {
         fields(user_id = tracing::field::Empty),
         err(level = "warn")
     )]
+    /// Registers a new user account atomically.
+    ///
+    /// # Errors
+    /// Returns `AppError::Conflict` if the username already exists.
+    /// Returns `AppError::Database` if any of the underlying transactions fail.
     pub async fn register(
         &self,
         username: String,
@@ -105,6 +110,11 @@ impl AccountService {
         fields(user_id = %params.user_id),
         err(level = "warn")
     )]
+    /// Uploads new keys for an existing account.
+    ///
+    /// # Errors
+    /// Returns `AppError::BadRequest` if key validation fails.
+    /// Returns `AppError::Database` if the database operation fails.
     pub async fn upload_keys(&self, params: KeyUploadParams) -> Result<()> {
         let user_id = params.user_id;
 

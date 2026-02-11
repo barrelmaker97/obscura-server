@@ -11,6 +11,11 @@ use axum::{
 use prost::Message;
 use uuid::Uuid;
 
+/// Sends an encrypted message to a recipient.
+///
+/// # Errors
+/// Returns `AppError::BadRequest` if the message protobuf is malformed.
+/// Returns `AppError::NotFound` if the recipient does not exist.
 pub async fn send_message(
     auth_user: AuthUser,
 

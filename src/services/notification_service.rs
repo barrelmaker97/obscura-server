@@ -45,7 +45,8 @@ pub struct InMemoryNotificationService {
 }
 
 impl InMemoryNotificationService {
-    pub fn new(config: Config, mut shutdown: tokio::sync::watch::Receiver<bool>) -> Self {
+    #[must_use]
+    pub fn new(config: &Config, mut shutdown: tokio::sync::watch::Receiver<bool>) -> Self {
         let channels = std::sync::Arc::new(DashMap::new());
         let map_ref = channels.clone();
         let interval_secs = config.notifications.gc_interval_secs;
@@ -115,7 +116,7 @@ mod tests {
     #[tokio::test]
     async fn test_notification_service_subscribe_and_notify() {
         let (_tx, rx_shutdown) = tokio::sync::watch::channel(false);
-        let service = InMemoryNotificationService::new(test_config(60), rx_shutdown);
+        let service = InMemoryNotificationService::new(&test_config(60), rx_shutdown);
         let user_id = Uuid::new_v4();
 
         let mut rx = service.subscribe(user_id);
@@ -128,7 +129,7 @@ mod tests {
     #[tokio::test]
     async fn test_notification_service_gc_logic() {
         let (_tx, rx_shutdown) = tokio::sync::watch::channel(false);
-        let service = InMemoryNotificationService::new(test_config(1), rx_shutdown);
+        let service = InMemoryNotificationService::new(&test_config(1), rx_shutdown);
         let user_id = Uuid::new_v4();
 
         // Subscribe and drop
@@ -154,7 +155,7 @@ mod tests {
     #[tokio::test]
     async fn test_notification_service_gc_keeps_active() {
         let (_tx, rx_shutdown) = tokio::sync::watch::channel(false);
-        let service = InMemoryNotificationService::new(test_config(1), rx_shutdown);
+        let service = InMemoryNotificationService::new(&test_config(1), rx_shutdown);
         let user_id = Uuid::new_v4();
 
         let _rx = service.subscribe(user_id);
@@ -167,7 +168,7 @@ mod tests {
     #[tokio::test]
     async fn test_notification_service_independent_channels() {
         let (_tx, rx_shutdown) = tokio::sync::watch::channel(false);
-        let service = InMemoryNotificationService::new(test_config(60), rx_shutdown);
+        let service = InMemoryNotificationService::new(&test_config(60), rx_shutdown);
         let user1 = Uuid::new_v4();
         let user2 = Uuid::new_v4();
 

@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 use tracing::Instrument;
 use uuid::Uuid;
 
-/// AckBatcher decouples fast WebSocket ACKs from slow database deletes and
+/// `AckBatcher` decouples fast WebSocket ACKs from slow database deletes and
 /// reduces database overhead by batching multiple deletions into a single query.
 pub struct AckBatcher {
     tx: mpsc::Sender<Uuid>,

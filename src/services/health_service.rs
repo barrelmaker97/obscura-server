@@ -11,6 +11,7 @@ pub struct Metrics {
 }
 
 impl Metrics {
+    #[must_use]
     pub fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
@@ -38,10 +39,15 @@ pub struct HealthService {
 }
 
 impl HealthService {
+    #[must_use]
     pub fn new(pool: DbPool, s3_client: Client, storage_bucket: String, config: HealthConfig) -> Self {
         Self { pool, s3_client, storage_bucket, config, metrics: Metrics::new() }
     }
 
+    /// Checks database connectivity.
+    ///
+    /// # Errors
+    /// Returns a string describing the failure if the database is unreachable.
     pub async fn check_db(&self) -> Result<(), String> {
         let db_timeout = Duration::from_millis(self.config.db_timeout_ms);
 
@@ -61,6 +67,10 @@ impl HealthService {
         }
     }
 
+    /// Checks S3 connectivity.
+    ///
+    /// # Errors
+    /// Returns a string describing the failure if S3 is unreachable.
     pub async fn check_storage(&self) -> Result<(), String> {
         let storage_timeout = Duration::from_millis(self.config.storage_timeout_ms);
 

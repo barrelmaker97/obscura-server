@@ -61,6 +61,10 @@ pub struct ServiceContainer {
     pub rate_limit_service: RateLimitService,
 }
 
+/// Configures and returns the primary application router.
+///
+/// # Panics
+/// Panics if the rate limiter configuration cannot be constructed.
 pub fn app_router(
     config: Config,
     services: ServiceContainer,

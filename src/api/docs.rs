@@ -3,6 +3,10 @@ use axum::{
     response::IntoResponse,
 };
 
+/// Returns the `OpenAPI` specification in YAML format.
+///
+/// # Panics
+/// Panics if the response builder fails to construct the response.
 pub async fn openapi_yaml() -> impl IntoResponse {
     let spec = include_str!("../../openapi.yaml");
     let version = env!("CARGO_PKG_VERSION");

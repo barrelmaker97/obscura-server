@@ -24,7 +24,7 @@ pub async fn websocket_handler(
         .map_or_else(|| "unknown".to_string(), |id| id.header_value().to_str().unwrap_or_default().to_string());
 
     let jwt = Jwt::new(params.token);
-    match state.auth_service.verify_token(jwt) {
+    match state.auth_service.verify_token(&jwt) {
         Ok(user_id) => ws.on_upgrade(move |socket| {
             let service = state.gateway_service.clone();
             let shutdown = state.shutdown_rx.clone();

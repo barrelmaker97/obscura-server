@@ -9,10 +9,16 @@ use uuid::Uuid;
 pub struct MessageRepository {}
 
 impl MessageRepository {
+    #[must_use]
     pub fn new() -> Self {
         Self {}
     }
 
+    /// Records a new message in the database.
+    ///
+    /// # Errors
+    /// Returns `AppError::NotFound` if the recipient does not exist.
+    /// Returns `AppError::Database` if the insert fails.
     #[tracing::instrument(level = "debug", skip(self, conn, content))]
     pub async fn create(
         &self,
@@ -50,6 +56,10 @@ impl MessageRepository {
         }
     }
 
+    /// Finds a message by its ID.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the query fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
     pub async fn find_by_id(&self, conn: &mut PgConnection, id: Uuid) -> Result<Option<Message>> {
         let record = sqlx::query_as::<_, MessageRecord>(
@@ -66,6 +76,10 @@ impl MessageRepository {
         Ok(record.map(Into::into))
     }
 
+    /// Fetches a batch of pending messages for a recipient.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the query fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
     pub async fn fetch_pending_batch(
         &self,
@@ -115,6 +129,10 @@ impl MessageRepository {
         Ok(messages.into_iter().map(Into::into).collect())
     }
 
+    /// Deletes a batch of messages.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the deletion fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
     pub async fn delete_batch(&self, conn: &mut PgConnection, message_ids: &[Uuid]) -> Result<()> {
         if message_ids.is_empty() {
@@ -124,12 +142,20 @@ impl MessageRepository {
         Ok(())
     }
 
+    /// Deletes all expired messages.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the deletion fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
     pub async fn delete_expired(&self, conn: &mut PgConnection) -> Result<u64> {
         let result = sqlx::query("DELETE FROM messages WHERE expires_at < NOW()").execute(conn).await?;
         Ok(result.rows_affected())
     }
 
+    /// Enforces global inbox limits by pruning the oldest messages per user.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the deletion fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
     pub async fn delete_global_overflow(&self, conn: &mut PgConnection, limit: i64) -> Result<u64> {
         // Deletes messages that exceed the 'limit' per recipient
@@ -150,6 +176,10 @@ impl MessageRepository {
         Ok(result.rows_affected())
     }
 
+    /// Deletes all messages for a specific recipient (Inbox wipe).
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the deletion fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
     pub async fn delete_all_for_user(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<u64> {
         let result = sqlx::query("DELETE FROM messages WHERE recipient_id = $1").bind(user_id).execute(conn).await?;

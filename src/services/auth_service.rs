@@ -19,24 +19,24 @@ use uuid::Uuid;
 
 #[derive(Clone)]
 struct Metrics {
-    login_total: Counter<u64>,
-    refresh_total: Counter<u64>,
-    logout_total: Counter<u64>,
+    login: Counter<u64>,
+    refresh: Counter<u64>,
+    logout: Counter<u64>,
 }
 
 impl Metrics {
     fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
-            login_total: meter
+            login: meter
                 .u64_counter("auth_login_total")
                 .with_description("Total number of successful login attempts")
                 .build(),
-            refresh_total: meter
+            refresh: meter
                 .u64_counter("auth_refresh_total")
                 .with_description("Total number of successful token rotations")
                 .build(),
-            logout_total: meter
+            logout: meter
                 .u64_counter("auth_logout_total")
                 .with_description("Total number of successful logout attempts")
                 .build(),
@@ -54,6 +54,7 @@ pub struct AuthService {
 }
 
 impl AuthService {
+    #[must_use]
     pub fn new(
         config: AuthConfig,
         pool: crate::storage::DbPool,
@@ -68,6 +69,10 @@ impl AuthService {
         fields(user_id = tracing::field::Empty),
         err(level = "warn")
     )]
+    /// Authenticates a user.
+    ///
+    /// # Errors
+    /// Returns `AppError::AuthError` if credentials are invalid.
     pub async fn login(&self, username: String, password: String) -> Result<AuthSession> {
         let mut conn = self.pool.acquire().await?;
         let Some(user) = self.user_repo.find_by_username(&mut conn, &username).await? else {
@@ -86,11 +91,15 @@ impl AuthService {
 
         // Generate Tokens
         let session = self.create_session(&mut conn, user.id).await?;
-        self.metrics.login_total.add(1, &[]);
+        self.metrics.login.add(1, &[]);
         Ok(session)
     }
 
     #[tracing::instrument(err, skip(self, password))]
+    /// Hashes a password using Argon2.
+    ///
+    /// # Errors
+    /// Returns `AppError::Internal` if hashing fails.
     pub async fn hash_password(&self, password: &str) -> Result<String> {
         let password = password.to_string();
         tokio::task::spawn_blocking(move || {
@@ -103,6 +112,10 @@ impl AuthService {
     }
 
     #[tracing::instrument(err, skip(self, password, password_hash))]
+    /// Verifies a password against a hash.
+    ///
+    /// # Errors
+    /// Returns `AppError::Internal` if verification logic fails.
     pub async fn verify_password(&self, password: &str, password_hash: &str) -> Result<bool> {
         let password = password.to_string();
         let password_hash = password_hash.to_string();
@@ -115,28 +128,40 @@ impl AuthService {
     }
 
     #[tracing::instrument(err, skip(self, conn), fields(user_id = %user_id))]
+    /// Creates a new authenticated session.
+    ///
+    /// # Errors
+    /// Returns `AppError::Database` if the session cannot be saved.
     pub async fn create_session(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<AuthSession> {
-        let exp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(std::time::Duration::from_secs(0)).as_secs()
-            as usize
-            + self.config.access_token_ttl_secs as usize;
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(std::time::Duration::from_secs(0)).as_secs();
 
-        let claims = Claims::new(user_id, exp);
+        let exp = now.checked_add(self.config.access_token_ttl_secs).ok_or(AppError::Internal)?;
+        let exp_usize = usize::try_from(exp).map_err(|_| AppError::Internal)?;
+
+        let claims = Claims::new(user_id, exp_usize);
         let jwt = self.encode_jwt(&claims)?;
 
-        let refresh_token = self.generate_opaque_token();
-        let refresh_hash = self.hash_opaque_token(&refresh_token);
+        let refresh_token = Self::generate_opaque_token();
+        let refresh_hash = Self::hash_opaque_token(&refresh_token);
 
         self.refresh_repo.create(conn, user_id, &refresh_hash, self.config.refresh_token_ttl_days).await?;
 
-        Ok(AuthSession { token: jwt.as_str().to_string(), refresh_token, expires_at: exp as i64 })
+        Ok(AuthSession {
+            token: jwt.as_str().to_string(),
+            refresh_token,
+            expires_at: i64::try_from(exp).map_err(|_| AppError::Internal)?,
+        })
     }
-
     #[tracing::instrument(err, skip(self, refresh_token))]
+    /// Refreshes an existing session.
+    ///
+    /// # Errors
+    /// Returns `AppError::AuthError` if the refresh token is invalid.
     pub async fn refresh_session(&self, refresh_token: String) -> Result<AuthSession> {
         let mut conn = self.pool.acquire().await?;
-        let old_hash = self.hash_opaque_token(&refresh_token);
-        let new_refresh_token = self.generate_opaque_token();
-        let new_hash = self.hash_opaque_token(&new_refresh_token);
+        let old_hash = Self::hash_opaque_token(&refresh_token);
+        let new_refresh_token = Self::generate_opaque_token();
+        let new_hash = Self::hash_opaque_token(&new_refresh_token);
 
         let user_id = self
             .refresh_repo
@@ -146,33 +171,41 @@ impl AuthService {
 
         tracing::Span::current().record("user.id", tracing::field::display(user_id));
 
-        let exp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(std::time::Duration::from_secs(0)).as_secs()
-            as usize
-            + self.config.access_token_ttl_secs as usize;
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(std::time::Duration::from_secs(0)).as_secs();
 
-        let claims = Claims::new(user_id, exp);
+        let exp = now.checked_add(self.config.access_token_ttl_secs).ok_or(AppError::Internal)?;
+        let exp_usize = usize::try_from(exp).map_err(|_| AppError::Internal)?;
+
+        let claims = Claims::new(user_id, exp_usize);
         let new_jwt = self.encode_jwt(&claims)?;
 
         tracing::info!("Tokens rotated successfully");
-        self.metrics.refresh_total.add(1, &[]);
+        self.metrics.refresh.add(1, &[]);
 
         Ok(AuthSession {
             token: new_jwt.as_str().to_string(),
             refresh_token: new_refresh_token,
-            expires_at: exp as i64,
+            expires_at: i64::try_from(exp).map_err(|_| AppError::Internal)?,
         })
     }
 
     #[tracing::instrument(err, skip(self, refresh_token), fields(user_id = %user_id))]
+    /// Logs out a user by deleting their refresh token.
+    ///
+    /// # Errors
+    /// Returns `AppError::Database` if the token cannot be deleted.
     pub async fn logout(&self, user_id: Uuid, refresh_token: String) -> Result<()> {
         let mut conn = self.pool.acquire().await?;
-        let hash = self.hash_opaque_token(&refresh_token);
+        let hash = Self::hash_opaque_token(&refresh_token);
         self.refresh_repo.delete_owned(&mut conn, &hash, user_id).await?;
-        self.metrics.logout_total.add(1, &[]);
+        self.metrics.logout.add(1, &[]);
         Ok(())
     }
     /// Verifies a JWT access token and returns the user ID (subject).
-    pub fn verify_token(&self, jwt: Jwt) -> Result<Uuid> {
+    ///
+    /// # Errors
+    /// Returns `AppError::AuthError` if the token is invalid or expired.
+    pub fn verify_token(&self, jwt: &Jwt) -> Result<Uuid> {
         let token_data = decode::<Claims>(
             jwt.as_str(),
             &DecodingKey::from_secret(self.config.jwt_secret.as_bytes()),
@@ -190,13 +223,13 @@ impl AuthService {
         Ok(Jwt(token))
     }
 
-    fn generate_opaque_token(&self) -> String {
+    fn generate_opaque_token() -> String {
         let mut bytes = [0u8; 32];
         OsRng.fill_bytes(&mut bytes);
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
     }
 
-    fn hash_opaque_token(&self, token: &str) -> String {
+    fn hash_opaque_token(token: &str) -> String {
         let mut hasher = Sha256::new();
         hasher.update(token.as_bytes());
         hex::encode(hasher.finalize())
@@ -226,7 +259,7 @@ mod tests {
         let claims = Claims::new(user_id, exp);
 
         let jwt = service.encode_jwt(&claims).unwrap();
-        let decoded_id = service.verify_token(jwt).unwrap();
+        let decoded_id = service.verify_token(&jwt).unwrap();
 
         assert_eq!(user_id, decoded_id);
     }
@@ -243,14 +276,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_opaque_token_logic() {
-        let service = setup_service();
-        let token1 = service.generate_opaque_token();
-        let token2 = service.generate_opaque_token();
+        let _service = setup_service();
+        let token1 = AuthService::generate_opaque_token();
+        let token2 = AuthService::generate_opaque_token();
 
         assert_ne!(token1, token2);
 
-        let hash1 = service.hash_opaque_token(&token1);
-        let hash2 = service.hash_opaque_token(&token1);
+        let hash1 = AuthService::hash_opaque_token(&token1);
+        let hash2 = AuthService::hash_opaque_token(&token1);
         assert_eq!(hash1, hash2);
     }
 }

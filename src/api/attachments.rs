@@ -12,6 +12,11 @@ use axum::{
 use tokio_util::io::ReaderStream;
 use uuid::Uuid;
 
+/// Uploads an attachment to storage.
+///
+/// # Errors
+/// Returns `AppError::BadRequest` if the attachment exceeds the maximum size limit.
+/// Returns `AppError::Internal` if the storage upload fails.
 pub async fn upload_attachment(
     _auth_user: AuthUser,
     State(state): State<AppState>,
@@ -37,6 +42,10 @@ pub async fn upload_attachment(
     Ok((StatusCode::CREATED, Json(AttachmentSchema { id, expires_at })))
 }
 
+/// Downloads an attachment from storage.
+///
+/// # Errors
+/// Returns `AppError::NotFound` if the attachment does not exist or has expired.
 pub async fn download_attachment(
     _auth_user: AuthUser,
     State(state): State<AppState>,

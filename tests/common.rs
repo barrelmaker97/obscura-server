@@ -215,7 +215,7 @@ impl TestApp {
         config.server.mgmt_port = mgmt_addr.port();
 
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-        let notifier = Arc::new(InMemoryNotificationService::new(config.clone(), shutdown_rx.clone()));
+        let notifier = Arc::new(InMemoryNotificationService::new(&config, shutdown_rx.clone()));
 
         let region_provider = aws_config::Region::new(config.storage.region.clone());
         let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider);

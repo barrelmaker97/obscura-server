@@ -11,6 +11,10 @@ use axum::{
 };
 use uuid::Uuid;
 
+/// Fetches a pre-key bundle for a user.
+///
+/// # Errors
+/// Returns `AppError::NotFound` if the user or their keys do not exist.
 pub async fn get_pre_key_bundle(State(state): State<AppState>, Path(user_id): Path<Uuid>) -> Result<impl IntoResponse> {
     let bundle = state.key_service.get_pre_key_bundle(user_id).await?;
 
@@ -20,6 +24,10 @@ pub async fn get_pre_key_bundle(State(state): State<AppState>, Path(user_id): Pa
     }
 }
 
+/// Uploads new pre-keys for the authenticated user.
+///
+/// # Errors
+/// Returns `AppError::BadRequest` if the keys are malformed or validation fails.
 pub async fn upload_keys(
     auth_user: AuthUser,
     State(state): State<AppState>,

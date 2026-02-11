@@ -27,6 +27,7 @@ pub struct Metrics {
 }
 
 impl Metrics {
+    #[must_use]
     pub fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
@@ -66,6 +67,7 @@ pub struct GatewayService {
 }
 
 impl GatewayService {
+    #[must_use]
     pub fn new(
         message_service: MessageService,
         key_service: KeyService,
