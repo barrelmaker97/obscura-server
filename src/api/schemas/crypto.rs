@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -47,7 +47,7 @@ mod tests {
         let mut bytes = [0u8; 33];
         bytes[0] = DJB_KEY_PREFIX;
         let b64 = STANDARD.encode(bytes);
-        
+
         let schema = PublicKey(b64);
         let domain: DomainPublicKey = schema.try_into().unwrap();
         assert_eq!(domain.as_bytes(), &bytes);
@@ -72,7 +72,7 @@ mod tests {
     fn test_signature_schema_conversion() {
         let bytes = [0u8; 64];
         let b64 = STANDARD.encode(bytes);
-        
+
         let schema = Signature(b64);
         let domain: DomainSignature = schema.try_into().unwrap();
         assert_eq!(domain.as_bytes(), &bytes);

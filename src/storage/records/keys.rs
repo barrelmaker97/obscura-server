@@ -32,11 +32,7 @@ impl TryFrom<SignedPreKey> for crate::domain::keys::SignedPreKey {
     fn try_from(record: SignedPreKey) -> Result<Self, Self::Error> {
         let public_key = crate::domain::crypto::PublicKey::try_from(record.public_key)?;
         let signature = crate::domain::crypto::Signature::try_from(record.signature)?;
-        Ok(crate::domain::keys::SignedPreKey {
-            key_id: record.id,
-            public_key,
-            signature,
-        })
+        Ok(crate::domain::keys::SignedPreKey { key_id: record.id, public_key, signature })
     }
 }
 
@@ -54,9 +50,6 @@ impl TryFrom<OneTimePreKey> for crate::domain::keys::OneTimePreKey {
     type Error = String;
     fn try_from(record: OneTimePreKey) -> Result<Self, Self::Error> {
         let public_key = crate::domain::crypto::PublicKey::try_from(record.public_key)?;
-        Ok(crate::domain::keys::OneTimePreKey {
-            key_id: record.id,
-            public_key,
-        })
+        Ok(crate::domain::keys::OneTimePreKey { key_id: record.id, public_key })
     }
 }

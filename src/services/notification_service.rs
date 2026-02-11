@@ -66,11 +66,7 @@ impl InMemoryNotificationService {
             }
         });
 
-        Self {
-            channels,
-            channel_capacity: config.notifications.channel_capacity,
-            metrics: Metrics::new(),
-        }
+        Self { channels, channel_capacity: config.notifications.channel_capacity, metrics: Metrics::new() }
     }
 }
 
@@ -111,10 +107,7 @@ mod tests {
 
     fn test_config(gc_interval: u64) -> Config {
         Config {
-            notifications: NotificationConfig {
-                gc_interval_secs: gc_interval,
-                ..Default::default()
-            },
+            notifications: NotificationConfig { gc_interval_secs: gc_interval, ..Default::default() },
             ..Default::default()
         }
     }

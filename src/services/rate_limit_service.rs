@@ -1,10 +1,10 @@
+use axum::http::Request;
 use axum::http::StatusCode;
 use ipnetwork::IpNetwork;
 use opentelemetry::{KeyValue, global, metrics::Counter};
 use std::net::IpAddr;
 use tower_governor::GovernorError;
 use tower_governor::key_extractor::KeyExtractor;
-use axum::http::Request;
 use tracing::warn;
 
 #[derive(Clone)]
@@ -48,10 +48,8 @@ impl IpKeyExtractor {
         let xff = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok());
 
         if let Some(xff_val) = xff
-            && let Some(real_ip) = xff_val
-                .rsplit(',')
-                .filter_map(|s| s.trim().parse::<IpAddr>().ok())
-                .find(|ip| !self.is_trusted(ip))
+            && let Some(real_ip) =
+                xff_val.rsplit(',').filter_map(|s| s.trim().parse::<IpAddr>().ok()).find(|ip| !self.is_trusted(ip))
         {
             return real_ip;
         }
@@ -89,10 +87,7 @@ pub struct RateLimitService {
 
 impl RateLimitService {
     pub fn new(trusted_proxies: Vec<IpNetwork>) -> Self {
-        Self {
-            extractor: IpKeyExtractor::new(trusted_proxies),
-            metrics: Metrics::new(),
-        }
+        Self { extractor: IpKeyExtractor::new(trusted_proxies), metrics: Metrics::new() }
     }
 
     pub fn log_decision(&self, status: StatusCode, ratelimit_after: Option<String>) {

@@ -207,12 +207,7 @@ pub struct RateLimitConfig {
 
 impl Default for RateLimitConfig {
     fn default() -> Self {
-        Self {
-            per_second: 10,
-            burst: 20,
-            auth_per_second: 1,
-            auth_burst: 3,
-        }
+        Self { per_second: 10, burst: 20, auth_per_second: 1, auth_burst: 3 }
     }
 }
 
@@ -269,10 +264,7 @@ pub struct NotificationConfig {
 
 impl Default for NotificationConfig {
     fn default() -> Self {
-        Self {
-            gc_interval_secs: 60,
-            channel_capacity: 16,
-        }
+        Self { gc_interval_secs: 60, channel_capacity: 16 }
     }
 }
 
@@ -297,12 +289,7 @@ pub struct WsConfig {
 
 impl Default for WsConfig {
     fn default() -> Self {
-        Self {
-            outbound_buffer_size: 32,
-            ack_buffer_size: 100,
-            ack_batch_size: 50,
-            ack_flush_interval_ms: 500,
-        }
+        Self { outbound_buffer_size: 32, ack_buffer_size: 100, ack_batch_size: 50, ack_flush_interval_ms: 500 }
     }
 }
 
@@ -379,9 +366,6 @@ pub struct HealthConfig {
 
 impl Default for HealthConfig {
     fn default() -> Self {
-        Self {
-            db_timeout_ms: 2000,
-            storage_timeout_ms: 2000,
-        }
+        Self { db_timeout_ms: 2000, storage_timeout_ms: 2000 }
     }
 }

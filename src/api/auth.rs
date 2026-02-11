@@ -1,8 +1,6 @@
 use crate::api::AppState;
-use crate::api::schemas::auth::{
-    AuthSession as AuthSessionSchema, Login, Logout, Refresh, Registration,
-};
 use crate::api::middleware::AuthUser;
+use crate::api::schemas::auth::{AuthSession as AuthSessionSchema, Login, Logout, Refresh, Registration};
 use crate::domain::auth_session::AuthSession;
 use crate::error::{AppError, Result};
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
@@ -13,10 +11,7 @@ pub async fn login(State(state): State<AppState>, Json(payload): Json<Login>) ->
     Ok(Json(auth_response))
 }
 
-pub async fn register(
-    State(state): State<AppState>,
-    Json(payload): Json<Registration>,
-) -> Result<impl IntoResponse> {
+pub async fn register(State(state): State<AppState>, Json(payload): Json<Registration>) -> Result<impl IntoResponse> {
     payload.validate().map_err(AppError::BadRequest)?;
 
     let session = state
@@ -27,7 +22,8 @@ pub async fn register(
             payload.identity_key.try_into().map_err(AppError::BadRequest)?,
             payload.registration_id,
             payload.signed_pre_key.try_into().map_err(AppError::BadRequest)?,
-            payload.one_time_pre_keys
+            payload
+                .one_time_pre_keys
                 .into_iter()
                 .map(std::convert::TryInto::try_into)
                 .collect::<std::result::Result<Vec<_>, _>>()
@@ -55,9 +51,5 @@ pub async fn logout(
 }
 
 fn map_session(session: AuthSession) -> AuthSessionSchema {
-    AuthSessionSchema {
-        token: session.token,
-        refresh_token: session.refresh_token,
-        expires_at: session.expires_at,
-    }
+    AuthSessionSchema { token: session.token, refresh_token: session.refresh_token, expires_at: session.expires_at }
 }

@@ -222,7 +222,7 @@ async fn test_ack_buffer_saturation() {
     // 1. Setup with TINY buffers to make saturation easy
     let mut config = common::get_test_config();
     config.websocket.ack_buffer_size = 5; // Tiny buffer
-    config.websocket.ack_batch_size = 1;  // Flush immediately
+    config.websocket.ack_batch_size = 1; // Flush immediately
 
     let app = common::TestApp::spawn_with_config(config).await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();

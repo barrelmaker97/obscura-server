@@ -1,10 +1,7 @@
 use crate::api::AppState;
 use crate::domain::auth::Jwt;
 use axum::{
-    extract::{
-        Query, State,
-        ws::WebSocketUpgrade,
-    },
+    extract::{Query, State, ws::WebSocketUpgrade},
     http::Extensions,
     response::IntoResponse,
 };

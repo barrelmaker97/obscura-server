@@ -46,12 +46,12 @@ impl CryptoService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::crypto::DJB_KEY_PREFIX;
     use curve25519_dalek::edwards::CompressedEdwardsY;
-    use xeddsa::xed25519::PrivateKey;
-    use xeddsa::{CalculateKeyPair, Sign};
     use rand::RngCore;
     use rand::rngs::OsRng;
-    use crate::domain::crypto::DJB_KEY_PREFIX;
+    use xeddsa::xed25519::PrivateKey;
+    use xeddsa::{CalculateKeyPair, Sign};
 
     #[test]
     fn test_verify_signature_exhaustive_robustness() {
@@ -82,8 +82,16 @@ mod tests {
             let sig_32 = Signature::new(xed_priv.sign(&msg_32, OsRng));
             let sig_33 = Signature::new(xed_priv.sign(&msg_33, OsRng));
 
-            assert!(service.verify_signature(&ik_pub, &msg_32, &sig_32).is_ok(), "Failed 32-byte msg for ik_sign={}", ik_sign);
-            assert!(service.verify_signature(&ik_pub, &msg_33, &sig_33).is_ok(), "Failed 33-byte msg for ik_sign={}", ik_sign);
+            assert!(
+                service.verify_signature(&ik_pub, &msg_32, &sig_32).is_ok(),
+                "Failed 32-byte msg for ik_sign={}",
+                ik_sign
+            );
+            assert!(
+                service.verify_signature(&ik_pub, &msg_33, &sig_33).is_ok(),
+                "Failed 33-byte msg for ik_sign={}",
+                ik_sign
+            );
         }
     }
 }

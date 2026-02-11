@@ -1,6 +1,6 @@
+use crate::proto::obscura::v1::{EncryptedMessage, Envelope, WebSocketFrame, web_socket_frame::Payload};
 use crate::services::gateway::Metrics;
 use crate::services::message_service::MessageService;
-use crate::proto::obscura::v1::{EncryptedMessage, Envelope, WebSocketFrame, web_socket_frame::Payload};
 use axum::extract::ws::Message as WsMessage;
 use opentelemetry::KeyValue;
 use prost::Message as ProstMessage;
@@ -28,15 +28,7 @@ impl MessagePump {
 
         let task = tokio::spawn(
             async move {
-                Self::run_background(
-                    user_id,
-                    notify_rx,
-                    message_service,
-                    outbound_tx,
-                    metrics,
-                    batch_limit,
-                )
-                .await;
+                Self::run_background(user_id, notify_rx, message_service, outbound_tx, metrics, batch_limit).await;
             }
             .instrument(tracing::info_span!("message_pump", user.id = %user_id)),
         );
@@ -65,9 +57,9 @@ impl MessagePump {
         while rx.recv().await.is_some() {
             // Continues fetching until the backlog is fully drained for the user.
             while let Ok(true) =
-                Self::flush_batch(user_id, &message_service, &outbound_tx, &metrics, limit, &mut cursor)
-                    .await
-            {}
+                Self::flush_batch(user_id, &message_service, &outbound_tx, &metrics, limit, &mut cursor).await
+            {
+            }
         }
     }
 
@@ -115,12 +107,8 @@ impl MessagePump {
             let frame = WebSocketFrame { payload: Some(Payload::Envelope(envelope)) };
             let mut buf = Vec::new();
 
-            if frame.encode(&mut buf).is_ok()
-                && outbound_tx.send(WsMessage::Binary(buf.into())).await.is_err()
-            {
-                metrics
-                    .outbound_dropped_total
-                    .add(1, &[KeyValue::new("reason", "buffer_full")]);
+            if frame.encode(&mut buf).is_ok() && outbound_tx.send(WsMessage::Binary(buf.into())).await.is_err() {
+                metrics.outbound_dropped_total.add(1, &[KeyValue::new("reason", "buffer_full")]);
                 return Ok(false);
             }
         }

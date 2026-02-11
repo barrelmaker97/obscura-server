@@ -4,18 +4,13 @@ use futures::{SinkExt, StreamExt};
 use obscura_server::{
     api::{ServiceContainer, app_router},
     config::Config,
-    services::{
-        account_service::AccountService,
-        attachment_service::AttachmentService,
-        gateway::GatewayService,
-        health_service::HealthService,
-        key_service::KeyService,
-        message_service::MessageService,
-        notification_service::InMemoryNotificationService,
-        rate_limit_service::RateLimitService,
-    },
     proto::obscura::v1::{
         AckMessage, EncryptedMessage, Envelope, PreKeyStatus, WebSocketFrame, web_socket_frame::Payload,
+    },
+    services::{
+        account_service::AccountService, attachment_service::AttachmentService, gateway::GatewayService,
+        health_service::HealthService, key_service::KeyService, message_service::MessageService,
+        notification_service::InMemoryNotificationService, rate_limit_service::RateLimitService,
     },
     storage::{
         self, attachment_repo::AttachmentRepository, key_repo::KeyRepository, message_repo::MessageRepository,
@@ -90,10 +85,7 @@ pub fn get_test_config() -> Config {
             trusted_proxies: vec!["127.0.0.1/32".parse().unwrap(), "::1/128".parse().unwrap()],
             ..Default::default()
         },
-        auth: obscura_server::config::AuthConfig {
-            jwt_secret: "test_secret".to_string(),
-            ..Default::default()
-        },
+        auth: obscura_server::config::AuthConfig { jwt_secret: "test_secret".to_string(), ..Default::default() },
         rate_limit: obscura_server::config::RateLimitConfig {
             per_second: 10000,
             burst: 10000,
@@ -252,12 +244,7 @@ impl TestApp {
         let crypto_service = obscura_server::services::crypto_service::CryptoService::new();
 
         // Initialize Services
-        let key_service = KeyService::new(
-            pool.clone(),
-            key_repo,
-            crypto_service.clone(),
-            config.messaging.clone(),
-        );
+        let key_service = KeyService::new(pool.clone(), key_repo, crypto_service.clone(), config.messaging.clone());
 
         let attachment_service = AttachmentService::new(
             pool.clone(),
@@ -300,12 +287,8 @@ impl TestApp {
 
         let rate_limit_service = RateLimitService::new(config.server.trusted_proxies.clone());
 
-        let health_service = HealthService::new(
-            pool.clone(),
-            s3_client.clone(),
-            config.storage.bucket.clone(),
-            config.health.clone()
-        );
+        let health_service =
+            HealthService::new(pool.clone(), s3_client.clone(), config.storage.bucket.clone(), config.health.clone());
 
         let services = ServiceContainer {
             pool: pool.clone(),
@@ -318,15 +301,9 @@ impl TestApp {
             rate_limit_service,
         };
 
-        let app = app_router(
-            config.clone(),
-            services,
-            shutdown_rx.clone(),
-        );
+        let app = app_router(config.clone(), services, shutdown_rx.clone());
 
-        let mgmt_state = obscura_server::api::MgmtState {
-            health_service,
-        };
+        let mgmt_state = obscura_server::api::MgmtState { health_service };
         let mgmt_app = obscura_server::api::mgmt_router(mgmt_state);
 
         let server_url = format!("http://{}", addr);

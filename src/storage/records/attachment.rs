@@ -9,9 +9,6 @@ pub(crate) struct Attachment {
 
 impl From<Attachment> for crate::domain::attachment::Attachment {
     fn from(record: Attachment) -> Self {
-        Self {
-            id: record.id,
-            expires_at: record.expires_at,
-        }
+        Self { id: record.id, expires_at: record.expires_at }
     }
 }

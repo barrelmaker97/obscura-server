@@ -11,11 +11,7 @@ pub struct SignedPreKey {
 
 impl From<crate::domain::keys::SignedPreKey> for SignedPreKey {
     fn from(k: crate::domain::keys::SignedPreKey) -> Self {
-        Self {
-            key_id: k.key_id,
-            public_key: k.public_key.into(),
-            signature: k.signature.into(),
-        }
+        Self { key_id: k.key_id, public_key: k.public_key.into(), signature: k.signature.into() }
     }
 }
 
@@ -39,20 +35,14 @@ pub struct OneTimePreKey {
 
 impl From<crate::domain::keys::OneTimePreKey> for OneTimePreKey {
     fn from(k: crate::domain::keys::OneTimePreKey) -> Self {
-        Self {
-            key_id: k.key_id,
-            public_key: k.public_key.into(),
-        }
+        Self { key_id: k.key_id, public_key: k.public_key.into() }
     }
 }
 
 impl TryFrom<OneTimePreKey> for crate::domain::keys::OneTimePreKey {
     type Error = String;
     fn try_from(schema: OneTimePreKey) -> Result<Self, Self::Error> {
-        Ok(Self {
-            key_id: schema.key_id,
-            public_key: crate::domain::crypto::PublicKey::try_from(schema.public_key)?,
-        })
+        Ok(Self { key_id: schema.key_id, public_key: crate::domain::crypto::PublicKey::try_from(schema.public_key)? })
     }
 }
 

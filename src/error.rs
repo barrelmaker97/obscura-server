@@ -31,12 +31,12 @@ impl IntoResponse for AppError {
             AppError::NotFound => (StatusCode::NOT_FOUND, "Not found".to_string()),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
             AppError::Conflict(msg) => (StatusCode::CONFLICT, msg),
-            AppError::Database(_) | AppError::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()),
+            AppError::Database(_) | AppError::Internal => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+            }
         };
 
-        let body = Json(ErrorSchema {
-            error: message
-        });
+        let body = Json(ErrorSchema { error: message });
 
         (status, body).into_response()
     }

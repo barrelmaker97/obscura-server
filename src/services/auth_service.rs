@@ -54,14 +54,13 @@ pub struct AuthService {
 }
 
 impl AuthService {
-    pub fn new(config: AuthConfig, pool: crate::storage::DbPool, user_repo: UserRepository, refresh_repo: RefreshTokenRepository) -> Self {
-        Self {
-            config,
-            pool,
-            user_repo,
-            refresh_repo,
-            metrics: Metrics::new(),
-        }
+    pub fn new(
+        config: AuthConfig,
+        pool: crate::storage::DbPool,
+        user_repo: UserRepository,
+        refresh_repo: RefreshTokenRepository,
+    ) -> Self {
+        Self { config, pool, user_repo, refresh_repo, metrics: Metrics::new() }
     }
 
     #[tracing::instrument(
@@ -97,10 +96,7 @@ impl AuthService {
         tokio::task::spawn_blocking(move || {
             let salt = SaltString::generate(&mut OsRng);
             let argon2 = Argon2::default();
-            argon2
-                .hash_password(password.as_bytes(), &salt)
-                .map_err(|_| AppError::Internal)
-                .map(|h| h.to_string())
+            argon2.hash_password(password.as_bytes(), &salt).map_err(|_| AppError::Internal).map(|h| h.to_string())
         })
         .await
         .map_err(|_| AppError::Internal)?
@@ -120,25 +116,19 @@ impl AuthService {
 
     #[tracing::instrument(err, skip(self, conn), fields(user_id = %user_id))]
     pub async fn create_session(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<AuthSession> {
-        let exp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or(std::time::Duration::from_secs(0))
-            .as_secs() as usize
+        let exp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(std::time::Duration::from_secs(0)).as_secs()
+            as usize
             + self.config.access_token_ttl_secs as usize;
 
         let claims = Claims::new(user_id, exp);
         let jwt = self.encode_jwt(&claims)?;
-        
+
         let refresh_token = self.generate_opaque_token();
         let refresh_hash = self.hash_opaque_token(&refresh_token);
 
         self.refresh_repo.create(conn, user_id, &refresh_hash, self.config.refresh_token_ttl_days).await?;
 
-        Ok(AuthSession { 
-            token: jwt.as_str().to_string(), 
-            refresh_token, 
-            expires_at: exp as i64 
-        })
+        Ok(AuthSession { token: jwt.as_str().to_string(), refresh_token, expires_at: exp as i64 })
     }
 
     #[tracing::instrument(err, skip(self, refresh_token))]
@@ -156,10 +146,8 @@ impl AuthService {
 
         tracing::Span::current().record("user.id", tracing::field::display(user_id));
 
-        let exp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or(std::time::Duration::from_secs(0))
-            .as_secs() as usize
+        let exp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(std::time::Duration::from_secs(0)).as_secs()
+            as usize
             + self.config.access_token_ttl_secs as usize;
 
         let claims = Claims::new(user_id, exp);
@@ -196,12 +184,8 @@ impl AuthService {
     }
 
     fn encode_jwt(&self, claims: &Claims) -> Result<Jwt> {
-        let token = encode(
-            &Header::default(),
-            claims,
-            &EncodingKey::from_secret(self.config.jwt_secret.as_bytes()),
-        )
-        .map_err(|_| AppError::Internal)?;
+        let token = encode(&Header::default(), claims, &EncodingKey::from_secret(self.config.jwt_secret.as_bytes()))
+            .map_err(|_| AppError::Internal)?;
 
         Ok(Jwt(token))
     }

@@ -1,8 +1,8 @@
 use crate::api::AppState;
-use crate::api::schemas::keys::{PreKeyUpload, PreKeyBundle as PreKeyBundleSchema};
 use crate::api::middleware::AuthUser;
-use crate::services::key_service::KeyUploadParams;
+use crate::api::schemas::keys::{PreKeyBundle as PreKeyBundleSchema, PreKeyUpload};
 use crate::error::{AppError, Result};
+use crate::services::key_service::KeyUploadParams;
 use axum::{
     Json,
     extract::{Path, State},
@@ -30,13 +30,15 @@ pub async fn upload_keys(
     // Call Service directly with domain types from payload
     let params = KeyUploadParams {
         user_id: auth_user.user_id,
-        identity_key: payload.identity_key
+        identity_key: payload
+            .identity_key
             .map(std::convert::TryInto::try_into)
             .transpose()
             .map_err(AppError::BadRequest)?,
         registration_id: payload.registration_id,
         signed_pre_key: payload.signed_pre_key.try_into().map_err(AppError::BadRequest)?,
-        one_time_pre_keys: payload.one_time_pre_keys
+        one_time_pre_keys: payload
+            .one_time_pre_keys
             .into_iter()
             .map(std::convert::TryInto::try_into)
             .collect::<std::result::Result<Vec<_>, _>>()

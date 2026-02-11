@@ -1,8 +1,8 @@
 use crate::config::WsConfig;
-use crate::services::message_service::MessageService;
-use crate::services::notification_service::{NotificationService, UserEvent};
 use crate::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
 use crate::services::gateway::{Metrics, ack_batcher::AckBatcher, message_pump::MessagePump};
+use crate::services::message_service::MessageService;
+use crate::services::notification_service::{NotificationService, UserEvent};
 use axum::extract::ws::{Message as WsMessage, WebSocket};
 use futures::{SinkExt, StreamExt};
 use prost::Message;
@@ -35,16 +35,7 @@ impl Session {
     pub async fn run(self) {
         // Destructuring allows independent mutable access to fields while the socket
         // is split into sink and stream halves.
-        let Session {
-            user_id,
-            socket,
-            message_service,
-            notifier,
-            metrics,
-            config,
-            mut shutdown_rx,
-            ..
-        } = self;
+        let Session { user_id, socket, message_service, notifier, metrics, config, mut shutdown_rx, .. } = self;
 
         metrics.active_connections.add(1, &[]);
         tracing::info!("WebSocket connected");

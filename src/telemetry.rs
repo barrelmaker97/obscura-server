@@ -1,19 +1,19 @@
 use crate::config::{LogFormat, TelemetryConfig};
+use opentelemetry::logs::{AnyValue, LogRecord, Logger, LoggerProvider, Severity};
 use opentelemetry::{KeyValue, global};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{
     Resource,
+    logs::BatchLogProcessor,
     logs::SdkLoggerProvider,
+    metrics::PeriodicReader,
     metrics::SdkMeterProvider,
     propagation::TraceContextPropagator,
-    trace::{SdkTracerProvider, BatchSpanProcessor, Sampler},
-    metrics::PeriodicReader,
-    logs::BatchLogProcessor,
+    trace::{BatchSpanProcessor, Sampler, SdkTracerProvider},
 };
 use opentelemetry_semantic_conventions::resource::{SERVICE_NAME, SERVICE_VERSION};
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
-use opentelemetry::logs::{Logger, Severity, AnyValue, LoggerProvider, LogRecord};
 
 /// A guard that ensures OpenTelemetry providers are properly shut down and flushed when dropped.
 // ... (TelemetryGuard implementation remains the same)
@@ -57,7 +57,9 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<TelemetryGuard>
     let registry = Registry::default().with(filter);
 
     // 2. Initialize OTLP Layers (Optional)
-    let (otel_layer, logger_layer, guard) = if let Some(endpoint) = &config.otlp_endpoint && !endpoint.is_empty() {
+    let (otel_layer, logger_layer, guard) = if let Some(endpoint) = &config.otlp_endpoint
+        && !endpoint.is_empty()
+    {
         let service_name = "obscura-server";
         let service_version = env!("CARGO_PKG_VERSION");
 
@@ -81,12 +83,8 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<TelemetryGuard>
 
         let tracer_provider = SdkTracerProvider::builder()
             .with_resource(resource.clone())
-            .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
-                config.trace_sampling_ratio,
-            ))))
-            .with_span_processor(
-                BatchSpanProcessor::builder(exporter).build()
-            )
+            .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(config.trace_sampling_ratio))))
+            .with_span_processor(BatchSpanProcessor::builder(exporter).build())
             .build();
 
         let tracer = opentelemetry::trace::TracerProvider::tracer(&tracer_provider, service_name);
@@ -114,11 +112,9 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<TelemetryGuard>
 
         let logger_provider = SdkLoggerProvider::builder()
             .with_resource(resource)
-            .with_log_processor(
-                BatchLogProcessor::builder(exporter).build()
-            )
+            .with_log_processor(BatchLogProcessor::builder(exporter).build())
             .build();
-        
+
         let logger = logger_provider.logger("obscura-server");
         let layer = OtelLogLayer::new(logger);
 
@@ -130,11 +126,7 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<TelemetryGuard>
 
         (Some(OpenTelemetryLayer::new(tracer)), Some(layer), guard)
     } else {
-        let guard = TelemetryGuard {
-            tracer_provider: None,
-            meter_provider: None,
-            logger_provider: None,
-        };
+        let guard = TelemetryGuard { tracer_provider: None, meter_provider: None, logger_provider: None };
         (None, None, guard)
     };
 
@@ -184,7 +176,7 @@ where
         let mut record = self.logger.create_log_record();
 
         let meta = event.metadata();
-        
+
         // Map Severity
         let severity = match *meta.level() {
             tracing::Level::ERROR => Severity::Error,

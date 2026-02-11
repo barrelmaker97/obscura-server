@@ -6,7 +6,10 @@ use aws_sdk_s3::Client;
 use aws_sdk_s3::primitives::ByteStream;
 use axum::body::{Body, Bytes};
 use http_body_util::{BodyExt, LengthLimitError, Limited};
-use opentelemetry::{global, metrics::{Counter, Histogram}};
+use opentelemetry::{
+    global,
+    metrics::{Counter, Histogram},
+};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
@@ -76,15 +79,14 @@ pub struct AttachmentService {
 }
 
 impl AttachmentService {
-    pub fn new(pool: DbPool, repo: AttachmentRepository, s3_client: Client, config: StorageConfig, ttl_days: i64) -> Self {
-        Self {
-            pool,
-            repo,
-            s3_client,
-            config,
-            ttl_days,
-            metrics: Metrics::new(),
-        }
+    pub fn new(
+        pool: DbPool,
+        repo: AttachmentRepository,
+        s3_client: Client,
+        config: StorageConfig,
+        ttl_days: i64,
+    ) -> Self {
+        Self { pool, repo, s3_client, config, ttl_days, metrics: Metrics::new() }
     }
 
     #[tracing::instrument(
@@ -252,12 +254,7 @@ impl AttachmentService {
                 let key = id.to_string();
                 let res = async {
                     // Delete object from S3 first to avoid orphaned files
-                    let res = self.s3_client
-                        .delete_object()
-                        .bucket(&self.config.bucket)
-                        .key(&key)
-                        .send()
-                        .await;
+                    let res = self.s3_client.delete_object().bucket(&self.config.bucket).key(&key).send().await;
 
                     match res {
                         Ok(_) => {}

@@ -41,10 +41,12 @@ impl AttachmentRepository {
 
     #[tracing::instrument(level = "debug", skip(self, conn))]
     pub async fn fetch_expired(&self, conn: &mut PgConnection, limit: i64) -> Result<Vec<Uuid>> {
-        let rows = sqlx::query_as::<_, AttachmentRecord>("SELECT id, expires_at FROM attachments WHERE expires_at < NOW() LIMIT $1")
-            .bind(limit)
-            .fetch_all(conn)
-            .await?;
+        let rows = sqlx::query_as::<_, AttachmentRecord>(
+            "SELECT id, expires_at FROM attachments WHERE expires_at < NOW() LIMIT $1",
+        )
+        .bind(limit)
+        .fetch_all(conn)
+        .await?;
 
         Ok(rows.into_iter().map(|r| r.id).collect())
     }

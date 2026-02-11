@@ -1,12 +1,12 @@
+use crate::domain::auth_session::AuthSession;
+use crate::domain::keys::{OneTimePreKey, SignedPreKey};
+use crate::error::Result;
 use crate::services::auth_service::AuthService;
 use crate::services::key_service::{KeyService, KeyUploadParams};
 use crate::services::notification_service::{NotificationService, UserEvent};
-use crate::domain::keys::{OneTimePreKey, SignedPreKey};
-use crate::domain::auth_session::AuthSession;
-use crate::error::Result;
 use crate::storage::DbPool;
-use crate::storage::user_repo::UserRepository;
 use crate::storage::message_repo::MessageRepository;
+use crate::storage::user_repo::UserRepository;
 use opentelemetry::{global, metrics::Counter};
 use std::sync::Arc;
 
@@ -52,15 +52,7 @@ impl AccountService {
         key_service: KeyService,
         notifier: Arc<dyn NotificationService>,
     ) -> Self {
-        Self {
-            pool,
-            user_repo,
-            message_repo,
-            auth_service,
-            key_service,
-            notifier,
-            metrics: Metrics::new(),
-        }
+        Self { pool, user_repo, message_repo, auth_service, key_service, notifier, metrics: Metrics::new() }
     }
 
     #[tracing::instrument(

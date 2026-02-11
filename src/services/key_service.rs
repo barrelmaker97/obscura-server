@@ -3,9 +3,9 @@ use crate::domain::crypto::PublicKey;
 use crate::domain::keys::{OneTimePreKey, PreKeyBundle, SignedPreKey};
 use crate::error::{AppError, Result};
 use crate::proto::obscura::v1::PreKeyStatus;
-use crate::storage::key_repo::KeyRepository;
-use crate::storage::DbPool;
 use crate::services::crypto_service::CryptoService;
+use crate::storage::DbPool;
+use crate::storage::key_repo::KeyRepository;
 use opentelemetry::{global, metrics::Counter};
 use sqlx::PgConnection;
 use uuid::Uuid;
@@ -45,19 +45,8 @@ pub struct KeyUploadParams {
 }
 
 impl KeyService {
-    pub fn new(
-        pool: DbPool,
-        repo: KeyRepository,
-        crypto_service: CryptoService,
-        config: MessagingConfig,
-    ) -> Self {
-        Self {
-            pool,
-            repo,
-            crypto_service,
-            config,
-            metrics: Metrics::new(),
-        }
+    pub fn new(pool: DbPool, repo: KeyRepository, crypto_service: CryptoService, config: MessagingConfig) -> Self {
+        Self { pool, repo, crypto_service, config, metrics: Metrics::new() }
     }
 
     #[tracing::instrument(err, skip(self), fields(user_id = %user_id))]
@@ -148,13 +137,12 @@ impl KeyService {
 
         // 4. Handle Takeover Cleanup
         if is_takeover {
-            let reg_id = params
-                .registration_id
-                .expect("registration_id must be present for takeover (validated at boundary)");
+            let reg_id =
+                params.registration_id.expect("registration_id must be present for takeover (validated at boundary)");
 
             self.repo.delete_all_signed_pre_keys(&mut *conn, params.user_id).await?;
             self.repo.delete_all_one_time_pre_keys(&mut *conn, params.user_id).await?;
-            
+
             // Note: Message deletion and notification are now handled by the orchestrator.
 
             // Upsert Identity Key
@@ -209,7 +197,7 @@ impl KeyService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::crypto::{PublicKey, Signature, DJB_KEY_PREFIX};
+    use crate::domain::crypto::{DJB_KEY_PREFIX, PublicKey, Signature};
     use curve25519_dalek::edwards::CompressedEdwardsY;
     use rand::RngCore;
     use rand::rngs::OsRng;

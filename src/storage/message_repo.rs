@@ -152,8 +152,7 @@ impl MessageRepository {
 
     #[tracing::instrument(level = "debug", skip(self, conn))]
     pub async fn delete_all_for_user(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<u64> {
-        let result =
-            sqlx::query("DELETE FROM messages WHERE recipient_id = $1").bind(user_id).execute(conn).await?;
+        let result = sqlx::query("DELETE FROM messages WHERE recipient_id = $1").bind(user_id).execute(conn).await?;
         Ok(result.rows_affected())
     }
 }

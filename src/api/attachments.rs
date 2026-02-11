@@ -1,6 +1,6 @@
 use crate::api::AppState;
-use crate::api::schemas::attachments::Attachment as AttachmentSchema;
 use crate::api::middleware::AuthUser;
+use crate::api::schemas::attachments::Attachment as AttachmentSchema;
 use crate::error::Result;
 use axum::{
     Json,

@@ -1,7 +1,9 @@
 use crate::domain::crypto::{PublicKey, Signature};
 use crate::domain::keys::{OneTimePreKey, PreKeyBundle, SignedPreKey};
 use crate::error::{AppError, Result};
-use crate::storage::records::{IdentityKey as IdentityKeyRecord, OneTimePreKey as OneTimePreKeyRecord, SignedPreKey as SignedPreKeyRecord};
+use crate::storage::records::{
+    IdentityKey as IdentityKeyRecord, OneTimePreKey as OneTimePreKeyRecord, SignedPreKey as SignedPreKeyRecord,
+};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
@@ -101,11 +103,7 @@ impl KeyRepository {
     }
 
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub async fn fetch_pre_key_bundle(
-        &self,
-        conn: &mut PgConnection,
-        user_id: Uuid,
-    ) -> Result<Option<PreKeyBundle>> {
+    pub async fn fetch_pre_key_bundle(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Option<PreKeyBundle>> {
         // Fetch identity
         let identity_rec = sqlx::query_as::<_, IdentityKeyRecord>(
             "SELECT user_id, identity_key, registration_id FROM identity_keys WHERE user_id = $1",
@@ -195,7 +193,11 @@ impl KeyRepository {
     }
 
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub async fn fetch_identity_key_for_update(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Option<PublicKey>> {
+    pub async fn fetch_identity_key_for_update(
+        &self,
+        conn: &mut PgConnection,
+        user_id: Uuid,
+    ) -> Result<Option<PublicKey>> {
         let rec = sqlx::query_as::<_, IdentityKeyRecord>(
             "SELECT user_id, identity_key, registration_id FROM identity_keys WHERE user_id = $1 FOR UPDATE",
         )
@@ -261,7 +263,12 @@ impl KeyRepository {
     }
 
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub async fn delete_oldest_one_time_pre_keys(&self, conn: &mut PgConnection, user_id: Uuid, limit: i64) -> Result<()> {
+    pub async fn delete_oldest_one_time_pre_keys(
+        &self,
+        conn: &mut PgConnection,
+        user_id: Uuid,
+        limit: i64,
+    ) -> Result<()> {
         sqlx::query(
             r"
             DELETE FROM one_time_pre_keys

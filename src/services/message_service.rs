@@ -1,10 +1,13 @@
 use crate::config::MessagingConfig;
-use crate::services::notification_service::{NotificationService, UserEvent};
 use crate::domain::message::Message;
 use crate::error::Result;
+use crate::services::notification_service::{NotificationService, UserEvent};
 use crate::storage::DbPool;
 use crate::storage::message_repo::MessageRepository;
-use opentelemetry::{KeyValue, global, metrics::{Counter, Histogram}};
+use opentelemetry::{
+    KeyValue, global,
+    metrics::{Counter, Histogram},
+};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::Instrument;
@@ -55,14 +58,7 @@ impl MessageService {
         config: MessagingConfig,
         ttl_days: i64,
     ) -> Self {
-        Self {
-            pool,
-            repo,
-            notifier,
-            config,
-            ttl_days,
-            metrics: Metrics::new(),
-        }
+        Self { pool, repo, notifier, config, ttl_days, metrics: Metrics::new() }
     }
 
     #[tracing::instrument(
@@ -70,7 +66,13 @@ impl MessageService {
         skip(self, content, sender_id, recipient_id),
         fields(recipient_id = %recipient_id)
     )]
-    pub async fn send_message(&self, sender_id: Uuid, recipient_id: Uuid, message_type: i32, content: Vec<u8>) -> Result<()> {
+    pub async fn send_message(
+        &self,
+        sender_id: Uuid,
+        recipient_id: Uuid,
+        message_type: i32,
+        content: Vec<u8>,
+    ) -> Result<()> {
         // Limits are enforced asynchronously by the background cleanup loop to optimize the send path.
         let mut conn = self.pool.acquire().await?;
         match self.repo.create(&mut conn, sender_id, recipient_id, message_type, content, self.ttl_days).await {

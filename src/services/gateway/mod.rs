@@ -1,16 +1,19 @@
-pub mod session;
 pub mod ack_batcher;
 pub mod message_pump;
+pub mod session;
 
 use crate::config::WsConfig;
+use crate::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
+use crate::services::gateway::session::Session;
 use crate::services::key_service::KeyService;
 use crate::services::message_service::MessageService;
 use crate::services::notification_service::NotificationService;
-use crate::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
-use crate::services::gateway::session::Session;
 use axum::extract::ws::{Message as WsMessage, WebSocket};
 use futures::SinkExt;
-use opentelemetry::{global, metrics::{Counter, Histogram, UpDownCounter}};
+use opentelemetry::{
+    global,
+    metrics::{Counter, Histogram, UpDownCounter},
+};
 use prost::Message as ProstMessage;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -69,16 +72,16 @@ impl GatewayService {
         notifier: Arc<dyn NotificationService>,
         config: WsConfig,
     ) -> Self {
-        Self {
-            message_service,
-            key_service,
-            notifier,
-            config,
-            metrics: Metrics::new(),
-        }
+        Self { message_service, key_service, notifier, config, metrics: Metrics::new() }
     }
 
-    pub async fn handle_socket(&self, mut socket: WebSocket, user_id: Uuid, request_id: String, shutdown_rx: tokio::sync::watch::Receiver<bool>) {
+    pub async fn handle_socket(
+        &self,
+        mut socket: WebSocket,
+        user_id: Uuid,
+        request_id: String,
+        shutdown_rx: tokio::sync::watch::Receiver<bool>,
+    ) {
         // Validation is performed before spawning the session to provide immediate
         // feedback and avoid allocating resources for invalid connections.
         match self.key_service.fetch_identity_key(user_id).await {

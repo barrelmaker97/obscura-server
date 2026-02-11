@@ -15,11 +15,11 @@ use axum::{
     middleware::from_fn_with_state,
     routing::{get, post},
 };
+use std::sync::Arc;
 use tower_governor::GovernorLayer;
 use tower_governor::governor::GovernorConfigBuilder;
 use tower_http::request_id::{PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::trace::TraceLayer;
-use std::sync::Arc;
 
 pub mod attachments;
 pub mod auth;

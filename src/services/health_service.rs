@@ -39,18 +39,12 @@ pub struct HealthService {
 
 impl HealthService {
     pub fn new(pool: DbPool, s3_client: Client, storage_bucket: String, config: HealthConfig) -> Self {
-        Self {
-            pool,
-            s3_client,
-            storage_bucket,
-            config,
-            metrics: Metrics::new(),
-        }
+        Self { pool, s3_client, storage_bucket, config, metrics: Metrics::new() }
     }
 
     pub async fn check_db(&self) -> Result<(), String> {
         let db_timeout = Duration::from_millis(self.config.db_timeout_ms);
-        
+
         match timeout(db_timeout, sqlx::query("SELECT 1").execute(&self.pool)).await {
             Ok(Ok(_)) => {
                 self.metrics.status.record(1, &[KeyValue::new("component", "database")]);
