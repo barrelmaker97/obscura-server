@@ -14,7 +14,7 @@ pub async fn log_rate_limit_events(
 
     let status = response.status();
     let ratelimit_after = if status == StatusCode::TOO_MANY_REQUESTS {
-        response.headers().get("x-ratelimit-after").and_then(|v| v.to_str().ok().map(|s| s.to_string()))
+        response.headers().get("x-ratelimit-after").and_then(|v| v.to_str().ok().map(std::string::ToString::to_string))
     } else {
         None
     };

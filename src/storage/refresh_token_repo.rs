@@ -31,19 +31,19 @@ impl RefreshTokenRepository {
     }
 
     /// Atomically validates and consumes a refresh token (Step 1 of Rotation).
-    /// If valid: Returns the user_id and DELETES the token from the DB.
+    /// If valid: Returns the `user_id` and DELETES the token from the DB.
     /// If invalid/expired: Returns None.
     /// The caller MUST commit the transaction.
     #[tracing::instrument(level = "debug", skip(self, conn, token_hash), fields(user_id = tracing::field::Empty))]
     pub async fn verify_and_consume(&self, conn: &mut PgConnection, token_hash: &str) -> Result<Option<Uuid>> {
         // 1. Fetch and Lock
         let record: Option<RefreshTokenRecord> = sqlx::query_as(
-            r#"
+            r"
             SELECT token_hash, user_id, expires_at, created_at
             FROM refresh_tokens 
             WHERE token_hash = $1 
             FOR UPDATE SKIP LOCKED
-            "#,
+            ",
         )
         .bind(token_hash)
         .fetch_optional(&mut *conn)
@@ -80,7 +80,7 @@ impl RefreshTokenRepository {
 
     /// Atomically rotates a refresh token.
     /// Deletes the old token and inserts a new one only if the old one was not expired.
-    /// Returns the user_id if successful, or None if the old token was invalid or expired.
+    /// Returns the `user_id` if successful, or None if the old token was invalid or expired.
     #[tracing::instrument(level = "debug", skip(self, conn, old_hash, new_hash))]
     pub async fn rotate(
         &self,
@@ -92,7 +92,7 @@ impl RefreshTokenRepository {
         let expires_at = OffsetDateTime::now_utc() + time::Duration::days(ttl_days);
 
         let user_id = sqlx::query_scalar::<_, Uuid>(
-            r#"
+            r"
             WITH deleted AS (
                 DELETE FROM refresh_tokens
                 WHERE token_hash = $1
@@ -103,7 +103,7 @@ impl RefreshTokenRepository {
             FROM deleted
             WHERE expires_at > NOW()
             RETURNING user_id
-            "#,
+            ",
         )
         .bind(old_hash)
         .bind(new_hash)

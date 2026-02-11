@@ -22,12 +22,12 @@ impl KeyRepository {
         registration_id: i32,
     ) -> Result<()> {
         sqlx::query(
-            r#"
+            r"
             INSERT INTO identity_keys (user_id, identity_key, registration_id)
             VALUES ($1, $2, $3)
             ON CONFLICT (user_id) DO UPDATE
             SET identity_key = $2, registration_id = $3
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(identity_key.as_bytes())
@@ -47,12 +47,12 @@ impl KeyRepository {
         signature: &Signature,
     ) -> Result<()> {
         sqlx::query(
-            r#"
+            r"
             INSERT INTO signed_pre_keys (id, user_id, public_key, signature)
             VALUES ($2, $1, $3, $4)
             ON CONFLICT (id, user_id) DO UPDATE
             SET public_key = $3, signature = $4
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(key_id)
@@ -85,11 +85,11 @@ impl KeyRepository {
         }
 
         sqlx::query(
-            r#"
+            r"
             INSERT INTO one_time_pre_keys (id, user_id, public_key)
             SELECT * FROM UNNEST($1::int4[], $2::uuid[], $3::bytea[])
             ON CONFLICT (id, user_id) DO NOTHING
-            "#,
+            ",
         )
         .bind(&ids)
         .bind(&user_ids)
@@ -126,11 +126,11 @@ impl KeyRepository {
 
         // Fetch latest signed pre key
         let signed_rec = sqlx::query_as::<_, SignedPreKeyRecord>(
-            r#"
+            r"
             SELECT id, user_id, public_key, signature, created_at 
             FROM signed_pre_keys WHERE user_id = $1
             ORDER BY created_at DESC LIMIT 1
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_optional(&mut *conn)
@@ -147,13 +147,13 @@ impl KeyRepository {
 
         // Fetch one one-time pre key and delete it
         let otpk_rec = sqlx::query_as::<_, OneTimePreKeyRecord>(
-            r#"
+            r"
             DELETE FROM one_time_pre_keys
             WHERE id = (
                 SELECT id FROM one_time_pre_keys WHERE user_id = $1 LIMIT 1
             ) AND user_id = $1
             RETURNING id, user_id, public_key, created_at
-            "#,
+            ",
         )
         .bind(user_id)
         .fetch_optional(&mut *conn)
@@ -263,7 +263,7 @@ impl KeyRepository {
     #[tracing::instrument(level = "debug", skip(self, conn))]
     pub async fn delete_oldest_one_time_pre_keys(&self, conn: &mut PgConnection, user_id: Uuid, limit: i64) -> Result<()> {
         sqlx::query(
-            r#"
+            r"
             DELETE FROM one_time_pre_keys
             WHERE user_id = $1 AND id IN (
                 SELECT id FROM one_time_pre_keys
@@ -271,7 +271,7 @@ impl KeyRepository {
                 ORDER BY created_at ASC
                 LIMIT $2
             )
-            "#,
+            ",
         )
         .bind(user_id)
         .bind(limit)

@@ -211,7 +211,7 @@ impl AttachmentService {
 
         while !*shutdown.borrow() {
             tokio::select! {
-                _ = tokio::time::sleep_until(next_tick) => {
+                () = tokio::time::sleep_until(next_tick) => {
                     async {
                         tracing::debug!("Running attachment cleanup...");
 

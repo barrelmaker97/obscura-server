@@ -58,7 +58,7 @@ impl HealthService {
             }
             Ok(Err(e)) => {
                 self.metrics.status.record(0, &[KeyValue::new("component", "database")]);
-                Err(format!("Database connection failed: {:?}", e))
+                Err(format!("Database connection failed: {e:?}"))
             }
             Err(_) => {
                 self.metrics.status.record(0, &[KeyValue::new("component", "database")]);

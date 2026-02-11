@@ -96,7 +96,7 @@ impl NotificationService for InMemoryNotificationService {
             match tx.send(event) {
                 Ok(_) => self.metrics.sends_total.add(1, &[KeyValue::new("status", "sent")]),
                 Err(_) => {
-                    self.metrics.sends_total.add(1, &[KeyValue::new("status", "no_receivers")])
+                    self.metrics.sends_total.add(1, &[KeyValue::new("status", "no_receivers")]);
                 }
             }
         }

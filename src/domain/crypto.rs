@@ -26,7 +26,7 @@ impl PublicKey {
             return Err(format!("Invalid key length: {} (expected 33 bytes with 0x05 prefix)", bytes.len()));
         }
         if bytes[0] != DJB_KEY_PREFIX {
-            return Err(format!("Invalid key prefix (expected 0x{:02x})", DJB_KEY_PREFIX));
+            return Err(format!("Invalid key prefix (expected 0x{DJB_KEY_PREFIX:02x})"));
         }
         let mut arr = [0u8; 33];
         arr.copy_from_slice(bytes);

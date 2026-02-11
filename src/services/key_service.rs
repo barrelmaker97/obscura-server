@@ -76,7 +76,7 @@ impl KeyService {
     pub async fn check_pre_key_status(&self, user_id: Uuid) -> Result<Option<PreKeyStatus>> {
         let mut conn = self.pool.acquire().await?;
         let count = self.repo.count_one_time_pre_keys(&mut conn, user_id).await?;
-        if count < self.config.pre_key_refill_threshold as i64 {
+        if count < i64::from(self.config.pre_key_refill_threshold) {
             self.metrics.prekey_low_total.add(1, &[]);
 
             Ok(Some(PreKeyStatus {

@@ -70,7 +70,7 @@ pub fn app_router(
     let std_interval_ns = 1_000_000_000 / config.rate_limit.per_second.max(1);
     let standard_conf = Arc::new(
         GovernorConfigBuilder::default()
-            .per_nanosecond(std_interval_ns as u64)
+            .per_nanosecond(u64::from(std_interval_ns))
             .burst_size(config.rate_limit.burst)
             .key_extractor(services.rate_limit_service.extractor.clone())
             .finish()
@@ -81,7 +81,7 @@ pub fn app_router(
     let auth_interval_ns = 1_000_000_000 / config.rate_limit.auth_per_second.max(1);
     let auth_conf = Arc::new(
         GovernorConfigBuilder::default()
-            .per_nanosecond(auth_interval_ns as u64)
+            .per_nanosecond(u64::from(auth_interval_ns))
             .burst_size(config.rate_limit.auth_burst)
             .key_extractor(services.rate_limit_service.extractor.clone())
             .finish()

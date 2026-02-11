@@ -29,7 +29,7 @@ pub async fn register(
             payload.signed_pre_key.try_into().map_err(AppError::BadRequest)?,
             payload.one_time_pre_keys
                 .into_iter()
-                .map(|k| k.try_into())
+                .map(std::convert::TryInto::try_into)
                 .collect::<std::result::Result<Vec<_>, _>>()
                 .map_err(AppError::BadRequest)?,
         )

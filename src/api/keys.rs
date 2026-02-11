@@ -31,14 +31,14 @@ pub async fn upload_keys(
     let params = KeyUploadParams {
         user_id: auth_user.user_id,
         identity_key: payload.identity_key
-            .map(|k| k.try_into())
+            .map(std::convert::TryInto::try_into)
             .transpose()
             .map_err(AppError::BadRequest)?,
         registration_id: payload.registration_id,
         signed_pre_key: payload.signed_pre_key.try_into().map_err(AppError::BadRequest)?,
         one_time_pre_keys: payload.one_time_pre_keys
             .into_iter()
-            .map(|k| k.try_into())
+            .map(std::convert::TryInto::try_into)
             .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(AppError::BadRequest)?,
     };

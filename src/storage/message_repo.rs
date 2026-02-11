@@ -26,11 +26,11 @@ impl MessageRepository {
         let expires_at = OffsetDateTime::now_utc() + Duration::days(ttl_days);
 
         let result = sqlx::query_as::<_, MessageRecord>(
-            r#"
+            r"
             INSERT INTO messages (sender_id, recipient_id, message_type, content, expires_at)
             VALUES ($1, $2, $3, $4, $5)
             RETURNING id, sender_id, recipient_id, message_type, content, created_at, expires_at
-            "#,
+            ",
         )
         .bind(sender_id)
         .bind(recipient_id)
@@ -53,11 +53,11 @@ impl MessageRepository {
     #[tracing::instrument(level = "debug", skip(self, conn))]
     pub async fn find_by_id(&self, conn: &mut PgConnection, id: Uuid) -> Result<Option<Message>> {
         let record = sqlx::query_as::<_, MessageRecord>(
-            r#"
+            r"
             SELECT id, sender_id, recipient_id, message_type, content, created_at, expires_at
             FROM messages
             WHERE id = $1
-            "#,
+            ",
         )
         .bind(id)
         .fetch_optional(conn)
@@ -77,7 +77,7 @@ impl MessageRepository {
         let messages = match cursor {
             Some((last_ts, last_id)) => {
                 sqlx::query_as::<_, MessageRecord>(
-                    r#"
+                    r"
                     SELECT id, sender_id, recipient_id, message_type, content, created_at, expires_at
                     FROM messages
                     WHERE recipient_id = $1
@@ -85,7 +85,7 @@ impl MessageRepository {
                       AND (created_at, id) > ($2, $3)
                     ORDER BY created_at ASC, id ASC
                     LIMIT $4
-                    "#,
+                    ",
                 )
                 .bind(recipient_id)
                 .bind(last_ts)
@@ -96,14 +96,14 @@ impl MessageRepository {
             }
             None => {
                 sqlx::query_as::<_, MessageRecord>(
-                    r#"
+                    r"
                     SELECT id, sender_id, recipient_id, message_type, content, created_at, expires_at
                     FROM messages
                     WHERE recipient_id = $1
                       AND expires_at > NOW()
                     ORDER BY created_at ASC, id ASC
                     LIMIT $2
-                    "#,
+                    ",
                 )
                 .bind(recipient_id)
                 .bind(limit)
@@ -134,7 +134,7 @@ impl MessageRepository {
     pub async fn delete_global_overflow(&self, conn: &mut PgConnection, limit: i64) -> Result<u64> {
         // Deletes messages that exceed the 'limit' per recipient
         let result = sqlx::query(
-            r#"
+            r"
             DELETE FROM messages
             WHERE id IN (
                 SELECT id FROM (
@@ -142,7 +142,7 @@ impl MessageRepository {
                     FROM messages
                 ) t WHERE t.rn > $1
             )
-            "#,
+            ",
         )
         .bind(limit)
         .execute(conn)

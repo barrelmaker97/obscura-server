@@ -24,8 +24,7 @@ pub async fn websocket_handler(
 ) -> impl IntoResponse {
     let request_id = extensions
         .get::<RequestId>()
-        .map(|id| id.header_value().to_str().unwrap_or_default().to_string())
-        .unwrap_or_else(|| "unknown".to_string());
+        .map_or_else(|| "unknown".to_string(), |id| id.header_value().to_str().unwrap_or_default().to_string());
 
     let jwt = Jwt::new(params.token);
     match state.auth_service.verify_token(jwt) {
@@ -33,7 +32,7 @@ pub async fn websocket_handler(
             let service = state.gateway_service.clone();
             let shutdown = state.shutdown_rx.clone();
             async move {
-                service.handle_socket(socket, user_id, request_id, shutdown).await
+                service.handle_socket(socket, user_id, request_id, shutdown).await;
             }
         }),
         Err(e) => {

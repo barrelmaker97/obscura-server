@@ -73,7 +73,7 @@ pub enum LogFormat {
 
 #[derive(Clone, Debug, Args)]
 pub struct TelemetryConfig {
-    /// OTLP Endpoint for traces and metrics (e.g. http://localhost:4318)
+    /// OTLP Endpoint for traces and metrics (e.g. <http://localhost:4318>)
     /// If not set, OTLP export is disabled (logs only).
     #[arg(long, env = "OBSCURA_OTLP_ENDPOINT")]
     pub otlp_endpoint: Option<String>,
@@ -316,7 +316,7 @@ pub struct StorageConfig {
     #[arg(long = "storage-region", env = "OBSCURA_STORAGE_REGION", default_value_t = StorageConfig::default().region)]
     pub region: String,
 
-    /// Custom storage endpoint (useful for MinIO or other S3-compatible services)
+    /// Custom storage endpoint (useful for `MinIO` or other S3-compatible services)
     #[arg(long = "storage-endpoint", env = "OBSCURA_STORAGE_ENDPOINT")]
     pub endpoint: Option<String>,
 
@@ -328,7 +328,7 @@ pub struct StorageConfig {
     #[arg(long = "storage-secret-key", env = "OBSCURA_STORAGE_SECRET_KEY")]
     pub secret_key: Option<String>,
 
-    /// Force path style (required for many MinIO setups: http://host/bucket/key)
+    /// Force path style (required for many `MinIO` setups: <http://host/bucket/key>)
     #[arg(long = "storage-force-path-style", env = "OBSCURA_STORAGE_FORCE_PATH_STYLE", default_value_t = StorageConfig::default().force_path_style)]
     pub force_path_style: bool,
 

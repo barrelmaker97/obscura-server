@@ -100,12 +100,10 @@ impl MessagePump {
         }
 
         for msg in messages {
-            let timestamp = msg
-                .created_at
-                .map(|ts| (ts.unix_timestamp_nanos() / 1_000_000) as u64)
-                .unwrap_or_else(|| {
-                    (time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000) as u64
-                });
+            let timestamp = msg.created_at.map_or_else(
+                || (time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000) as u64,
+                |ts| (ts.unix_timestamp_nanos() / 1_000_000) as u64,
+            );
 
             let envelope = Envelope {
                 id: msg.id.to_string(),

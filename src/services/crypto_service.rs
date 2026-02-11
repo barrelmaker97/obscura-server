@@ -10,9 +10,9 @@ impl CryptoService {
         Self
     }
 
-    /// Verifies an XEdDSA signature.
+    /// Verifies an `XEdDSA` signature.
     ///
-    /// XEdDSA is used to verify Ed25519 signatures against Curve25519 (Montgomery) public keys.
+    /// `XEdDSA` is used to verify Ed25519 signatures against Curve25519 (Montgomery) public keys.
     /// Because a Montgomery X-coordinate corresponds to two Edwards points (sign bit 0 and 1),
     /// we try both to ensure compatibility with various client implementations and environments.
     #[tracing::instrument(skip(self, public_key, message, signature), level = "debug")]

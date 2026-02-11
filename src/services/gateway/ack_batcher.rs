@@ -76,7 +76,7 @@ impl AckBatcher {
                             None => return,
                         }
                     }
-                    _ = &mut timeout => break,
+                    () = &mut timeout => break,
                 }
             }
 

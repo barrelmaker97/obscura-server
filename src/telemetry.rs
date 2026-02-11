@@ -28,12 +28,12 @@ impl TelemetryGuard {
         if let Some(provider) = self.tracer_provider
             && let Err(err) = provider.shutdown()
         {
-            eprintln!("Error shutting down tracer provider: {:?}", err);
+            eprintln!("Error shutting down tracer provider: {err:?}");
         }
         if let Some(provider) = self.meter_provider
             && let Err(err) = provider.shutdown()
         {
-            eprintln!("Error shutting down meter provider: {:?}", err);
+            eprintln!("Error shutting down meter provider: {err:?}");
         }
         if let Some(provider) = self.logger_provider {
             // SdkLoggerProvider::shutdown returns a CompletableResultCode in some versions,
@@ -237,7 +237,7 @@ struct OtelLogVisitor {
 impl tracing::field::Visit for OtelLogVisitor {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
         let name = field.name();
-        let val = format!("{:?}", value);
+        let val = format!("{value:?}");
         if name == "message" {
             self.message = val;
         } else if name == "error" {

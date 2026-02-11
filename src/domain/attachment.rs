@@ -8,6 +8,7 @@ pub struct Attachment {
 }
 
 impl Attachment {
+    #[must_use]
     pub fn is_expired_at(&self, now: OffsetDateTime) -> bool {
         self.expires_at < now
     }

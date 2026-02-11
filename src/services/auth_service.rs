@@ -71,12 +71,9 @@ impl AuthService {
     )]
     pub async fn login(&self, username: String, password: String) -> Result<AuthSession> {
         let mut conn = self.pool.acquire().await?;
-        let user = match self.user_repo.find_by_username(&mut conn, &username).await? {
-            Some(u) => u,
-            None => {
-                tracing::warn!("Login failed: user not found");
-                return Err(AppError::AuthError);
-            }
+        let Some(user) = self.user_repo.find_by_username(&mut conn, &username).await? else {
+            tracing::warn!("Login failed: user not found");
+            return Err(AppError::AuthError);
         };
 
         tracing::Span::current().record("user.id", tracing::field::display(user.id));
