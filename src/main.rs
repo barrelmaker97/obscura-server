@@ -139,6 +139,7 @@ async fn main() -> anyhow::Result<()> {
 
             let auth_service = obscura_server::services::auth_service::AuthService::new(
                 config.auth.clone(),
+                pool.clone(),
                 user_repo.clone(),
                 refresh_repo.clone(),
             );

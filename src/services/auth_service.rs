@@ -47,15 +47,17 @@ impl Metrics {
 #[derive(Clone)]
 pub struct AuthService {
     config: AuthConfig,
+    pool: crate::storage::DbPool,
     user_repo: UserRepository,
     refresh_repo: RefreshTokenRepository,
     metrics: Metrics,
 }
 
 impl AuthService {
-    pub fn new(config: AuthConfig, user_repo: UserRepository, refresh_repo: RefreshTokenRepository) -> Self {
+    pub fn new(config: AuthConfig, pool: crate::storage::DbPool, user_repo: UserRepository, refresh_repo: RefreshTokenRepository) -> Self {
         Self {
             config,
+            pool,
             user_repo,
             refresh_repo,
             metrics: Metrics::new(),
@@ -63,12 +65,13 @@ impl AuthService {
     }
 
     #[tracing::instrument(
-        skip(self, conn, username, password),
+        skip(self, username, password),
         fields(user_id = tracing::field::Empty),
         err(level = "warn")
     )]
-    pub async fn login(&self, conn: &mut PgConnection, username: String, password: String) -> Result<AuthSession> {
-        let user = match self.user_repo.find_by_username(conn, &username).await? {
+    pub async fn login(&self, username: String, password: String) -> Result<AuthSession> {
+        let mut conn = self.pool.acquire().await?;
+        let user = match self.user_repo.find_by_username(&mut conn, &username).await? {
             Some(u) => u,
             None => {
                 tracing::warn!("Login failed: user not found");
@@ -86,7 +89,7 @@ impl AuthService {
         }
 
         // Generate Tokens
-        let session = self.create_session(conn, user.id).await?;
+        let session = self.create_session(&mut conn, user.id).await?;
         self.metrics.login_total.add(1, &[]);
         Ok(session)
     }
@@ -141,15 +144,16 @@ impl AuthService {
         })
     }
 
-    #[tracing::instrument(err, skip(self, conn, refresh_token))]
-    pub async fn refresh_session(&self, conn: &mut PgConnection, refresh_token: String) -> Result<AuthSession> {
+    #[tracing::instrument(err, skip(self, refresh_token))]
+    pub async fn refresh_session(&self, refresh_token: String) -> Result<AuthSession> {
+        let mut conn = self.pool.acquire().await?;
         let old_hash = self.hash_opaque_token(&refresh_token);
         let new_refresh_token = self.generate_opaque_token();
         let new_hash = self.hash_opaque_token(&new_refresh_token);
 
         let user_id = self
             .refresh_repo
-            .rotate(conn, &old_hash, &new_hash, self.config.refresh_token_ttl_days)
+            .rotate(&mut conn, &old_hash, &new_hash, self.config.refresh_token_ttl_days)
             .await?
             .ok_or(AppError::AuthError)?;
 
@@ -174,10 +178,11 @@ impl AuthService {
         })
     }
 
-    #[tracing::instrument(err, skip(self, conn, refresh_token), fields(user_id = %user_id))]
-    pub async fn logout(&self, conn: &mut PgConnection, user_id: Uuid, refresh_token: String) -> Result<()> {
+    #[tracing::instrument(err, skip(self, refresh_token), fields(user_id = %user_id))]
+    pub async fn logout(&self, user_id: Uuid, refresh_token: String) -> Result<()> {
+        let mut conn = self.pool.acquire().await?;
         let hash = self.hash_opaque_token(&refresh_token);
-        self.refresh_repo.delete_owned(conn, &hash, user_id).await?;
+        self.refresh_repo.delete_owned(&mut conn, &hash, user_id).await?;
         self.metrics.logout_total.add(1, &[]);
         Ok(())
     }
@@ -228,11 +233,12 @@ mod tests {
             access_token_ttl_secs: 3600,
             refresh_token_ttl_days: 7,
         };
-        AuthService::new(config, UserRepository::new(), RefreshTokenRepository::new())
+        let pool = sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap();
+        AuthService::new(config, pool, UserRepository::new(), RefreshTokenRepository::new())
     }
 
-    #[test]
-    fn test_jwt_roundtrip() {
+    #[tokio::test]
+    async fn test_jwt_roundtrip() {
         let service = setup_service();
         let user_id = Uuid::new_v4();
         let exp = 10000000000;
@@ -254,8 +260,8 @@ mod tests {
         assert!(!service.verify_password("wrong_password", &hash).await.unwrap());
     }
 
-    #[test]
-    fn test_opaque_token_logic() {
+    #[tokio::test]
+    async fn test_opaque_token_logic() {
         let service = setup_service();
         let token1 = service.generate_opaque_token();
         let token2 = service.generate_opaque_token();

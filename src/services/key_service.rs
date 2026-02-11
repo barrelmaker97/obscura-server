@@ -4,9 +4,10 @@ use crate::domain::keys::{OneTimePreKey, PreKeyBundle, SignedPreKey};
 use crate::error::{AppError, Result};
 use crate::proto::obscura::v1::PreKeyStatus;
 use crate::storage::key_repo::KeyRepository;
+use crate::storage::DbPool;
 use crate::services::crypto_service::CryptoService;
 use opentelemetry::{global, metrics::Counter};
-use sqlx::{PgConnection, PgPool};
+use sqlx::PgConnection;
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -28,7 +29,7 @@ impl Metrics {
 
 #[derive(Clone)]
 pub struct KeyService {
-    pool: PgPool,
+    pool: DbPool,
     key_repo: KeyRepository,
     crypto_service: CryptoService,
     config: MessagingConfig,
@@ -45,7 +46,7 @@ pub struct KeyUploadParams {
 
 impl KeyService {
     pub fn new(
-        pool: PgPool,
+        pool: DbPool,
         key_repo: KeyRepository,
         crypto_service: CryptoService,
         config: MessagingConfig,
@@ -217,7 +218,7 @@ mod tests {
 
     fn setup_service() -> KeyService {
         let config = MessagingConfig::default();
-        let pool = PgPool::connect_lazy("postgres://localhost").unwrap();
+        let pool = sqlx::PgPool::connect_lazy("postgres://localhost").unwrap();
         KeyService::new(pool, KeyRepository::new(), CryptoService::new(), config)
     }
 

@@ -89,23 +89,6 @@ impl MessageService {
     }
 
     #[tracing::instrument(
-        err,
-        skip(self, content),
-        fields(recipient_id = %recipient_id, message_type = %message_type)
-    )]
-    pub async fn enqueue_message(
-        &self,
-        sender_id: Uuid,
-        recipient_id: Uuid,
-        message_type: i32,
-        content: Vec<u8>,
-    ) -> Result<()> {
-        let mut conn = self.pool.acquire().await?;
-        self.repo.create(&mut conn, sender_id, recipient_id, message_type, content, self.ttl_days).await?;
-        Ok(())
-    }
-
-    #[tracing::instrument(
         err(level = "warn"),
         skip(self),
         fields(recipient_id = %recipient_id, batch_limit = %limit)

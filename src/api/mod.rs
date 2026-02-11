@@ -35,7 +35,6 @@ pub mod schemas;
 #[derive(Clone)]
 pub struct AppState {
     pub config: Config,
-    pub pool: crate::storage::DbPool,
     pub key_service: KeyService,
     pub attachment_service: AttachmentService,
     pub account_service: AccountService,
@@ -91,7 +90,6 @@ pub fn app_router(
 
     let state = AppState {
         config,
-        pool: services.pool,
         key_service: services.key_service,
         attachment_service: services.attachment_service,
         account_service: services.account_service,
