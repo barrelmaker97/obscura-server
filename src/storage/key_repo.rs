@@ -100,10 +100,10 @@ impl KeyRepository {
         Ok(())
     }
 
-    #[tracing::instrument(level = "debug", skip(self, executor))]
+    #[tracing::instrument(level = "debug", skip(self, conn))]
     pub async fn fetch_pre_key_bundle(
         &self,
-        executor: &mut PgConnection,
+        conn: &mut PgConnection,
         user_id: Uuid,
     ) -> Result<Option<PreKeyBundle>> {
         // Fetch identity
@@ -111,7 +111,7 @@ impl KeyRepository {
             "SELECT user_id, identity_key, registration_id FROM identity_keys WHERE user_id = $1",
         )
         .bind(user_id)
-        .fetch_optional(&mut *executor)
+        .fetch_optional(&mut *conn)
         .await?;
 
         let Some(identity_rec) = identity_rec else {
@@ -133,7 +133,7 @@ impl KeyRepository {
             "#,
         )
         .bind(user_id)
-        .fetch_optional(&mut *executor)
+        .fetch_optional(&mut *conn)
         .await?;
 
         let Some(signed_rec) = signed_rec else {
@@ -156,7 +156,7 @@ impl KeyRepository {
             "#,
         )
         .bind(user_id)
-        .fetch_optional(&mut *executor)
+        .fetch_optional(&mut *conn)
         .await?;
 
         let one_time_pre_key = match otpk_rec {
@@ -237,7 +237,7 @@ impl KeyRepository {
     }
 
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub async fn get_max_signed_pre_key_id(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Option<i32>> {
+    pub async fn find_max_signed_pre_key_id(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Option<i32>> {
         let max_id: Option<i32> = sqlx::query_scalar("SELECT MAX(id) FROM signed_pre_keys WHERE user_id = $1")
             .bind(user_id)
             .fetch_one(conn)
