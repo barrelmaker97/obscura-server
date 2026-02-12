@@ -179,6 +179,6 @@ mod tests {
         service.notify(user1, UserEvent::MessageReceived);
 
         assert_eq!(rx1.recv().await.unwrap(), UserEvent::MessageReceived);
-        assert!(tokio::time::timeout(std::time::Duration::from_millis(50), rx2.recv()).await.is_err());
+        assert!(tokio::time::timeout(Duration::from_millis(50), rx2.recv()).await.is_err());
     }
 }

@@ -90,7 +90,7 @@ mod tests {
             signed_pre_key: SignedPreKey {
                 key_id: 1,
                 public_key: SchemaPublicKey("A".repeat(44)),
-                signature: crate::api::schemas::crypto::Signature("B".repeat(88)),
+                signature: Signature("B".repeat(88)),
             },
             one_time_pre_keys: vec![],
         }

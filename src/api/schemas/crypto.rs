@@ -57,7 +57,7 @@ mod tests {
     #[test]
     fn test_public_key_schema_malformed_base64() {
         let schema = PublicKey("!!!invalid!!!".to_string());
-        let result: std::result::Result<crypto::PublicKey, _> = schema.try_into();
+        let result: Result<crypto::PublicKey, _> = schema.try_into();
         assert!(result.is_err());
     }
 
@@ -65,7 +65,7 @@ mod tests {
     fn test_public_key_schema_invalid_length() {
         let b64 = STANDARD.encode([0u8; 32]); // Missing prefix byte
         let schema = PublicKey(b64);
-        let result: std::result::Result<crypto::PublicKey, _> = schema.try_into();
+        let result: Result<crypto::PublicKey, _> = schema.try_into();
         assert!(result.is_err());
     }
 
@@ -83,7 +83,7 @@ mod tests {
     fn test_signature_schema_invalid_length() {
         let b64 = STANDARD.encode([0u8; 63]);
         let schema = Signature(b64);
-        let result: std::result::Result<crypto::Signature, _> = schema.try_into();
+        let result: Result<crypto::Signature, _> = schema.try_into();
         assert!(result.is_err());
     }
 }

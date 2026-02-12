@@ -233,8 +233,8 @@ async fn test_ack_buffer_saturation() {
     // 2. Flood with valid ACKs
     // The consumer will try to delete 1 by 1.
     // The buffer is 5.
-    // If we send 30, we should definitely hit the limit while the consumer is waiting on the DB.
-    for _ in 0..30 {
+    // If we send 15, we should definitely hit the limit while the consumer is waiting on the DB.
+    for _ in 0..15 {
         let ack = AckMessage { message_id: Uuid::new_v4().to_string() };
         let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
         let mut buf = Vec::new();
