@@ -254,6 +254,10 @@ impl Default for MessagingConfig {
 
 #[derive(Clone, Debug, Args)]
 pub struct NotificationConfig {
+    /// Valkey connection URL (e.g. redis://localhost:6379).
+    #[arg(long, env = "OBSCURA_VALKEY_URL", default_value_t = NotificationConfig::default().valkey_url)]
+    pub valkey_url: String,
+
     /// How often to run the notification garbage collection
     #[arg(long, env = "OBSCURA_GC_INTERVAL_SECS", default_value_t = NotificationConfig::default().gc_interval_secs)]
     pub gc_interval_secs: u64,
@@ -265,7 +269,11 @@ pub struct NotificationConfig {
 
 impl Default for NotificationConfig {
     fn default() -> Self {
-        Self { gc_interval_secs: 60, channel_capacity: 16 }
+        Self {
+            valkey_url: "redis://localhost:6379".to_string(),
+            gc_interval_secs: 60,
+            channel_capacity: 16,
+        }
     }
 }
 

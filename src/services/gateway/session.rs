@@ -40,7 +40,7 @@ impl Session {
         metrics.active_connections.add(1, &[]);
         tracing::info!("WebSocket connected");
 
-        let mut notification_rx = notifier.subscribe(user_id);
+        let mut notification_rx = notifier.subscribe(user_id).await;
         let (mut ws_sink, mut ws_stream) = socket.split();
 
         // Components are initialized here inside the 'websocket_session' span

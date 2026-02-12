@@ -85,7 +85,7 @@ impl MessageService {
                 tracing::debug!("Message stored for delivery");
                 self.metrics.sent_total.add(1, &[KeyValue::new("status", "success")]);
 
-                self.notifier.notify(recipient_id, UserEvent::MessageReceived);
+                self.notifier.notify(recipient_id, UserEvent::MessageReceived).await;
                 Ok(())
             }
             Err(e) => {

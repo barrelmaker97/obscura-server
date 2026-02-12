@@ -133,7 +133,7 @@ impl AccountService {
             tracing::warn!("Device takeover detected");
             self.metrics.takeovers_total.add(1, &[]);
 
-            self.notifier.notify(user_id, UserEvent::Disconnect);
+            self.notifier.notify(user_id, UserEvent::Disconnect).await;
         }
 
         Ok(())
