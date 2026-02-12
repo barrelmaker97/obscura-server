@@ -7,14 +7,14 @@ use uuid::Uuid;
 
 /// `AckBatcher` decouples fast WebSocket ACKs from slow database deletes and
 /// reduces database overhead by batching multiple deletions into a single query.
-pub struct AckBatcher {
+pub(crate) struct AckBatcher {
     tx: mpsc::Sender<Uuid>,
     metrics: Metrics,
     task: tokio::task::JoinHandle<()>,
 }
 
 impl AckBatcher {
-    pub fn new(
+    pub(crate) fn new(
         user_id: Uuid,
         message_service: MessageService,
         metrics: Metrics,
@@ -35,14 +35,14 @@ impl AckBatcher {
         Self { tx, metrics, task }
     }
 
-    pub fn push(&self, msg_id: Uuid) {
+    pub(crate) fn push(&self, msg_id: Uuid) {
         if self.tx.try_send(msg_id).is_err() {
             tracing::warn!(message_id = %msg_id, "Dropped ACK due to full buffer");
             self.metrics.ack_queue_dropped_total.add(1, &[]);
         }
     }
 
-    pub fn abort(&self) {
+    pub(crate) fn abort(&self) {
         self.task.abort();
     }
 

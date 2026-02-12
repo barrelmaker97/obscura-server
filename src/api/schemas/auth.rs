@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Registration {
+pub struct RegistrationRequest {
     pub username: String,
     pub password: String,
     pub identity_key: PublicKey,
@@ -13,7 +13,7 @@ pub struct Registration {
     pub one_time_pre_keys: Vec<OneTimePreKey>,
 }
 
-impl Registration {
+impl RegistrationRequest {
     /// Validates the registration payload.
     ///
     /// # Errors
@@ -40,8 +40,8 @@ mod tests {
     use crate::api::schemas::crypto::{PublicKey as SchemaPublicKey, Signature};
     use crate::api::schemas::keys::{OneTimePreKey, SignedPreKey};
 
-    fn mock_registration(password: &str) -> Registration {
-        Registration {
+    fn mock_registration(password: &str) -> RegistrationRequest {
+        RegistrationRequest {
             username: "testuser".into(),
             password: password.into(),
             identity_key: SchemaPublicKey("A".repeat(44)), // Dummy B64
@@ -83,26 +83,26 @@ mod tests {
 }
 
 #[derive(Deserialize)]
-pub struct Login {
+pub struct LoginRequest {
     pub username: String,
     pub password: String,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Refresh {
+pub struct RefreshRequest {
     pub refresh_token: String,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Logout {
+pub struct LogoutRequest {
     pub refresh_token: String,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AuthSession {
+pub struct AuthResponse {
     pub token: String,
     pub refresh_token: String,
     pub expires_at: i64,

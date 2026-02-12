@@ -1,6 +1,6 @@
-pub mod ack_batcher;
-pub mod message_pump;
-pub mod session;
+pub(crate) mod ack_batcher;
+pub(crate) mod message_pump;
+pub(crate) mod session;
 
 use crate::config::WsConfig;
 use crate::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
@@ -19,16 +19,16 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Clone)]
-pub struct Metrics {
-    pub ack_batch_size: Histogram<u64>,
-    pub outbound_dropped_total: Counter<u64>,
-    pub active_connections: UpDownCounter<i64>,
-    pub ack_queue_dropped_total: Counter<u64>,
+pub(crate) struct Metrics {
+    pub(crate) ack_batch_size: Histogram<u64>,
+    pub(crate) outbound_dropped_total: Counter<u64>,
+    pub(crate) active_connections: UpDownCounter<i64>,
+    pub(crate) ack_queue_dropped_total: Counter<u64>,
 }
 
 impl Metrics {
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
             ack_batch_size: meter

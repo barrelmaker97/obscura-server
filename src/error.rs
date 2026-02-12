@@ -1,4 +1,4 @@
-use crate::api::schemas::common::Error as ErrorSchema;
+use crate::api::schemas::common::ErrorResponse;
 use axum::{
     Json,
     http::StatusCode,
@@ -36,7 +36,7 @@ impl IntoResponse for AppError {
             }
         };
 
-        let body = Json(ErrorSchema { error: message });
+        let body = Json(ErrorResponse { error: message });
 
         (status, body).into_response()
     }

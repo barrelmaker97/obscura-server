@@ -1,4 +1,4 @@
-use crate::domain::crypto::{PublicKey as DomainPublicKey, Signature as DomainSignature};
+use crate::domain::crypto;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 
@@ -6,17 +6,17 @@ use serde::{Deserialize, Serialize};
 #[serde(transparent)]
 pub struct PublicKey(pub String);
 
-impl From<DomainPublicKey> for PublicKey {
-    fn from(pk: DomainPublicKey) -> Self {
+impl From<crypto::PublicKey> for PublicKey {
+    fn from(pk: crypto::PublicKey) -> Self {
         Self(STANDARD.encode(pk.as_bytes()))
     }
 }
 
-impl TryFrom<PublicKey> for DomainPublicKey {
+impl TryFrom<PublicKey> for crypto::PublicKey {
     type Error = String;
     fn try_from(schema: PublicKey) -> Result<Self, Self::Error> {
         let bytes = STANDARD.decode(&schema.0).map_err(|e| e.to_string())?;
-        DomainPublicKey::try_from_bytes(&bytes)
+        crypto::PublicKey::try_from_bytes(&bytes)
     }
 }
 
@@ -24,17 +24,17 @@ impl TryFrom<PublicKey> for DomainPublicKey {
 #[serde(transparent)]
 pub struct Signature(pub String);
 
-impl From<DomainSignature> for Signature {
-    fn from(sig: DomainSignature) -> Self {
+impl From<crypto::Signature> for Signature {
+    fn from(sig: crypto::Signature) -> Self {
         Self(STANDARD.encode(sig.as_bytes()))
     }
 }
 
-impl TryFrom<Signature> for DomainSignature {
+impl TryFrom<Signature> for crypto::Signature {
     type Error = String;
     fn try_from(schema: Signature) -> Result<Self, Self::Error> {
         let bytes = STANDARD.decode(&schema.0).map_err(|e| e.to_string())?;
-        DomainSignature::try_from(bytes.as_slice())
+        crypto::Signature::try_from(bytes.as_slice())
     }
 }
 
@@ -50,14 +50,14 @@ mod tests {
         let b64 = STANDARD.encode(bytes);
 
         let schema = PublicKey(b64);
-        let domain: DomainPublicKey = schema.try_into().unwrap();
+        let domain: crypto::PublicKey = schema.try_into().unwrap();
         assert_eq!(domain.as_bytes(), &bytes);
     }
 
     #[test]
     fn test_public_key_schema_malformed_base64() {
         let schema = PublicKey("!!!invalid!!!".to_string());
-        let result: std::result::Result<DomainPublicKey, _> = schema.try_into();
+        let result: std::result::Result<crypto::PublicKey, _> = schema.try_into();
         assert!(result.is_err());
     }
 
@@ -65,7 +65,7 @@ mod tests {
     fn test_public_key_schema_invalid_length() {
         let b64 = STANDARD.encode([0u8; 32]); // Missing prefix byte
         let schema = PublicKey(b64);
-        let result: std::result::Result<DomainPublicKey, _> = schema.try_into();
+        let result: std::result::Result<crypto::PublicKey, _> = schema.try_into();
         assert!(result.is_err());
     }
 
@@ -75,7 +75,7 @@ mod tests {
         let b64 = STANDARD.encode(bytes);
 
         let schema = Signature(b64);
-        let domain: DomainSignature = schema.try_into().unwrap();
+        let domain: crypto::Signature = schema.try_into().unwrap();
         assert_eq!(domain.as_bytes(), &bytes);
     }
 
@@ -83,7 +83,7 @@ mod tests {
     fn test_signature_schema_invalid_length() {
         let b64 = STANDARD.encode([0u8; 63]);
         let schema = Signature(b64);
-        let result: std::result::Result<DomainSignature, _> = schema.try_into();
+        let result: std::result::Result<crypto::Signature, _> = schema.try_into();
         assert!(result.is_err());
     }
 }

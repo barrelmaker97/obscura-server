@@ -10,15 +10,15 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
 
-pub struct Session {
-    pub user_id: Uuid,
-    pub request_id: String,
-    pub socket: WebSocket,
-    pub message_service: MessageService,
-    pub notifier: Arc<dyn NotificationService>,
-    pub metrics: Metrics,
-    pub config: WsConfig,
-    pub shutdown_rx: tokio::sync::watch::Receiver<bool>,
+pub(crate) struct Session {
+    pub(crate) user_id: Uuid,
+    pub(crate) request_id: String,
+    pub(crate) socket: WebSocket,
+    pub(crate) message_service: MessageService,
+    pub(crate) notifier: Arc<dyn NotificationService>,
+    pub(crate) metrics: Metrics,
+    pub(crate) config: WsConfig,
+    pub(crate) shutdown_rx: tokio::sync::watch::Receiver<bool>,
 }
 
 impl Session {
@@ -32,7 +32,7 @@ impl Session {
             ws.session_id = %Uuid::new_v4()
         )
     )]
-    pub async fn run(self) {
+    pub(crate) async fn run(self) {
         // Destructuring allows independent mutable access to fields while the socket
         // is split into sink and stream halves.
         let Session { user_id, socket, message_service, notifier, metrics, config, mut shutdown_rx, .. } = self;

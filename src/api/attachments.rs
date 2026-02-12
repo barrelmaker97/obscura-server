@@ -1,6 +1,6 @@
 use crate::api::AppState;
 use crate::api::middleware::AuthUser;
-use crate::api::schemas::attachments::Attachment as AttachmentSchema;
+use crate::api::schemas::attachments::AttachmentResponse;
 use crate::error::Result;
 use axum::{
     Json,
@@ -39,7 +39,7 @@ pub async fn upload_attachment(
 
     let (id, expires_at) = state.attachment_service.upload(content_len, body).await?;
 
-    Ok((StatusCode::CREATED, Json(AttachmentSchema { id, expires_at })))
+    Ok((StatusCode::CREATED, Json(AttachmentResponse { id, expires_at })))
 }
 
 /// Downloads an attachment from storage.

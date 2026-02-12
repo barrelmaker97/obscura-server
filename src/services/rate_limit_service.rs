@@ -9,12 +9,12 @@ use tracing::warn;
 
 #[derive(Clone)]
 pub struct Metrics {
-    pub decisions_total: Counter<u64>,
+    pub(crate) decisions_total: Counter<u64>,
 }
 
 impl Metrics {
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
             decisions_total: meter
@@ -33,17 +33,17 @@ impl Default for Metrics {
 
 #[derive(Clone)]
 pub struct IpKeyExtractor {
-    trusted_proxies: Vec<IpNetwork>,
+    pub(crate) trusted_proxies: Vec<IpNetwork>,
 }
 
 impl IpKeyExtractor {
     #[must_use]
-    pub fn new(trusted_proxies: Vec<IpNetwork>) -> Self {
+    pub(crate) fn new(trusted_proxies: Vec<IpNetwork>) -> Self {
         Self { trusted_proxies }
     }
 
     #[must_use]
-    pub fn identify_client_ip(&self, headers: &axum::http::HeaderMap, peer_addr: IpAddr) -> IpAddr {
+    pub(crate) fn identify_client_ip(&self, headers: &axum::http::HeaderMap, peer_addr: IpAddr) -> IpAddr {
         if !self.is_trusted(&peer_addr) {
             return peer_addr;
         }

@@ -12,7 +12,7 @@ pub struct Metrics {
 
 impl Metrics {
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
             status: meter

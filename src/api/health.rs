@@ -1,5 +1,5 @@
 use crate::api::MgmtState;
-use crate::api::schemas::health::Health as HealthSchema;
+use crate::api::schemas::health::HealthResponse;
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 
 /// Liveness probe: returns 200 OK as long as the server is running.
@@ -28,7 +28,7 @@ pub async fn readyz(State(state): State<MgmtState>) -> impl IntoResponse {
         "ok"
     };
 
-    let response = HealthSchema {
+    let response = HealthResponse {
         status: if status_code == StatusCode::OK { "ok" } else { "error" }.to_string(),
         database: db_status.to_string(),
         storage: storage_status.to_string(),

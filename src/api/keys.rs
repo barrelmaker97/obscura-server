@@ -1,6 +1,6 @@
 use crate::api::AppState;
 use crate::api::middleware::AuthUser;
-use crate::api::schemas::keys::{PreKeyBundle as PreKeyBundleSchema, PreKeyUpload};
+use crate::api::schemas::keys::{PreKeyBundleResponse, PreKeyUploadRequest};
 use crate::error::{AppError, Result};
 use crate::services::key_service::KeyUploadParams;
 use axum::{
@@ -20,7 +20,7 @@ pub async fn get_pre_key_bundle(State(state): State<AppState>, Path(user_id): Pa
     let bundle = state.key_service.get_pre_key_bundle(user_id).await?;
 
     match bundle {
-        Some(b) => Ok(Json(PreKeyBundleSchema::from(b))),
+        Some(b) => Ok(Json(PreKeyBundleResponse::from(b))),
         None => Err(AppError::NotFound),
     }
 }
@@ -32,7 +32,7 @@ pub async fn get_pre_key_bundle(State(state): State<AppState>, Path(user_id): Pa
 pub async fn upload_keys(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Json(payload): Json<PreKeyUpload>,
+    Json(payload): Json<PreKeyUploadRequest>,
 ) -> Result<impl IntoResponse> {
     payload.validate().map_err(AppError::BadRequest)?;
 

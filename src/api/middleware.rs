@@ -10,7 +10,7 @@ use tower_http::request_id::{MakeRequestId, RequestId};
 use uuid::Uuid;
 
 pub struct AuthUser {
-    pub user_id: Uuid,
+    pub(crate) user_id: Uuid,
 }
 
 impl FromRequestParts<AppState> for AuthUser {

@@ -133,7 +133,7 @@ impl MessageService {
     }
 
     #[must_use]
-    pub fn batch_limit(&self) -> i64 {
+    pub(crate) fn batch_limit(&self) -> i64 {
         self.config.batch_limit
     }
 
