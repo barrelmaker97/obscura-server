@@ -25,7 +25,7 @@ pub struct RedisClient {
 }
 
 impl RedisClient {
-    /// Creates a new Redis-based PubSub client.
+    /// Creates a new Redis-based `PubSub` client.
     ///
     /// # Errors
     /// Returns an error if the connection fails.

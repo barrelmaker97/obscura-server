@@ -71,15 +71,15 @@ impl Config {
 
 #[derive(Clone, Debug, Args)]
 pub struct PubSubConfig {
-    /// PubSub connection URL (e.g. <redis://localhost:6379>)
+    /// `PubSub` connection URL (e.g. <redis://localhost:6379>)
     #[arg(long = "pubsub-url", env = "OBSCURA_PUBSUB_URL", default_value_t = PubSubConfig::default().url)]
     pub url: String,
 
-    /// Minimum backoff time for PubSub reconnection in seconds
+    /// Minimum backoff time for `PubSub` reconnection in seconds
     #[arg(long = "pubsub-min-backoff-secs", env = "OBSCURA_PUBSUB_MIN_BACKOFF_SECS", default_value_t = PubSubConfig::default().min_backoff_secs)]
     pub min_backoff_secs: u64,
 
-    /// Maximum backoff time for PubSub reconnection in seconds
+    /// Maximum backoff time for `PubSub` reconnection in seconds
     #[arg(long = "pubsub-max-backoff-secs", env = "OBSCURA_PUBSUB_MAX_BACKOFF_SECS", default_value_t = PubSubConfig::default().max_backoff_secs)]
     pub max_backoff_secs: u64,
 }

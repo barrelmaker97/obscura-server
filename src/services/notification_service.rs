@@ -96,7 +96,7 @@ impl DistributedNotificationService {
     /// Creates a new distributed notification service.
     ///
     /// # Errors
-    /// Returns an error if the subscription to PubSub fails.
+    /// Returns an error if the subscription to `PubSub` fails.
     pub async fn new(
         pubsub: Arc<RedisClient>,
         config: &Config,
