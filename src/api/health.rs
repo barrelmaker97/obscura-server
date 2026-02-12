@@ -7,7 +7,7 @@ pub async fn livez() -> impl IntoResponse {
     StatusCode::OK
 }
 
-/// Readiness probe: checks connectivity to the database, S3, and PubSub.
+/// Readiness probe: checks connectivity to the database, S3, and `PubSub`.
 pub async fn readyz(State(state): State<MgmtState>) -> impl IntoResponse {
     let (db_res, storage_res, pubsub_res) = tokio::join!(
         state.health_service.check_db(),

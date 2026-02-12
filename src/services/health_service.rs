@@ -99,15 +99,15 @@ impl HealthService {
         }
     }
 
-    /// Checks PubSub connectivity.
+    /// Checks `PubSub` connectivity.
     ///
     /// # Errors
-    /// Returns a string describing the failure if PubSub is unreachable.
+    /// Returns a string describing the failure if `PubSub` is unreachable.
     pub async fn check_pubsub(&self) -> Result<(), String> {
         let pubsub_timeout = Duration::from_millis(self.config.pubsub_timeout_ms);
 
         match timeout(pubsub_timeout, self.pubsub.ping()).await {
-            Ok(Ok(_)) => {
+            Ok(Ok(())) => {
                 self.metrics.status.record(1, &[KeyValue::new("component", "pubsub")]);
                 Ok(())
             }
