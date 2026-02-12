@@ -8,9 +8,7 @@ use obscura_server::services::gateway::GatewayService;
 use obscura_server::services::health_service::HealthService;
 use obscura_server::services::key_service::KeyService;
 use obscura_server::services::message_service::MessageService;
-use obscura_server::services::notification_service::{
-    NotificationService, ValkeyNotificationService,
-};
+use obscura_server::services::notification_service::{NotificationService, ValkeyNotificationService};
 use obscura_server::services::rate_limit_service::RateLimitService;
 use obscura_server::storage::attachment_repo::AttachmentRepository;
 use obscura_server::storage::key_repo::KeyRepository;
@@ -74,9 +72,8 @@ async fn main() -> anyhow::Result<()> {
             let _ = signal_tx.send(true);
         });
 
-        let notifier: Arc<dyn NotificationService> = Arc::new(
-            ValkeyNotificationService::new(&config.cache.url, &config, shutdown_rx.clone()).await?,
-        );
+        let notifier: Arc<dyn NotificationService> =
+            Arc::new(ValkeyNotificationService::new(&config.cache.url, &config, shutdown_rx.clone()).await?);
 
         // Storage Setup
         let s3_client = {

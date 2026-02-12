@@ -282,10 +282,7 @@ pub struct NotificationConfig {
 
 impl Default for NotificationConfig {
     fn default() -> Self {
-        Self {
-            gc_interval_secs: 60,
-            channel_capacity: 16,
-        }
+        Self { gc_interval_secs: 60, channel_capacity: 16 }
     }
 }
 

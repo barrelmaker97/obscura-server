@@ -8,9 +8,14 @@ use obscura_server::{
         AckMessage, EncryptedMessage, Envelope, PreKeyStatus, WebSocketFrame, web_socket_frame::Payload,
     },
     services::{
-        account_service::AccountService, attachment_service::AttachmentService, gateway::GatewayService,
-        health_service::HealthService, key_service::KeyService, message_service::MessageService,
-        notification_service::{NotificationService, ValkeyNotificationService}, rate_limit_service::RateLimitService,
+        account_service::AccountService,
+        attachment_service::AttachmentService,
+        gateway::GatewayService,
+        health_service::HealthService,
+        key_service::KeyService,
+        message_service::MessageService,
+        notification_service::{NotificationService, ValkeyNotificationService},
+        rate_limit_service::RateLimitService,
     },
     storage::{
         self, attachment_repo::AttachmentRepository, key_repo::KeyRepository, message_repo::MessageRepository,

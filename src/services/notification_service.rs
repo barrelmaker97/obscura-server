@@ -22,10 +22,23 @@ impl Metrics {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum UserEvent {
-    MessageReceived,
-    Disconnect,
+    MessageReceived = 1,
+    Disconnect = 2,
+}
+
+impl TryFrom<u8> for UserEvent {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(Self::MessageReceived),
+            2 => Ok(Self::Disconnect),
+            _ => Err(()),
+        }
+    }
 }
 
 #[async_trait]
@@ -76,14 +89,9 @@ impl ValkeyNotificationService {
                         let channel = msg.get_channel_name();
                         if let Some(user_id_str) = channel.strip_prefix("user:") {
                             if let Ok(user_id) = Uuid::parse_str(user_id_str) {
-                                let payload: String = msg.get_payload().unwrap_or_default();
-                                let event = match payload.as_str() {
-                                    "MessageReceived" => Some(UserEvent::MessageReceived),
-                                    "Disconnect" => Some(UserEvent::Disconnect),
-                                    _ => None,
-                                };
+                                let payload: u8 = msg.get_payload().unwrap_or_default();
 
-                                if let Some(event) = event {
+                                if let Ok(event) = UserEvent::try_from(payload) {
                                     if let Some(tx) = map_ref.get(&user_id) {
                                         let _ = tx.send(event);
                                     }
@@ -135,10 +143,7 @@ impl NotificationService for ValkeyNotificationService {
         use redis::AsyncCommands;
         let mut conn = self.publisher.clone();
         let channel_name = format!("user:{}", user_id);
-        let payload = match event {
-            UserEvent::MessageReceived => "MessageReceived",
-            UserEvent::Disconnect => "Disconnect",
-        };
+        let payload = event as u8;
 
         match conn.publish::<_, _, i64>(channel_name, payload).await {
             Ok(_) => self.metrics.sends_total.add(1, &[KeyValue::new("status", "sent")]),
