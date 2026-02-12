@@ -12,5 +12,8 @@ pub async fn openapi_yaml() -> impl IntoResponse {
     let version = env!("CARGO_PKG_VERSION");
     let spec_with_version = spec.replace("version: 0.0.0", &format!("version: {version}"));
 
-    Response::builder().header(header::CONTENT_TYPE, "text/yaml").body(spec_with_version).unwrap()
+    Response::builder()
+        .header(header::CONTENT_TYPE, "text/yaml")
+        .body(spec_with_version)
+        .expect("Failed to construct OpenAPI YAML response")
 }

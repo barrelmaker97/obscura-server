@@ -11,13 +11,13 @@ use uuid::Uuid;
 
 /// `MessagePump` coalesces multiple delivery notifications into a single background
 /// database poll to avoid overwhelming the database with redundant queries.
-pub(crate) struct MessagePump {
+pub struct MessagePump {
     notify_tx: mpsc::Sender<()>,
     task: tokio::task::JoinHandle<()>,
 }
 
 impl MessagePump {
-    pub(crate) fn new(
+    pub fn new(
         user_id: Uuid,
         message_service: MessageService,
         outbound_tx: mpsc::Sender<WsMessage>,
@@ -37,11 +37,11 @@ impl MessagePump {
         Self { notify_tx, task }
     }
 
-    pub(crate) fn notify(&self) {
+    pub fn notify(&self) {
         let _ = self.notify_tx.try_send(());
     }
 
-    pub(crate) fn abort(&self) {
+    pub fn abort(&self) {
         self.task.abort();
     }
 
@@ -57,10 +57,10 @@ impl MessagePump {
 
         while rx.recv().await.is_some() {
             // Continues fetching until the backlog is fully drained for the user.
-            while let Ok(true) =
-                Self::flush_batch(user_id, &message_service, &outbound_tx, &metrics, limit, &mut cursor).await
-            {
-            }
+            while matches!(
+                Self::flush_batch(user_id, &message_service, &outbound_tx, &metrics, limit, &mut cursor).await,
+                Ok(true)
+            ) {}
         }
     }
 

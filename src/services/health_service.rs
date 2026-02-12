@@ -5,7 +5,7 @@ use opentelemetry::{KeyValue, global, metrics::Gauge};
 use std::time::Duration;
 use tokio::time::timeout;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Metrics {
     pub status: Gauge<i64>,
 }
@@ -29,7 +29,7 @@ impl Default for Metrics {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct HealthService {
     pool: DbPool,
     s3_client: Client,

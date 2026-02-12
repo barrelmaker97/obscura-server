@@ -25,7 +25,7 @@ pub struct Claims {
 
 impl Claims {
     #[must_use]
-    pub fn new(user_id: Uuid, exp: usize) -> Self {
+    pub const fn new(user_id: Uuid, exp: usize) -> Self {
         Self { sub: user_id, exp }
     }
 }
@@ -35,7 +35,7 @@ pub struct Jwt(pub String);
 
 impl Jwt {
     #[must_use]
-    pub fn new(token: String) -> Self {
+    pub const fn new(token: String) -> Self {
         Self(token)
     }
 
@@ -57,5 +57,7 @@ impl std::fmt::Display for Jwt {
     }
 }
 
+#[derive(Debug)]
 pub struct Password;
+#[derive(Debug)]
 pub struct OpaqueToken;

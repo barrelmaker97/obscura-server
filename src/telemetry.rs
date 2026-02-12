@@ -17,6 +17,7 @@ use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::Subscr
 
 /// A guard that ensures OpenTelemetry providers are properly shut down and flushed when dropped.
 // ... (TelemetryGuard implementation remains the same)
+#[derive(Debug)]
 pub struct TelemetryGuard {
     tracer: Option<SdkTracerProvider>,
     meter: Option<SdkMeterProvider>,
@@ -54,11 +55,11 @@ pub fn init_telemetry(config: &TelemetryConfig) -> anyhow::Result<TelemetryGuard
     // 1. Build the Registry with EnvFilter
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "info".into())
-        .add_directive("sqlx=warn".parse().unwrap())
-        .add_directive("tower_http=warn".parse().unwrap())
-        .add_directive("hyper=warn".parse().unwrap())
-        .add_directive("opentelemetry=warn".parse().unwrap())
-        .add_directive("opentelemetry_sdk=warn".parse().unwrap());
+        .add_directive("sqlx=warn".parse().expect("Invalid directive for sqlx"))
+        .add_directive("tower_http=warn".parse().expect("Invalid directive for tower_http"))
+        .add_directive("hyper=warn".parse().expect("Invalid directive for hyper"))
+        .add_directive("opentelemetry=warn".parse().expect("Invalid directive for opentelemetry"))
+        .add_directive("opentelemetry_sdk=warn".parse().expect("Invalid directive for opentelemetry_sdk"));
 
     let registry = Registry::default().with(filter);
 
@@ -165,7 +166,7 @@ struct OtelLogLayer<L: Logger> {
 }
 
 impl<L: Logger> OtelLogLayer<L> {
-    fn new(logger: L) -> Self {
+    const fn new(logger: L) -> Self {
         Self { logger }
     }
 }

@@ -5,12 +5,12 @@ use sqlx::PgConnection;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct MessageRepository {}
 
 impl MessageRepository {
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {}
     }
 

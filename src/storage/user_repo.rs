@@ -3,12 +3,12 @@ use crate::error::{AppError, Result};
 use crate::storage::records::UserRecord;
 use sqlx::PgConnection;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct UserRepository {}
 
 impl UserRepository {
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {}
     }
 

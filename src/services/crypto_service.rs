@@ -3,12 +3,12 @@ use crate::error::{AppError, Result};
 use ed25519_dalek::Verifier;
 use xeddsa::ConvertMont;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct CryptoService;
 
 impl CryptoService {
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self
     }
 

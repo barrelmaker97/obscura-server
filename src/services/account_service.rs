@@ -11,7 +11,7 @@ use crate::storage::user_repo::UserRepository;
 use opentelemetry::{global, metrics::Counter};
 use std::sync::Arc;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Metrics {
     registered_total: Counter<u64>,
     takeovers_total: Counter<u64>,
@@ -33,7 +33,7 @@ impl Metrics {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AccountService {
     pool: DbPool,
     user_repo: UserRepository,

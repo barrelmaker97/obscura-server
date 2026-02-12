@@ -27,11 +27,11 @@ pub type Result<T> = std::result::Result<T, AppError>;
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
-            AppError::AuthError => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
-            AppError::NotFound => (StatusCode::NOT_FOUND, "Not found".to_string()),
-            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
-            AppError::Conflict(msg) => (StatusCode::CONFLICT, msg),
-            AppError::Database(_) | AppError::Internal => {
+            Self::AuthError => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
+            Self::NotFound => (StatusCode::NOT_FOUND, "Not found".to_string()),
+            Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
+            Self::Conflict(msg) => (StatusCode::CONFLICT, msg),
+            Self::Database(_) | Self::Internal => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
             }
         };

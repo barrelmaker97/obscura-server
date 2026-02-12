@@ -9,6 +9,7 @@ use axum::{
 use tower_http::request_id::{MakeRequestId, RequestId};
 use uuid::Uuid;
 
+#[derive(Debug)]
 pub struct AuthUser {
     pub(crate) user_id: Uuid,
 }
@@ -33,18 +34,18 @@ impl FromRequestParts<AppState> for AuthUser {
 
         tracing::Span::current().record("user_id", tracing::field::display(user_id));
 
-        Ok(AuthUser { user_id })
+        Ok(Self { user_id })
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct MakeRequestUuidOrHeader;
 
 impl MakeRequestId for MakeRequestUuidOrHeader {
     fn make_request_id<B>(&mut self, request: &axum::http::Request<B>) -> Option<RequestId> {
         let header_value = request.headers().get("x-request-id").cloned().unwrap_or_else(|| {
             let uuid = Uuid::new_v4().to_string();
-            HeaderValue::from_str(&uuid).unwrap()
+            HeaderValue::from_str(&uuid).expect("Invalid UUID generated for request ID")
         });
 
         Some(RequestId::new(header_value))

@@ -13,7 +13,7 @@ use std::time::Duration;
 use tracing::Instrument;
 use uuid::Uuid;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Metrics {
     sent_total: Counter<u64>,
     fetch_batch_size: Histogram<u64>,
@@ -40,7 +40,7 @@ impl Metrics {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MessageService {
     pool: DbPool,
     repo: MessageRepository,
@@ -133,7 +133,7 @@ impl MessageService {
     }
 
     #[must_use]
-    pub(crate) fn batch_limit(&self) -> i64 {
+    pub(crate) const fn batch_limit(&self) -> i64 {
         self.config.batch_limit
     }
 

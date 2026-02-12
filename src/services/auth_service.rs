@@ -18,7 +18,7 @@ use sqlx::PgConnection;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Metrics {
     login: Counter<u64>,
     refresh: Counter<u64>,
@@ -46,7 +46,7 @@ impl Metrics {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AuthService {
     config: AuthConfig,
     pool: DbPool,

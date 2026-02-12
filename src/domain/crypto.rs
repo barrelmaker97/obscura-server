@@ -8,7 +8,7 @@ pub struct PublicKey([u8; 33]);
 
 impl PublicKey {
     #[must_use]
-    pub fn new(bytes: [u8; 33]) -> Self {
+    pub const fn new(bytes: [u8; 33]) -> Self {
         Self(bytes)
     }
 
@@ -22,7 +22,7 @@ impl PublicKey {
     }
 
     #[must_use]
-    pub fn as_bytes(&self) -> &[u8; 33] {
+    pub const fn as_bytes(&self) -> &[u8; 33] {
         &self.0
     }
 
@@ -39,21 +39,21 @@ impl PublicKey {
         }
         let mut arr = [0u8; 33];
         arr.copy_from_slice(bytes);
-        Ok(PublicKey(arr))
+        Ok(Self(arr))
     }
 }
 
 impl TryFrom<&[u8]> for PublicKey {
     type Error = String;
     fn try_from(bytes: &[u8]) -> std::result::Result<Self, Self::Error> {
-        PublicKey::try_from_bytes(bytes)
+        Self::try_from_bytes(bytes)
     }
 }
 
 impl TryFrom<Vec<u8>> for PublicKey {
     type Error = String;
     fn try_from(bytes: Vec<u8>) -> std::result::Result<Self, Self::Error> {
-        PublicKey::try_from_bytes(&bytes)
+        Self::try_from_bytes(&bytes)
     }
 }
 
@@ -69,12 +69,12 @@ pub struct Signature([u8; 64]);
 
 impl Signature {
     #[must_use]
-    pub fn new(bytes: [u8; 64]) -> Self {
+    pub const fn new(bytes: [u8; 64]) -> Self {
         Self(bytes)
     }
 
     #[must_use]
-    pub fn as_bytes(&self) -> &[u8; 64] {
+    pub const fn as_bytes(&self) -> &[u8; 64] {
         &self.0
     }
 }
@@ -85,7 +85,7 @@ impl TryFrom<&[u8]> for Signature {
         if bytes.len() == 64 {
             let mut arr = [0u8; 64];
             arr.copy_from_slice(bytes);
-            Ok(Signature(arr))
+            Ok(Self(arr))
         } else {
             Err(format!("Invalid signature length: {} (expected 64)", bytes.len()))
         }
@@ -95,7 +95,7 @@ impl TryFrom<&[u8]> for Signature {
 impl TryFrom<Vec<u8>> for Signature {
     type Error = String;
     fn try_from(bytes: Vec<u8>) -> std::result::Result<Self, Self::Error> {
-        Signature::try_from(bytes.as_slice())
+        Self::try_from(bytes.as_slice())
     }
 }
 

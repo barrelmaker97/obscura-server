@@ -5,12 +5,12 @@ use crate::storage::records::{IdentityKeyRecord, OneTimePreKeyRecord, SignedPreK
 use sqlx::PgConnection;
 use uuid::Uuid;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct KeyRepository {}
 
 impl KeyRepository {
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {}
     }
 

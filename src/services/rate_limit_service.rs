@@ -7,7 +7,7 @@ use tower_governor::GovernorError;
 use tower_governor::key_extractor::KeyExtractor;
 use tracing::warn;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Metrics {
     pub(crate) decisions_total: Counter<u64>,
 }
@@ -31,14 +31,14 @@ impl Default for Metrics {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IpKeyExtractor {
     pub(crate) trusted_proxies: Vec<IpNetwork>,
 }
 
 impl IpKeyExtractor {
     #[must_use]
-    pub(crate) fn new(trusted_proxies: Vec<IpNetwork>) -> Self {
+    pub(crate) const fn new(trusted_proxies: Vec<IpNetwork>) -> Self {
         Self { trusted_proxies }
     }
 
@@ -79,7 +79,7 @@ impl KeyExtractor for IpKeyExtractor {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RateLimitService {
     pub extractor: IpKeyExtractor,
     pub metrics: Metrics,

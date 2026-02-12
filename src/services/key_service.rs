@@ -10,7 +10,7 @@ use opentelemetry::{global, metrics::Counter};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Metrics {
     prekey_low_total: Counter<u64>,
 }
@@ -27,7 +27,7 @@ impl Metrics {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct KeyService {
     pool: DbPool,
     repo: KeyRepository,
@@ -36,6 +36,7 @@ pub struct KeyService {
     metrics: Metrics,
 }
 
+#[derive(Debug)]
 pub struct KeyUploadParams {
     pub user_id: Uuid,
     pub identity_key: Option<PublicKey>,

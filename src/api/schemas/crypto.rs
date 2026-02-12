@@ -16,7 +16,7 @@ impl TryFrom<PublicKey> for crypto::PublicKey {
     type Error = String;
     fn try_from(schema: PublicKey) -> Result<Self, Self::Error> {
         let bytes = STANDARD.decode(&schema.0).map_err(|e| e.to_string())?;
-        crypto::PublicKey::try_from_bytes(&bytes)
+        Self::try_from_bytes(&bytes)
     }
 }
 
@@ -34,7 +34,7 @@ impl TryFrom<Signature> for crypto::Signature {
     type Error = String;
     fn try_from(schema: Signature) -> Result<Self, Self::Error> {
         let bytes = STANDARD.decode(&schema.0).map_err(|e| e.to_string())?;
-        crypto::Signature::try_from(bytes.as_slice())
+        Self::try_from(bytes.as_slice())
     }
 }
 

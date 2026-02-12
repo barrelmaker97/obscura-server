@@ -111,8 +111,8 @@ impl Default for TelemetryConfig {
 impl std::fmt::Display for LogFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LogFormat::Text => write!(f, "text"),
-            LogFormat::Json => write!(f, "json"),
+            Self::Text => write!(f, "text"),
+            Self::Json => write!(f, "json"),
         }
     }
 }
@@ -153,10 +153,10 @@ impl Default for ServerConfig {
             mgmt_port: 9090,
             shutdown_timeout_secs: 5,
             trusted_proxies: vec![
-                "10.0.0.0/8".parse().unwrap(),
-                "172.16.0.0/12".parse().unwrap(),
-                "192.168.0.0/16".parse().unwrap(),
-                "127.0.0.1/32".parse().unwrap(),
+                "10.0.0.0/8".parse().expect("Invalid default CIDR for private network"),
+                "172.16.0.0/12".parse().expect("Invalid default CIDR for private network"),
+                "192.168.0.0/16".parse().expect("Invalid default CIDR for private network"),
+                "127.0.0.1/32".parse().expect("Invalid default CIDR for localhost"),
             ],
         }
     }

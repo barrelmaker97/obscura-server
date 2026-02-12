@@ -2,8 +2,8 @@ use crate::domain::message::Message;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-#[derive(sqlx::FromRow)]
-pub(crate) struct MessageRecord {
+#[derive(Debug, sqlx::FromRow)]
+pub struct MessageRecord {
     pub(crate) id: Uuid,
     pub(crate) sender_id: Uuid,
     pub(crate) recipient_id: Uuid,

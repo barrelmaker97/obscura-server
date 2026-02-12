@@ -3,12 +3,12 @@ use sqlx::PgConnection;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct RefreshTokenRepository {}
 
 impl RefreshTokenRepository {
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {}
     }
 

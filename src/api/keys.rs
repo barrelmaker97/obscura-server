@@ -19,10 +19,7 @@ use uuid::Uuid;
 pub async fn get_pre_key_bundle(State(state): State<AppState>, Path(user_id): Path<Uuid>) -> Result<impl IntoResponse> {
     let bundle = state.key_service.get_pre_key_bundle(user_id).await?;
 
-    match bundle {
-        Some(b) => Ok(Json(PreKeyBundleResponse::from(b))),
-        None => Err(AppError::NotFound),
-    }
+    bundle.map_or_else(|| Err(AppError::NotFound), |b| Ok(Json(PreKeyBundleResponse::from(b))))
 }
 
 /// Uploads new pre-keys for the authenticated user.

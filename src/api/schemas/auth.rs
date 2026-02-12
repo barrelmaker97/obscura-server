@@ -2,7 +2,7 @@ use crate::api::schemas::crypto::PublicKey;
 use crate::api::schemas::keys::{OneTimePreKey, SignedPreKey};
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegistrationRequest {
     pub username: String,
@@ -82,25 +82,25 @@ mod tests {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RefreshRequest {
     pub refresh_token: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogoutRequest {
     pub refresh_token: String,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthResponse {
     pub token: String,

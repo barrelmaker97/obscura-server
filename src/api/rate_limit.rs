@@ -24,7 +24,7 @@ pub async fn log_rate_limit_events(State(state): State<AppState>, req: Request<B
     if status == StatusCode::TOO_MANY_REQUESTS
         && let Some(after) = ratelimit_after
     {
-        response.headers_mut().insert("retry-after", after.parse().unwrap());
+        response.headers_mut().insert("retry-after", after.parse().expect("Failed to parse retry-after header value"));
     }
 
     response

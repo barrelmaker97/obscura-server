@@ -20,7 +20,7 @@ use tokio::sync::mpsc;
 use tracing::Instrument;
 use uuid::Uuid;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Metrics {
     uploaded_bytes: Counter<u64>,
     upload_size_bytes: Histogram<u64>,
@@ -58,7 +58,7 @@ impl http_body::Body for SyncBody {
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<std::result::Result<http_body::Frame<Self::Data>, Self::Error>>> {
-        let mut rx = self.rx.lock().unwrap();
+        let mut rx = self.rx.lock().expect("Failed to lock receiver mutex");
 
         match rx.poll_recv(cx) {
             Poll::Ready(Some(Ok(bytes))) => Poll::Ready(Some(Ok(http_body::Frame::data(bytes)))),
@@ -69,7 +69,7 @@ impl http_body::Body for SyncBody {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AttachmentService {
     pool: DbPool,
     repo: AttachmentRepository,

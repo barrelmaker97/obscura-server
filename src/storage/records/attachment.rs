@@ -2,8 +2,8 @@ use crate::domain::attachment::Attachment;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-#[derive(sqlx::FromRow)]
-pub(crate) struct AttachmentRecord {
+#[derive(Debug, sqlx::FromRow)]
+pub struct AttachmentRecord {
     pub(crate) id: Uuid,
     pub(crate) expires_at: OffsetDateTime,
 }

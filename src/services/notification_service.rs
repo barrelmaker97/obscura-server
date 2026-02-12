@@ -4,7 +4,7 @@ use opentelemetry::{KeyValue, global, metrics::Counter};
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Metrics {
     sends_total: Counter<u64>,
 }
@@ -21,13 +21,13 @@ impl Metrics {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UserEvent {
     MessageReceived,
     Disconnect,
 }
 
-pub trait NotificationService: Send + Sync {
+pub trait NotificationService: Send + Sync + std::fmt::Debug {
     // Returns a receiver that will get a value when a notification arrives.
     fn subscribe(&self, user_id: Uuid) -> broadcast::Receiver<UserEvent>;
 
@@ -35,6 +35,7 @@ pub trait NotificationService: Send + Sync {
     fn notify(&self, user_id: Uuid, event: UserEvent);
 }
 
+#[derive(Debug)]
 pub struct InMemoryNotificationService {
     // Map UserID -> Broadcast Channel
     // We store the Sender. We create new Receivers from it.

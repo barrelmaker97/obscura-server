@@ -2,8 +2,8 @@ use crate::domain::user::User;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-#[derive(sqlx::FromRow)]
-pub(crate) struct UserRecord {
+#[derive(Debug, sqlx::FromRow)]
+pub struct UserRecord {
     pub(crate) id: Uuid,
     pub(crate) username: String,
     pub(crate) password_hash: String,

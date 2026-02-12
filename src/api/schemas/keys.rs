@@ -48,7 +48,7 @@ impl TryFrom<OneTimePreKey> for keys::OneTimePreKey {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreKeyUploadRequest {
     pub identity_key: Option<PublicKey>,
@@ -133,7 +133,7 @@ mod tests {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreKeyBundleResponse {
     pub registration_id: i32,

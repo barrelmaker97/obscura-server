@@ -33,7 +33,7 @@ pub mod middleware;
 pub mod rate_limit;
 pub mod schemas;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AppState {
     pub config: Config,
     pub key_service: KeyService,
@@ -46,11 +46,12 @@ pub struct AppState {
     pub shutdown_rx: tokio::sync::watch::Receiver<bool>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MgmtState {
     pub health_service: HealthService,
 }
 
+#[derive(Debug)]
 pub struct ServiceContainer {
     pub pool: DbPool,
     pub key_service: KeyService,
@@ -71,7 +72,6 @@ pub fn app_router(
     services: ServiceContainer,
     shutdown_rx: tokio::sync::watch::Receiver<bool>,
 ) -> Router {
-    // ... (rate limit config remains same)
     let std_interval_ns = 1_000_000_000 / config.rate_limit.per_second.max(1);
     let standard_conf = Arc::new(
         GovernorConfigBuilder::default()
@@ -79,7 +79,7 @@ pub fn app_router(
             .burst_size(config.rate_limit.burst)
             .key_extractor(services.rate_limit_service.extractor.clone())
             .finish()
-            .unwrap(),
+            .expect("Failed to build standard rate limiter config"),
     );
 
     // Auth Tier: Stricter limits for expensive/sensitive registration & login
@@ -90,7 +90,7 @@ pub fn app_router(
             .burst_size(config.rate_limit.auth_burst)
             .key_extractor(services.rate_limit_service.extractor.clone())
             .finish()
-            .unwrap(),
+            .expect("Failed to build auth rate limiter config"),
     );
 
     let state = AppState {

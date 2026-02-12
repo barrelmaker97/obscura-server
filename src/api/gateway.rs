@@ -8,7 +8,7 @@ use axum::{
 use serde::Deserialize;
 use tower_http::request_id::RequestId;
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct WsParams {
     token: String,
 }

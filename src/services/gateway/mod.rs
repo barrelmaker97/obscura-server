@@ -1,3 +1,4 @@
+#![allow(unreachable_pub)]
 pub(crate) mod ack_batcher;
 pub(crate) mod message_pump;
 pub(crate) mod session;
@@ -18,7 +19,7 @@ use prost::Message as ProstMessage;
 use std::sync::Arc;
 use uuid::Uuid;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct Metrics {
     pub(crate) ack_batch_size: Histogram<u64>,
     pub(crate) outbound_dropped_total: Counter<u64>,
@@ -57,7 +58,7 @@ impl Default for Metrics {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct GatewayService {
     message_service: MessageService,
     key_service: KeyService,
