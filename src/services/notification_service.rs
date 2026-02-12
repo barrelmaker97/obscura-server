@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use dashmap::DashMap;
 use opentelemetry::{
     KeyValue, global,
-    metrics::{Counter, UpDownCounter},
+    metrics::{Counter, Histogram, UpDownCounter},
 };
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -15,7 +15,10 @@ use uuid::Uuid;
 struct Metrics {
     sends_total: Counter<u64>,
     received_total: Counter<u64>,
+    unrouted_total: Counter<u64>,
     active_channels: UpDownCounter<i64>,
+    gc_duration_seconds: Histogram<f64>,
+    gc_reclaimed_total: Counter<u64>,
 }
 
 impl Metrics {
@@ -30,9 +33,21 @@ impl Metrics {
                 .u64_counter("notification_received_total")
                 .with_description("Total notifications received from Valkey")
                 .build(),
+            unrouted_total: meter
+                .u64_counter("notification_unrouted_total")
+                .with_description("Notifications received from Valkey with no local subscribers")
+                .build(),
             active_channels: meter
                 .i64_up_down_counter("notification_active_channels")
                 .with_description("Number of active local notification channels")
+                .build(),
+            gc_duration_seconds: meter
+                .f64_histogram("notification_gc_duration_seconds")
+                .with_description("Time taken to perform a single GC iteration")
+                .build(),
+            gc_reclaimed_total: meter
+                .u64_counter("notification_gc_reclaimed_total")
+                .with_description("Total number of stale channels reclaimed by GC")
                 .build(),
         }
     }
@@ -73,7 +88,7 @@ const CHANNEL_PATTERN: &str = "user:*";
 pub struct ValkeyNotificationService {
     valkey: Arc<ValkeyClient>,
     channels: Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
-    channel_capacity: usize,
+    user_channel_capacity: usize,
     metrics: Metrics,
 }
 
@@ -124,6 +139,8 @@ impl ValkeyNotificationService {
                                                 dispatcher_metrics.received_total.add(1, &[KeyValue::new("event", format!("{event:?}"))]);
                                                 if let Some(tx) = dispatcher_channels.get(&user_id) {
                                                     let _ = tx.send(event);
+                                                } else {
+                                                    dispatcher_metrics.unrouted_total.add(1, &[KeyValue::new("event", format!("{event:?}"))]);
                                                 }
                                             } else {
                                                 tracing::error!(payload = ?msg.payload, "Received invalid UserEvent payload");
@@ -131,7 +148,7 @@ impl ValkeyNotificationService {
                                         }
                                 }
                                 Err(broadcast::error::RecvError::Lagged(n)) => {
-                                    tracing::warn!(missed = n, "Valkey notification dispatcher lagged");
+                                    tracing::warn!(missed = n, "Valkey notification dispatcher lagged; missed {} notifications", n);
                                 }
                                 Err(broadcast::error::RecvError::Closed) => break,
                             }
@@ -142,7 +159,7 @@ impl ValkeyNotificationService {
             .instrument(tracing::info_span!("notification_dispatcher")),
         );
 
-        Ok(Self { valkey, channels, channel_capacity: config.notifications.channel_capacity, metrics })
+        Ok(Self { valkey, channels, user_channel_capacity: config.notifications.user_channel_capacity, metrics })
     }
 
     async fn run_gc(
@@ -155,13 +172,27 @@ impl ValkeyNotificationService {
         loop {
             tokio::select! {
                 _ = interval.tick() => {
+                    let start = std::time::Instant::now();
+                    let mut reclaimed_this_cycle = 0;
+
+                    let span = tracing::debug_span!("gc_iteration");
+                    let _enter = span.enter();
+
                     channels.retain(|_, sender| {
                         let active = sender.receiver_count() > 0;
                         if !active {
                             metrics.active_channels.add(-1, &[]);
+                            reclaimed_this_cycle += 1;
                         }
                         active
                     });
+
+                    let duration = start.elapsed().as_secs_f64();
+                    metrics.gc_duration_seconds.record(duration, &[]);
+                    if reclaimed_this_cycle > 0 {
+                        metrics.gc_reclaimed_total.add(reclaimed_this_cycle, &[]);
+                        tracing::debug!(reclaimed = reclaimed_this_cycle, duration_secs = %duration, "GC reclaimed stale channels");
+                    }
                 }
                 _ = shutdown.changed() => break,
             }
@@ -178,7 +209,7 @@ impl NotificationService for ValkeyNotificationService {
             .entry(user_id)
             .or_insert_with(|| {
                 self.metrics.active_channels.add(1, &[]);
-                let (tx, _rx) = broadcast::channel(self.channel_capacity);
+                let (tx, _rx) = broadcast::channel(self.user_channel_capacity);
                 tx
             })
             .value()

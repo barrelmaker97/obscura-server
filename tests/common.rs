@@ -230,7 +230,7 @@ impl TestApp {
 
         let valkey = storage::valkey::ValkeyClient::new(
             &config.valkey,
-            config.notifications.channel_capacity,
+            config.notifications.global_channel_capacity,
             shutdown_rx.clone(),
         )
         .await

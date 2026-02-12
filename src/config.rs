@@ -283,14 +283,22 @@ pub struct NotificationConfig {
     #[arg(long, env = "OBSCURA_GC_INTERVAL_SECS", default_value_t = NotificationConfig::default().gc_interval_secs)]
     pub gc_interval_secs: u64,
 
-    /// Capacity of the notification channel
-    #[arg(long, env = "OBSCURA_CHANNEL_CAPACITY", default_value_t = NotificationConfig::default().channel_capacity)]
-    pub channel_capacity: usize,
+    /// Capacity of the global notification dispatcher channel
+    #[arg(long, env = "OBSCURA_GLOBAL_CHANNEL_CAPACITY", default_value_t = NotificationConfig::default().global_channel_capacity)]
+    pub global_channel_capacity: usize,
+
+    /// Capacity of the per-user notification channel
+    #[arg(long, env = "OBSCURA_USER_CHANNEL_CAPACITY", default_value_t = NotificationConfig::default().user_channel_capacity)]
+    pub user_channel_capacity: usize,
 }
 
 impl Default for NotificationConfig {
     fn default() -> Self {
-        Self { gc_interval_secs: 60, channel_capacity: 16 }
+        Self {
+            gc_interval_secs: 60,
+            global_channel_capacity: 1024,
+            user_channel_capacity: 64,
+        }
     }
 }
 
