@@ -101,11 +101,11 @@ pub enum LogFormat {
 pub struct TelemetryConfig {
     /// OTLP Endpoint for traces and metrics (e.g. <http://localhost:4318>)
     /// If not set, OTLP export is disabled (logs only).
-    #[arg(long, env = "OBSCURA_OTLP_ENDPOINT")]
+    #[arg(long, env = "OBSCURA_TELEMETRY_OTLP_ENDPOINT")]
     pub otlp_endpoint: Option<String>,
 
     /// Log format (text or json)
-    #[arg(long, env = "OBSCURA_LOG_FORMAT", default_value_t = TelemetryConfig::default().log_format)]
+    #[arg(long, env = "OBSCURA_TELEMETRY_LOG_FORMAT", default_value_t = TelemetryConfig::default().log_format)]
     pub log_format: LogFormat,
 
     /// Trace sampling ratio (0.0 to 1.0)
@@ -145,25 +145,25 @@ impl std::fmt::Display for LogFormat {
 #[derive(Clone, Debug, Args)]
 pub struct ServerConfig {
     /// Host to listen on
-    #[arg(long = "server-host", env = "OBSCURA_HOST", default_value_t = ServerConfig::default().host)]
+    #[arg(long = "server-host", env = "OBSCURA_SERVER_HOST", default_value_t = ServerConfig::default().host)]
     pub host: String,
 
     /// Port to listen on
-    #[arg(long = "server-port", env = "OBSCURA_PORT", default_value_t = ServerConfig::default().port)]
+    #[arg(long = "server-port", env = "OBSCURA_SERVER_PORT", default_value_t = ServerConfig::default().port)]
     pub port: u16,
 
     /// Management port for health checks and metrics
-    #[arg(long, env = "OBSCURA_MGMT_PORT", default_value_t = ServerConfig::default().mgmt_port)]
+    #[arg(long, env = "OBSCURA_SERVER_MGMT_PORT", default_value_t = ServerConfig::default().mgmt_port)]
     pub mgmt_port: u16,
 
     /// How long to wait for background tasks to finish during shutdown in seconds
-    #[arg(long, env = "OBSCURA_SHUTDOWN_TIMEOUT_SECS", default_value_t = ServerConfig::default().shutdown_timeout_secs)]
+    #[arg(long, env = "OBSCURA_SERVER_SHUTDOWN_TIMEOUT_SECS", default_value_t = ServerConfig::default().shutdown_timeout_secs)]
     pub shutdown_timeout_secs: u64,
 
     /// Comma-separated list of CIDRs to trust for X-Forwarded-For IP extraction
     #[arg(
         long,
-        env = "OBSCURA_TRUSTED_PROXIES",
+        env = "OBSCURA_SERVER_TRUSTED_PROXIES",
         default_value = "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32",
         value_delimiter = ','
     )]
@@ -190,15 +190,15 @@ impl Default for ServerConfig {
 #[derive(Clone, Debug, Args)]
 pub struct AuthConfig {
     /// Secret key for JWT signing
-    #[arg(long, env = "OBSCURA_JWT_SECRET", default_value_t = AuthConfig::default().jwt_secret)]
+    #[arg(long, env = "OBSCURA_AUTH_JWT_SECRET", default_value_t = AuthConfig::default().jwt_secret)]
     pub jwt_secret: String,
 
     /// Access token time-to-live in seconds
-    #[arg(long, env = "OBSCURA_ACCESS_TOKEN_TTL_SECS", default_value_t = AuthConfig::default().access_token_ttl_secs)]
+    #[arg(long, env = "OBSCURA_AUTH_TOKEN_TTL_SECS", default_value_t = AuthConfig::default().access_token_ttl_secs)]
     pub access_token_ttl_secs: u64,
 
     /// Refresh token time-to-live in days
-    #[arg(long, env = "OBSCURA_REFRESH_TOKEN_TTL_DAYS", default_value_t = AuthConfig::default().refresh_token_ttl_days)]
+    #[arg(long, env = "OBSCURA_AUTH_REFRESH_TOKEN_TTL_DAYS", default_value_t = AuthConfig::default().refresh_token_ttl_days)]
     pub refresh_token_ttl_days: i64,
 }
 
@@ -223,11 +223,11 @@ pub struct RateLimitConfig {
     pub burst: u32,
 
     /// Stricter rate limit for expensive auth-related endpoints (register/login)
-    #[arg(long = "auth-rate-limit-per-second", env = "OBSCURA_AUTH_RATE_LIMIT_PER_SECOND", default_value_t = RateLimitConfig::default().auth_per_second)]
+    #[arg(long = "auth-rate-limit-per-second", env = "OBSCURA_RATE_LIMIT_AUTH_PER_SECOND", default_value_t = RateLimitConfig::default().auth_per_second)]
     pub auth_per_second: u32,
 
     /// Burst allowance for expensive auth-related endpoints
-    #[arg(long = "auth-rate-limit-burst", env = "OBSCURA_AUTH_RATE_LIMIT_BURST", default_value_t = RateLimitConfig::default().auth_burst)]
+    #[arg(long = "auth-rate-limit-burst", env = "OBSCURA_RATE_LIMIT_AUTH_BURST", default_value_t = RateLimitConfig::default().auth_burst)]
     pub auth_burst: u32,
 }
 
@@ -240,7 +240,7 @@ impl Default for RateLimitConfig {
 #[derive(Clone, Debug, Args)]
 pub struct MessagingConfig {
     /// Maximum number of messages in a user's inbox
-    #[arg(long, env = "OBSCURA_MAX_INBOX_SIZE", default_value_t = MessagingConfig::default().max_inbox_size)]
+    #[arg(long, env = "OBSCURA_MESSAGING_INBOX_MAX_SIZE", default_value_t = MessagingConfig::default().max_inbox_size)]
     pub max_inbox_size: i64,
 
     /// How often to run the message cleanup task
@@ -253,7 +253,7 @@ pub struct MessagingConfig {
     pub cleanup_interval_secs: u64,
 
     /// Maximum number of messages to process in a single batch
-    #[arg(long, env = "OBSCURA_BATCH_LIMIT", default_value_t = MessagingConfig::default().batch_limit)]
+    #[arg(long, env = "OBSCURA_MESSAGING_BATCH_LIMIT", default_value_t = MessagingConfig::default().batch_limit)]
     pub batch_limit: i64,
 
     /// Threshold of one-time prekeys to trigger a refill notification
@@ -261,7 +261,7 @@ pub struct MessagingConfig {
     pub pre_key_refill_threshold: i32,
 
     /// Maximum number of one-time prekeys allowed per user
-    #[arg(long, env = "OBSCURA_MAX_PRE_KEYS", default_value_t = MessagingConfig::default().max_pre_keys)]
+    #[arg(long, env = "OBSCURA_PRE_KEYS_MAX", default_value_t = MessagingConfig::default().max_pre_keys)]
     pub max_pre_keys: i64,
 }
 
@@ -280,15 +280,15 @@ impl Default for MessagingConfig {
 #[derive(Clone, Debug, Args)]
 pub struct NotificationConfig {
     /// How often to run the notification garbage collection
-    #[arg(long, env = "OBSCURA_GC_INTERVAL_SECS", default_value_t = NotificationConfig::default().gc_interval_secs)]
+    #[arg(long, env = "OBSCURA_NOTIFICATIONS_GC_INTERVAL_SECS", default_value_t = NotificationConfig::default().gc_interval_secs)]
     pub gc_interval_secs: u64,
 
     /// Capacity of the global notification dispatcher channel
-    #[arg(long, env = "OBSCURA_GLOBAL_CHANNEL_CAPACITY", default_value_t = NotificationConfig::default().global_channel_capacity)]
+    #[arg(long, env = "OBSCURA_NOTIFICATIONS_GLOBAL_CHANNEL_CAPACITY", default_value_t = NotificationConfig::default().global_channel_capacity)]
     pub global_channel_capacity: usize,
 
     /// Capacity of the per-user notification channel
-    #[arg(long, env = "OBSCURA_USER_CHANNEL_CAPACITY", default_value_t = NotificationConfig::default().user_channel_capacity)]
+    #[arg(long, env = "OBSCURA_NOTIFICATIONS_USER_CHANNEL_CAPACITY", default_value_t = NotificationConfig::default().user_channel_capacity)]
     pub user_channel_capacity: usize,
 }
 
@@ -390,7 +390,7 @@ pub struct HealthConfig {
     pub db_timeout_ms: u64,
 
     /// Timeout for storage health check in milliseconds
-    #[arg(long = "storage-timeout-ms", env = "OBSCURA_STORAGE_HEALTH_TIMEOUT_MS", default_value_t = HealthConfig::default().storage_timeout_ms)]
+    #[arg(long = "storage-timeout-ms", env = "OBSCURA_HEALTH_STORAGE_TIMEOUT_MS", default_value_t = HealthConfig::default().storage_timeout_ms)]
     pub storage_timeout_ms: u64,
 }
 
