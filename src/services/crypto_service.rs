@@ -69,7 +69,11 @@ mod tests {
         for ik_sign in [0, 1] {
             // 1. Calculate public key with specific sign bit
             let (_, ed_pub) = xed_priv.calculate_key_pair(ik_sign);
-            let mont_pub = CompressedEdwardsY(ed_pub).decompress().unwrap().to_montgomery().to_bytes();
+            let mont_pub = CompressedEdwardsY(ed_pub)
+                .decompress()
+                .expect("Failed to decompress Edwards public key")
+                .to_montgomery()
+                .to_bytes();
 
             let mut ik_wire = [0u8; 33];
             ik_wire[0] = DJB_KEY_PREFIX;
@@ -89,13 +93,11 @@ mod tests {
 
             assert!(
                 service.verify_signature(&ik_pub, &msg_32, &sig_32).is_ok(),
-                "Failed 32-byte msg for ik_sign={}",
-                ik_sign
+                "Failed 32-byte msg for ik_sign={ik_sign}",
             );
             assert!(
                 service.verify_signature(&ik_pub, &msg_33, &sig_33).is_ok(),
-                "Failed 33-byte msg for ik_sign={}",
-                ik_sign
+                "Failed 33-byte msg for ik_sign={ik_sign}",
             );
         }
     }

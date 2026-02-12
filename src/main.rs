@@ -8,7 +8,7 @@ use obscura_server::services::gateway::GatewayService;
 use obscura_server::services::health_service::HealthService;
 use obscura_server::services::key_service::KeyService;
 use obscura_server::services::message_service::MessageService;
-use obscura_server::services::notification_service::InMemoryNotificationService;
+use obscura_server::services::notification_service::{DistributedNotificationService, NotificationService};
 use obscura_server::services::rate_limit_service::RateLimitService;
 use obscura_server::storage::attachment_repo::AttachmentRepository;
 use obscura_server::storage::key_repo::KeyRepository;
@@ -72,7 +72,19 @@ async fn main() -> anyhow::Result<()> {
             let _ = signal_tx.send(true);
         });
 
-        let notifier = Arc::new(InMemoryNotificationService::new(&config, shutdown_rx.clone()));
+        // PubSub Setup (using Redis)
+        let pubsub = {
+            let _span = tracing::info_span!("pubsub_setup").entered();
+            storage::redis::RedisClient::new(
+                &config.pubsub,
+                config.notifications.global_channel_capacity,
+                shutdown_rx.clone(),
+            )
+            .await?
+        };
+
+        let notifier: Arc<dyn NotificationService> =
+            Arc::new(DistributedNotificationService::new(pubsub.clone(), &config, shutdown_rx.clone()).await?);
 
         // Storage Setup
         let s3_client = {
@@ -164,6 +176,7 @@ async fn main() -> anyhow::Result<()> {
             let health_service = HealthService::new(
                 pool.clone(),
                 s3_client.clone(),
+                pubsub.clone(),
                 config.storage.bucket.clone(),
                 config.health.clone(),
             );

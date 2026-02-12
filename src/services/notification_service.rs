@@ -1,12 +1,24 @@
 use crate::config::Config;
+use crate::storage::redis::RedisClient;
+use async_trait::async_trait;
 use dashmap::DashMap;
-use opentelemetry::{KeyValue, global, metrics::Counter};
+use opentelemetry::{
+    KeyValue, global,
+    metrics::{Counter, Histogram, UpDownCounter},
+};
+use std::sync::Arc;
 use tokio::sync::broadcast;
+use tracing::Instrument;
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
 struct Metrics {
     sends_total: Counter<u64>,
+    received_total: Counter<u64>,
+    unrouted_total: Counter<u64>,
+    active_channels: UpDownCounter<i64>,
+    gc_duration_seconds: Histogram<f64>,
+    gc_reclaimed_total: Counter<u64>,
 }
 
 impl Metrics {
@@ -17,69 +29,187 @@ impl Metrics {
                 .u64_counter("notification_sends_total")
                 .with_description("Total notification send attempts")
                 .build(),
+            received_total: meter
+                .u64_counter("notification_received_total")
+                .with_description("Total notifications received from PubSub")
+                .build(),
+            unrouted_total: meter
+                .u64_counter("notification_unrouted_total")
+                .with_description("Notifications received from PubSub with no local subscribers")
+                .build(),
+            active_channels: meter
+                .i64_up_down_counter("notification_active_channels")
+                .with_description("Number of active local notification channels")
+                .build(),
+            gc_duration_seconds: meter
+                .f64_histogram("notification_gc_duration_seconds")
+                .with_description("Time taken to perform a single GC iteration")
+                .build(),
+            gc_reclaimed_total: meter
+                .u64_counter("notification_gc_reclaimed_total")
+                .with_description("Total number of stale channels reclaimed by GC")
+                .build(),
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum UserEvent {
-    MessageReceived,
-    Disconnect,
+    MessageReceived = 1,
+    Disconnect = 2,
 }
 
-pub trait NotificationService: Send + Sync + std::fmt::Debug {
-    // Returns a receiver that will get a value when a notification arrives.
-    fn subscribe(&self, user_id: Uuid) -> broadcast::Receiver<UserEvent>;
+impl TryFrom<u8> for UserEvent {
+    type Error = ();
 
-    // Sends a notification to the user.
-    fn notify(&self, user_id: Uuid, event: UserEvent);
-}
-
-#[derive(Debug)]
-pub struct InMemoryNotificationService {
-    // Map UserID -> Broadcast Channel
-    // We store the Sender. We create new Receivers from it.
-    // Wrapped in Arc to share with background GC task.
-    channels: std::sync::Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
-    channel_capacity: usize,
-    metrics: Metrics,
-}
-
-impl InMemoryNotificationService {
-    #[must_use]
-    pub fn new(config: &Config, mut shutdown: tokio::sync::watch::Receiver<bool>) -> Self {
-        let channels = std::sync::Arc::new(DashMap::new());
-        let map_ref = std::sync::Arc::clone(&channels);
-        let interval_secs = config.notifications.gc_interval_secs;
-
-        // Spawn background GC task
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
-            while !*shutdown.borrow() {
-                tokio::select! {
-                    _ = interval.tick() => {
-                        let span = tracing::info_span!("notification_service_gc_iteration");
-                        let _enter = span.enter();
-                        // Atomic cleanup: Remove entries with 0 receivers
-                        map_ref.retain(|_, sender: &mut broadcast::Sender<UserEvent>| sender.receiver_count() > 0);
-                    }
-                    _ = shutdown.changed() => {}
-                }
-            }
-        });
-
-        Self { channels, channel_capacity: config.notifications.channel_capacity, metrics: Metrics::new() }
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(Self::MessageReceived),
+            2 => Ok(Self::Disconnect),
+            _ => Err(()),
+        }
     }
 }
 
-impl NotificationService for InMemoryNotificationService {
-    fn subscribe(&self, user_id: Uuid) -> broadcast::Receiver<UserEvent> {
-        // Get existing channel or create new one
+#[async_trait]
+pub trait NotificationService: Send + Sync + std::fmt::Debug {
+    // Returns a receiver that will get a value when a notification arrives.
+    async fn subscribe(&self, user_id: Uuid) -> broadcast::Receiver<UserEvent>;
+
+    // Sends a notification to the user.
+    async fn notify(&self, user_id: Uuid, event: UserEvent);
+}
+
+const CHANNEL_PREFIX: &str = "user:";
+const CHANNEL_PATTERN: &str = "user:*";
+
+#[derive(Debug)]
+pub struct DistributedNotificationService {
+    pubsub: Arc<RedisClient>,
+    channels: Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
+    user_channel_capacity: usize,
+    metrics: Metrics,
+}
+
+impl DistributedNotificationService {
+    /// Creates a new distributed notification service.
+    ///
+    /// # Errors
+    /// Returns an error if the subscription to `PubSub` fails.
+    pub async fn new(
+        pubsub: Arc<RedisClient>,
+        config: &Config,
+        shutdown: tokio::sync::watch::Receiver<bool>,
+    ) -> anyhow::Result<Self> {
+        let channels = Arc::new(DashMap::new());
+        let metrics = Metrics::new();
+
+        // Background GC task
+        tokio::spawn(
+            Self::run_gc(
+                Arc::clone(&channels),
+                metrics.clone(),
+                config.notifications.gc_interval_secs,
+                shutdown.clone(),
+            )
+            .instrument(tracing::info_span!("notification_gc")),
+        );
+
+        // Background dispatcher task: subscribes to RedisClient and routes to local channels
+        let mut pubsub_rx = pubsub.subscribe(CHANNEL_PATTERN).await?;
+        let dispatcher_channels = Arc::clone(&channels);
+        let dispatcher_metrics = metrics.clone();
+
+        tokio::spawn(
+            async move {
+                let mut shutdown = shutdown;
+                loop {
+                    tokio::select! {
+                        _ = shutdown.changed() => break,
+                        msg = pubsub_rx.recv() => {
+                            match msg {
+                                Ok(msg) => {
+                                    if let Some(user_id_str) = msg.channel.strip_prefix(CHANNEL_PREFIX)
+                                        && let Ok(user_id) = Uuid::parse_str(user_id_str)
+                                        && let Some(payload_byte) = msg.payload.first() {
+                                            if let Ok(event) = UserEvent::try_from(*payload_byte) {
+                                                let span = tracing::debug_span!("process_notification", %user_id, ?event);
+                                                let _enter = span.enter();
+                                                dispatcher_metrics.received_total.add(1, &[KeyValue::new("event", format!("{event:?}"))]);
+                                                if let Some(tx) = dispatcher_channels.get(&user_id) {
+                                                    let _ = tx.send(event);
+                                                } else {
+                                                    dispatcher_metrics.unrouted_total.add(1, &[KeyValue::new("event", format!("{event:?}"))]);
+                                                }
+                                            } else {
+                                                tracing::error!(payload = ?msg.payload, "Received invalid UserEvent payload");
+                                            }
+                                        }
+                                }
+                                Err(broadcast::error::RecvError::Lagged(n)) => {
+                                    tracing::warn!(missed = n, "PubSub notification dispatcher lagged; missed {} notifications", n);
+                                }
+                                Err(broadcast::error::RecvError::Closed) => break,
+                            }
+                        }
+                    }
+                }
+            }
+            .instrument(tracing::info_span!("notification_dispatcher")),
+        );
+
+        Ok(Self { pubsub, channels, user_channel_capacity: config.notifications.user_channel_capacity, metrics })
+    }
+
+    async fn run_gc(
+        channels: Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
+        metrics: Metrics,
+        interval_secs: u64,
+        mut shutdown: tokio::sync::watch::Receiver<bool>,
+    ) {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    let start = std::time::Instant::now();
+                    let mut reclaimed_this_cycle = 0;
+
+                    let span = tracing::debug_span!("gc_iteration");
+                    let _enter = span.enter();
+
+                    channels.retain(|_, sender| {
+                        let active = sender.receiver_count() > 0;
+                        if !active {
+                            metrics.active_channels.add(-1, &[]);
+                            reclaimed_this_cycle += 1;
+                        }
+                        active
+                    });
+
+                    let duration = start.elapsed().as_secs_f64();
+                    metrics.gc_duration_seconds.record(duration, &[]);
+                    if reclaimed_this_cycle > 0 {
+                        metrics.gc_reclaimed_total.add(reclaimed_this_cycle, &[]);
+                        tracing::debug!(reclaimed = reclaimed_this_cycle, duration_secs = %duration, "GC reclaimed stale channels");
+                    }
+                }
+                _ = shutdown.changed() => break,
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl NotificationService for DistributedNotificationService {
+    #[tracing::instrument(skip(self), fields(user_id = %user_id))]
+    async fn subscribe(&self, user_id: Uuid) -> broadcast::Receiver<UserEvent> {
         let tx = self
             .channels
             .entry(user_id)
             .or_insert_with(|| {
-                let (tx, _rx) = broadcast::channel(self.channel_capacity);
+                self.metrics.active_channels.add(1, &[]);
+                let (tx, _rx) = broadcast::channel(self.user_channel_capacity);
                 tx
             })
             .value()
@@ -88,97 +218,17 @@ impl NotificationService for InMemoryNotificationService {
         tx.subscribe()
     }
 
-    fn notify(&self, user_id: Uuid, event: UserEvent) {
-        if let Some(tx) = self.channels.get(&user_id) {
-            // We ignore errors (e.g., if no one is listening)
-            match tx.send(event) {
-                Ok(_) => self.metrics.sends_total.add(1, &[KeyValue::new("status", "sent")]),
-                Err(_) => {
-                    self.metrics.sends_total.add(1, &[KeyValue::new("status", "no_receivers")]);
-                }
+    #[tracing::instrument(skip(self), fields(user_id = %user_id, event = ?event))]
+    async fn notify(&self, user_id: Uuid, event: UserEvent) {
+        let channel_name = format!("{CHANNEL_PREFIX}{user_id}");
+        let payload = [event as u8];
+
+        match self.pubsub.publish(&channel_name, &payload).await {
+            Ok(()) => self.metrics.sends_total.add(1, &[KeyValue::new("status", "sent")]),
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to publish to PubSub");
+                self.metrics.sends_total.add(1, &[KeyValue::new("status", "error")]);
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::NotificationConfig;
-    use std::time::Duration;
-
-    fn test_config(gc_interval: u64) -> Config {
-        Config {
-            notifications: NotificationConfig { gc_interval_secs: gc_interval, ..Default::default() },
-            ..Default::default()
-        }
-    }
-
-    #[tokio::test]
-    async fn test_notification_service_subscribe_and_notify() {
-        let (_tx, rx_shutdown) = tokio::sync::watch::channel(false);
-        let service = InMemoryNotificationService::new(&test_config(60), rx_shutdown);
-        let user_id = Uuid::new_v4();
-
-        let mut rx = service.subscribe(user_id);
-        service.notify(user_id, UserEvent::MessageReceived);
-
-        let event = rx.recv().await.unwrap();
-        assert_eq!(event, UserEvent::MessageReceived);
-    }
-
-    #[tokio::test]
-    async fn test_notification_service_gc_logic() {
-        let (_tx, rx_shutdown) = tokio::sync::watch::channel(false);
-        let service = InMemoryNotificationService::new(&test_config(1), rx_shutdown);
-        let user_id = Uuid::new_v4();
-
-        // Subscribe and drop
-        {
-            let _rx = service.subscribe(user_id);
-            assert_eq!(service.channels.len(), 1);
-        }
-
-        // Wait for GC
-        tokio::time::sleep(Duration::from_millis(1500)).await;
-
-        let mut success = false;
-        for _ in 0..10 {
-            if service.channels.is_empty() {
-                success = true;
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-        assert!(success, "GC task did not clean up in time");
-    }
-
-    #[tokio::test]
-    async fn test_notification_service_gc_keeps_active() {
-        let (_tx, rx_shutdown) = tokio::sync::watch::channel(false);
-        let service = InMemoryNotificationService::new(&test_config(1), rx_shutdown);
-        let user_id = Uuid::new_v4();
-
-        let _rx = service.subscribe(user_id);
-
-        tokio::time::sleep(Duration::from_millis(1500)).await;
-
-        assert_eq!(service.channels.len(), 1);
-    }
-
-    #[tokio::test]
-    async fn test_notification_service_independent_channels() {
-        let (_tx, rx_shutdown) = tokio::sync::watch::channel(false);
-        let service = InMemoryNotificationService::new(&test_config(60), rx_shutdown);
-        let user1 = Uuid::new_v4();
-        let user2 = Uuid::new_v4();
-
-        let mut rx1 = service.subscribe(user1);
-        let mut rx2 = service.subscribe(user2);
-
-        service.notify(user1, UserEvent::MessageReceived);
-
-        assert_eq!(rx1.recv().await.unwrap(), UserEvent::MessageReceived);
-        assert!(tokio::time::timeout(Duration::from_millis(50), rx2.recv()).await.is_err());
     }
 }

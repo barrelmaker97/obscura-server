@@ -50,7 +50,7 @@ mod tests {
         let b64 = STANDARD.encode(bytes);
 
         let schema = PublicKey(b64);
-        let domain: crypto::PublicKey = schema.try_into().unwrap();
+        let domain: crypto::PublicKey = schema.try_into().expect("Valid schema conversion");
         assert_eq!(domain.as_bytes(), &bytes);
     }
 
@@ -75,7 +75,7 @@ mod tests {
         let b64 = STANDARD.encode(bytes);
 
         let schema = Signature(b64);
-        let domain: crypto::Signature = schema.try_into().unwrap();
+        let domain: crypto::Signature = schema.try_into().expect("Valid schema conversion");
         assert_eq!(domain.as_bytes(), &bytes);
     }
 

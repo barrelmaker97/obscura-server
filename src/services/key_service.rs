@@ -220,7 +220,7 @@ mod tests {
 
     fn setup_service() -> KeyService {
         let config = MessagingConfig::default();
-        let pool = sqlx::PgPool::connect_lazy("postgres://localhost").unwrap();
+        let pool = sqlx::PgPool::connect_lazy("postgres://localhost").expect("Valid test pool");
         KeyService::new(pool, KeyRepository::new(), CryptoService::new(), config)
     }
 
@@ -230,7 +230,8 @@ mod tests {
         let ik = PrivateKey(ik_bytes);
 
         let (_, ik_pub_ed) = ik.calculate_key_pair(0);
-        let ik_pub_mont = CompressedEdwardsY(ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
+        let ik_pub_mont =
+            CompressedEdwardsY(ik_pub_ed).decompress().expect("Failed to decompress").to_montgomery().to_bytes();
         let mut ik_pub_wire = [0u8; 33];
         ik_pub_wire[0] = DJB_KEY_PREFIX;
         ik_pub_wire[1..].copy_from_slice(&ik_pub_mont);
@@ -240,7 +241,8 @@ mod tests {
         OsRng.fill_bytes(&mut spk_bytes);
         let spk = PrivateKey(spk_bytes);
         let (_, spk_pub_ed) = spk.calculate_key_pair(0);
-        let spk_pub_mont = CompressedEdwardsY(spk_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
+        let spk_pub_mont =
+            CompressedEdwardsY(spk_pub_ed).decompress().expect("Failed to decompress").to_montgomery().to_bytes();
         let mut spk_pub_wire = [0u8; 33];
         spk_pub_wire[0] = DJB_KEY_PREFIX;
         spk_pub_wire[1..].copy_from_slice(&spk_pub_mont);

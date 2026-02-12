@@ -8,9 +8,14 @@ use obscura_server::{
         AckMessage, EncryptedMessage, Envelope, PreKeyStatus, WebSocketFrame, web_socket_frame::Payload,
     },
     services::{
-        account_service::AccountService, attachment_service::AttachmentService, gateway::GatewayService,
-        health_service::HealthService, key_service::KeyService, message_service::MessageService,
-        notification_service::InMemoryNotificationService, rate_limit_service::RateLimitService,
+        account_service::AccountService,
+        attachment_service::AttachmentService,
+        gateway::GatewayService,
+        health_service::HealthService,
+        key_service::KeyService,
+        message_service::MessageService,
+        notification_service::{DistributedNotificationService, NotificationService},
+        rate_limit_service::RateLimitService,
     },
     storage::{
         self, attachment_repo::AttachmentRepository, key_repo::KeyRepository, message_repo::MessageRepository,
@@ -78,7 +83,8 @@ pub async fn ensure_storage_bucket(s3_client: &aws_sdk_s3::Client, bucket: &str)
 
 pub fn get_test_config() -> Config {
     Config {
-        database_url: "postgres://user:password@localhost/signal_server".to_string(),
+        database_url: std::env::var("OBSCURA_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://user:password@localhost/signal_server".to_string()),
         server: obscura_server::config::ServerConfig {
             port: 0,
             mgmt_port: 0,
@@ -94,10 +100,16 @@ pub fn get_test_config() -> Config {
         },
         storage: obscura_server::config::StorageConfig {
             bucket: "test-bucket".to_string(),
-            endpoint: Some("http://localhost:9000".to_string()),
+            endpoint: Some(
+                std::env::var("OBSCURA_STORAGE_ENDPOINT").unwrap_or_else(|_| "http://localhost:9000".to_string()),
+            ),
             access_key: Some("minioadmin".to_string()),
             secret_key: Some("minioadmin".to_string()),
             force_path_style: true,
+            ..Default::default()
+        },
+        pubsub: obscura_server::config::PubSubConfig {
+            url: std::env::var("OBSCURA_PUBSUB_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string()),
             ..Default::default()
         },
         ..Default::default()
@@ -215,7 +227,20 @@ impl TestApp {
         config.server.mgmt_port = mgmt_addr.port();
 
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-        let notifier = Arc::new(InMemoryNotificationService::new(&config, shutdown_rx.clone()));
+
+        let pubsub = storage::redis::RedisClient::new(
+            &config.pubsub,
+            config.notifications.global_channel_capacity,
+            shutdown_rx.clone(),
+        )
+        .await
+        .expect("Failed to create RedisClient for tests. Is Redis running?");
+
+        let notifier: Arc<dyn NotificationService> = Arc::new(
+            DistributedNotificationService::new(pubsub.clone(), &config, shutdown_rx.clone())
+                .await
+                .expect("Failed to create DistributedNotificationService for tests."),
+        );
 
         let region_provider = aws_config::Region::new(config.storage.region.clone());
         let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider);
@@ -287,8 +312,13 @@ impl TestApp {
 
         let rate_limit_service = RateLimitService::new(config.server.trusted_proxies.clone());
 
-        let health_service =
-            HealthService::new(pool.clone(), s3_client.clone(), config.storage.bucket.clone(), config.health.clone());
+        let health_service = HealthService::new(
+            pool.clone(),
+            s3_client.clone(),
+            pubsub.clone(),
+            config.storage.bucket.clone(),
+            config.health.clone(),
+        );
 
         let services = ServiceContainer {
             pool: pool.clone(),
