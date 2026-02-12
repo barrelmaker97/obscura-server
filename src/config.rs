@@ -392,10 +392,14 @@ pub struct HealthConfig {
     /// Timeout for storage health check in milliseconds
     #[arg(long = "storage-timeout-ms", env = "OBSCURA_HEALTH_STORAGE_TIMEOUT_MS", default_value_t = HealthConfig::default().storage_timeout_ms)]
     pub storage_timeout_ms: u64,
+
+    /// Timeout for pubsub health check in milliseconds
+    #[arg(long = "pubsub-timeout-ms", env = "OBSCURA_HEALTH_PUBSUB_TIMEOUT_MS", default_value_t = HealthConfig::default().pubsub_timeout_ms)]
+    pub pubsub_timeout_ms: u64,
 }
 
 impl Default for HealthConfig {
     fn default() -> Self {
-        Self { db_timeout_ms: 2000, storage_timeout_ms: 2000 }
+        Self { db_timeout_ms: 2000, storage_timeout_ms: 2000, pubsub_timeout_ms: 2000 }
     }
 }

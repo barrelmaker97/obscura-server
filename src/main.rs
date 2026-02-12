@@ -176,6 +176,7 @@ async fn main() -> anyhow::Result<()> {
             let health_service = HealthService::new(
                 pool.clone(),
                 s3_client.clone(),
+                pubsub.clone(),
                 config.storage.bucket.clone(),
                 config.health.clone(),
             );

@@ -57,6 +57,7 @@ Command-line options take precedence over environment variables.
 |--------|-------------|----------------------|---------|
 | `--db-timeout-ms` | Timeout for DB health check | `OBSCURA_HEALTH_DB_TIMEOUT_MS` | `2000` |
 | `--storage-timeout-ms` | Timeout for storage health check | `OBSCURA_HEALTH_STORAGE_TIMEOUT_MS` | `2000` |
+| `--pubsub-timeout-ms` | Timeout for PubSub health check | `OBSCURA_HEALTH_PUBSUB_TIMEOUT_MS` | `2000` |
 
 ### Messaging Configuration
 

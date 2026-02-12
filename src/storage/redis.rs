@@ -171,4 +171,14 @@ impl RedisClient {
         conn.publish::<_, _, i64>(channel, payload).await?;
         Ok(())
     }
+
+    /// Pings the Redis server to check connectivity.
+    ///
+    /// # Errors
+    /// Returns an error if the ping fails.
+    pub async fn ping(&self) -> anyhow::Result<()> {
+        let mut conn = self.publisher();
+        redis::cmd("PING").query_async::<String>(&mut conn).await?;
+        Ok(())
+    }
 }

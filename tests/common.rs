@@ -237,7 +237,7 @@ impl TestApp {
         .expect("Failed to create RedisClient for tests. Is Redis running?");
 
         let notifier: Arc<dyn NotificationService> = Arc::new(
-            DistributedNotificationService::new(pubsub, &config, shutdown_rx.clone())
+            DistributedNotificationService::new(pubsub.clone(), &config, shutdown_rx.clone())
                 .await
                 .expect("Failed to create DistributedNotificationService for tests."),
         );
@@ -312,8 +312,13 @@ impl TestApp {
 
         let rate_limit_service = RateLimitService::new(config.server.trusted_proxies.clone());
 
-        let health_service =
-            HealthService::new(pool.clone(), s3_client.clone(), config.storage.bucket.clone(), config.health.clone());
+        let health_service = HealthService::new(
+            pool.clone(),
+            s3_client.clone(),
+            pubsub.clone(),
+            config.storage.bucket.clone(),
+            config.health.clone(),
+        );
 
         let services = ServiceContainer {
             pool: pool.clone(),

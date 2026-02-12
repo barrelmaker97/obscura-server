@@ -1,7 +1,9 @@
 use crate::config::HealthConfig;
 use crate::storage::DbPool;
+use crate::storage::redis::RedisClient;
 use aws_sdk_s3::Client;
 use opentelemetry::{KeyValue, global, metrics::Gauge};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::timeout;
 
@@ -33,6 +35,7 @@ impl Default for Metrics {
 pub struct HealthService {
     pool: DbPool,
     s3_client: Client,
+    pubsub: Arc<RedisClient>,
     storage_bucket: String,
     config: HealthConfig,
     metrics: Metrics,
@@ -40,8 +43,14 @@ pub struct HealthService {
 
 impl HealthService {
     #[must_use]
-    pub fn new(pool: DbPool, s3_client: Client, storage_bucket: String, config: HealthConfig) -> Self {
-        Self { pool, s3_client, storage_bucket, config, metrics: Metrics::new() }
+    pub fn new(
+        pool: DbPool,
+        s3_client: Client,
+        pubsub: Arc<RedisClient>,
+        storage_bucket: String,
+        config: HealthConfig,
+    ) -> Self {
+        Self { pool, s3_client, pubsub, storage_bucket, config, metrics: Metrics::new() }
     }
 
     /// Checks database connectivity.
@@ -86,6 +95,29 @@ impl HealthService {
             Err(_) => {
                 self.metrics.status.record(0, &[KeyValue::new("component", "storage")]);
                 Err("Storage connection timed out".to_string())
+            }
+        }
+    }
+
+    /// Checks PubSub connectivity.
+    ///
+    /// # Errors
+    /// Returns a string describing the failure if PubSub is unreachable.
+    pub async fn check_pubsub(&self) -> Result<(), String> {
+        let pubsub_timeout = Duration::from_millis(self.config.pubsub_timeout_ms);
+
+        match timeout(pubsub_timeout, self.pubsub.ping()).await {
+            Ok(Ok(_)) => {
+                self.metrics.status.record(1, &[KeyValue::new("component", "pubsub")]);
+                Ok(())
+            }
+            Ok(Err(e)) => {
+                self.metrics.status.record(0, &[KeyValue::new("component", "pubsub")]);
+                Err(format!("PubSub connection failed: {e:?}"))
+            }
+            Err(_) => {
+                self.metrics.status.record(0, &[KeyValue::new("component", "pubsub")]);
+                Err("PubSub connection timed out".to_string())
             }
         }
     }

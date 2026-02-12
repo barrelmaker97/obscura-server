@@ -6,4 +6,5 @@ pub struct HealthResponse {
     pub status: String,
     pub database: String,
     pub storage: String,
+    pub pubsub: String,
 }
