@@ -7,7 +7,7 @@ async fn test_multi_node_notification() {
     // The common::TestApp::spawn() uses environment variables or defaults that point to the same infra.
     let app_a = common::TestApp::spawn().await;
     let app_b = common::TestApp::spawn().await;
-    
+
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
     let alice_name = format!("alice_{}", run_id);
     let bob_name = format!("bob_{}", run_id);
@@ -25,7 +25,8 @@ async fn test_multi_node_notification() {
 
     // 5. Bob should receive the message on Node B
     // This requires Node A to publish to Valkey and Node B to receive and route it to Bob's local broadcast channel.
-    let env = ws_bob.receive_envelope().await.expect("Bob did not receive message on Node B via cross-node notification");
+    let env =
+        ws_bob.receive_envelope().await.expect("Bob did not receive message on Node B via cross-node notification");
     let received_msg = env.message.expect("Envelope missing message");
     assert_eq!(received_msg.content, content);
 }
@@ -34,7 +35,7 @@ async fn test_multi_node_notification() {
 async fn test_multi_node_disconnect_notification() {
     let app_a = common::TestApp::spawn().await;
     let app_b = common::TestApp::spawn().await;
-    
+
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
     let alice_name = format!("alice_takeover_{}", run_id);
 
@@ -42,13 +43,13 @@ async fn test_multi_node_disconnect_notification() {
 
     // 1. Alice connects to Node A
     let mut ws_a = app_a.connect_ws(&user_alice.token).await;
-    
+
     // 2. Perform a takeover of Alice's account on Node B
     // This requires uploading a NEW identity key.
     use base64::Engine;
     use serde_json::json;
-    use xeddsa::xed25519::PrivateKey;
     use xeddsa::CalculateKeyPair;
+    use xeddsa::xed25519::PrivateKey;
 
     let new_identity_key_bytes = common::generate_signing_key();
     let new_priv = PrivateKey(new_identity_key_bytes);
@@ -86,7 +87,7 @@ async fn test_multi_node_disconnect_notification() {
     // 3. Alice on Node A should be disconnected
     // The server should send a Close frame or just drop the connection.
     // In our implementation (session.rs), it breaks the loop and closes the socket.
-    
+
     let mut disconnected = false;
     let start = std::time::Instant::now();
     while start.elapsed() < std::time::Duration::from_secs(5) {
@@ -100,7 +101,7 @@ async fn test_multi_node_disconnect_notification() {
                 break;
             }
             _ => {
-                // Ignore other messages (like the ACK for the takeover if any, 
+                // Ignore other messages (like the ACK for the takeover if any,
                 // though takeover is REST, not WS)
             }
         }

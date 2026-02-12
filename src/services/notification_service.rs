@@ -3,9 +3,8 @@ use crate::storage::valkey::ValkeyClient;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use opentelemetry::{
-    global,
+    KeyValue, global,
     metrics::{Counter, UpDownCounter},
-    KeyValue,
 };
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -89,8 +88,13 @@ impl ValkeyNotificationService {
 
         // Background GC task
         tokio::spawn(
-            Self::run_gc(Arc::clone(&channels), metrics.clone(), config.notifications.gc_interval_secs, shutdown.clone())
-                .instrument(tracing::info_span!("notification_gc")),
+            Self::run_gc(
+                Arc::clone(&channels),
+                metrics.clone(),
+                config.notifications.gc_interval_secs,
+                shutdown.clone(),
+            )
+            .instrument(tracing::info_span!("notification_gc")),
         );
 
         // Background dispatcher task: subscribes to ValkeyClient and routes to local channels
@@ -193,5 +197,3 @@ impl NotificationService for ValkeyNotificationService {
         }
     }
 }
-
-

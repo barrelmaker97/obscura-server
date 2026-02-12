@@ -86,11 +86,7 @@ pub struct ValkeyConfig {
 
 impl Default for ValkeyConfig {
     fn default() -> Self {
-        Self {
-            url: "redis://localhost:6379".to_string(),
-            min_backoff_secs: 1,
-            max_backoff_secs: 30,
-        }
+        Self { url: "redis://localhost:6379".to_string(), min_backoff_secs: 1, max_backoff_secs: 30 }
     }
 }
 

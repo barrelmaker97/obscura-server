@@ -31,13 +31,7 @@ impl ValkeyClient {
         let publisher = client.get_connection_manager().await?;
         let subscriptions = Arc::new(DashMap::new());
 
-        let valkey_client = Arc::new(Self {
-            publisher,
-            subscriptions,
-            client,
-            shutdown,
-            channel_capacity,
-        });
+        let valkey_client = Arc::new(Self { publisher, subscriptions, client, shutdown, channel_capacity });
 
         Ok(valkey_client)
     }
