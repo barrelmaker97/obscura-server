@@ -1,6 +1,6 @@
 use crate::domain::attachment::Attachment;
 use crate::error::Result;
-use crate::storage::records::Attachment as AttachmentRecord;
+use crate::storage::records::AttachmentRecord;
 use sqlx::PgConnection;
 use time::OffsetDateTime;
 use uuid::Uuid;

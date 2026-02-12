@@ -1,4 +1,8 @@
 use crate::api::schemas::crypto::{PublicKey, Signature};
+use crate::domain::crypto::{PublicKey as DomainPublicKey, Signature as DomainSignature};
+use crate::domain::keys::{
+    OneTimePreKey as DomainOneTimePreKey, PreKeyBundle as DomainPreKeyBundle, SignedPreKey as DomainSignedPreKey,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -9,19 +13,19 @@ pub struct SignedPreKey {
     pub signature: Signature,
 }
 
-impl From<crate::domain::keys::SignedPreKey> for SignedPreKey {
-    fn from(k: crate::domain::keys::SignedPreKey) -> Self {
+impl From<DomainSignedPreKey> for SignedPreKey {
+    fn from(k: DomainSignedPreKey) -> Self {
         Self { key_id: k.key_id, public_key: k.public_key.into(), signature: k.signature.into() }
     }
 }
 
-impl TryFrom<SignedPreKey> for crate::domain::keys::SignedPreKey {
+impl TryFrom<SignedPreKey> for DomainSignedPreKey {
     type Error = String;
     fn try_from(schema: SignedPreKey) -> Result<Self, Self::Error> {
         Ok(Self {
             key_id: schema.key_id,
-            public_key: crate::domain::crypto::PublicKey::try_from(schema.public_key)?,
-            signature: crate::domain::crypto::Signature::try_from(schema.signature)?,
+            public_key: DomainPublicKey::try_from(schema.public_key)?,
+            signature: DomainSignature::try_from(schema.signature)?,
         })
     }
 }
@@ -33,16 +37,16 @@ pub struct OneTimePreKey {
     pub public_key: PublicKey,
 }
 
-impl From<crate::domain::keys::OneTimePreKey> for OneTimePreKey {
-    fn from(k: crate::domain::keys::OneTimePreKey) -> Self {
+impl From<DomainOneTimePreKey> for OneTimePreKey {
+    fn from(k: DomainOneTimePreKey) -> Self {
         Self { key_id: k.key_id, public_key: k.public_key.into() }
     }
 }
 
-impl TryFrom<OneTimePreKey> for crate::domain::keys::OneTimePreKey {
+impl TryFrom<OneTimePreKey> for DomainOneTimePreKey {
     type Error = String;
     fn try_from(schema: OneTimePreKey) -> Result<Self, Self::Error> {
-        Ok(Self { key_id: schema.key_id, public_key: crate::domain::crypto::PublicKey::try_from(schema.public_key)? })
+        Ok(Self { key_id: schema.key_id, public_key: DomainPublicKey::try_from(schema.public_key)? })
     }
 }
 
@@ -140,8 +144,8 @@ pub struct PreKeyBundle {
     pub one_time_pre_key: Option<OneTimePreKey>,
 }
 
-impl From<crate::domain::keys::PreKeyBundle> for PreKeyBundle {
-    fn from(b: crate::domain::keys::PreKeyBundle) -> Self {
+impl From<DomainPreKeyBundle> for PreKeyBundle {
+    fn from(b: DomainPreKeyBundle) -> Self {
         Self {
             registration_id: b.registration_id,
             identity_key: b.identity_key.into(),

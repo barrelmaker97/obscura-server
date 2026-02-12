@@ -1,6 +1,6 @@
 use crate::domain::user::User;
-use crate::error::Result;
-use crate::storage::records::User as UserRecord;
+use crate::error::{AppError, Result};
+use crate::storage::records::UserRecord;
 use sqlx::PgConnection;
 
 #[derive(Clone, Default)]
@@ -20,11 +20,11 @@ impl UserRepository {
     #[tracing::instrument(level = "debug", skip(self, conn, password_hash))]
     pub async fn create(&self, conn: &mut PgConnection, username: &str, password_hash: &str) -> Result<User> {
         let user = sqlx::query_as::<_, UserRecord>(
-            r"
+            r#"
             INSERT INTO users (username, password_hash)
             VALUES ($1, $2)
             RETURNING id, username, password_hash, created_at
-            ",
+            "#,
         )
         .bind(username)
         .bind(password_hash)
@@ -34,9 +34,9 @@ impl UserRepository {
             if let sqlx::Error::Database(ref db_err) = e
                 && db_err.code().as_deref() == Some("23505")
             {
-                return crate::error::AppError::Conflict("Username already exists".into());
+                return AppError::Conflict("Username already exists".into());
             }
-            crate::error::AppError::Database(e)
+            AppError::Database(e)
         })?;
 
         Ok(user.into())
@@ -49,11 +49,11 @@ impl UserRepository {
     #[tracing::instrument(level = "debug", skip(self, conn))]
     pub async fn find_by_username(&self, conn: &mut PgConnection, username: &str) -> Result<Option<User>> {
         let user = sqlx::query_as::<_, UserRecord>(
-            r"
+            r#"
             SELECT id, username, password_hash, created_at
             FROM users
             WHERE username = $1
-            ",
+            "#,
         )
         .bind(username)
         .fetch_optional(conn)

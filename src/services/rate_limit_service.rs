@@ -1,8 +1,8 @@
-use axum::http::Request;
-use axum::http::StatusCode;
+use axum::extract::ConnectInfo;
+use axum::http::{Request, StatusCode};
 use ipnetwork::IpNetwork;
 use opentelemetry::{KeyValue, global, metrics::Counter};
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use tower_governor::GovernorError;
 use tower_governor::key_extractor::KeyExtractor;
 use tracing::warn;
@@ -69,9 +69,6 @@ impl KeyExtractor for IpKeyExtractor {
     type Key = IpAddr;
 
     fn extract<T>(&self, req: &Request<T>) -> Result<Self::Key, GovernorError> {
-        use axum::extract::ConnectInfo;
-        use std::net::SocketAddr;
-
         let peer_ip = req
             .extensions()
             .get::<ConnectInfo<SocketAddr>>()

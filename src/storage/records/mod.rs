@@ -4,8 +4,8 @@ pub mod keys;
 pub mod message;
 pub mod user;
 
-pub(crate) use attachment::Attachment;
-pub(crate) use auth::RefreshToken;
-pub(crate) use keys::{IdentityKey, OneTimePreKey, SignedPreKey};
-pub(crate) use message::Message;
-pub(crate) use user::User;
+pub(crate) use attachment::AttachmentRecord;
+pub(crate) use auth::RefreshTokenRecord;
+pub(crate) use keys::{IdentityKeyRecord, OneTimePreKeyRecord, SignedPreKeyRecord};
+pub(crate) use message::MessageRecord;
+pub(crate) use user::UserRecord;

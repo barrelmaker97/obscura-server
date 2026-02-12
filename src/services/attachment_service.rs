@@ -5,6 +5,7 @@ use crate::storage::attachment_repo::AttachmentRepository;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::primitives::ByteStream;
 use axum::body::{Body, Bytes};
+use futures::StreamExt;
 use http_body_util::{BodyExt, LengthLimitError, Limited};
 use opentelemetry::{
     global,
@@ -119,10 +120,8 @@ impl AttachmentService {
         let (tx, rx) = mpsc::channel(2);
         let mut data_stream = limited_body.into_data_stream();
 
-        use tracing::Instrument;
         tokio::spawn(
             async move {
-                use futures::StreamExt;
                 while let Some(item) = data_stream.next().await {
                     match item {
                         Ok(bytes) => {

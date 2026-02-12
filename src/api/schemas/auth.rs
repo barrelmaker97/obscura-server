@@ -37,7 +37,7 @@ impl Registration {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::schemas::crypto::PublicKey as SchemaPublicKey;
+    use crate::api::schemas::crypto::{PublicKey as SchemaPublicKey, Signature};
     use crate::api::schemas::keys::{OneTimePreKey, SignedPreKey};
 
     fn mock_registration(password: &str) -> Registration {
@@ -49,7 +49,7 @@ mod tests {
             signed_pre_key: SignedPreKey {
                 key_id: 1,
                 public_key: SchemaPublicKey("B".repeat(44)),
-                signature: crate::api::schemas::crypto::Signature("C".repeat(88)),
+                signature: Signature("C".repeat(88)),
             },
             one_time_pre_keys: vec![],
         }

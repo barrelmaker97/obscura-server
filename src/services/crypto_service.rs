@@ -1,6 +1,7 @@
 use crate::domain::crypto::{PublicKey, Signature};
 use crate::error::{AppError, Result};
 use ed25519_dalek::Verifier;
+use xeddsa::ConvertMont;
 
 #[derive(Clone, Default)]
 pub struct CryptoService;
@@ -23,7 +24,6 @@ impl CryptoService {
     pub fn verify_signature(&self, public_key: &PublicKey, message: &[u8], signature: &Signature) -> Result<()> {
         let pk = xeddsa::xed25519::PublicKey(*public_key.as_crypto_bytes());
 
-        use xeddsa::ConvertMont;
         let sig_bytes = signature.as_bytes();
 
         // We must clear the 255th bit of 's' for standard Ed25519 libraries.

@@ -1,3 +1,4 @@
+use crate::error::Result;
 use crate::proto::obscura::v1::{EncryptedMessage, Envelope, WebSocketFrame, web_socket_frame::Payload};
 use crate::services::gateway::Metrics;
 use crate::services::message_service::MessageService;
@@ -75,7 +76,7 @@ impl MessagePump {
         metrics: &Metrics,
         limit: i64,
         cursor: &mut Option<(time::OffsetDateTime, Uuid)>,
-    ) -> crate::error::Result<bool> {
+    ) -> Result<bool> {
         let messages = service.fetch_pending_batch(user_id, *cursor, limit).await?;
 
         if messages.is_empty() {

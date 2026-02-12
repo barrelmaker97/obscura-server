@@ -1,8 +1,9 @@
+use crate::domain::message::Message;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 #[derive(sqlx::FromRow)]
-pub(crate) struct Message {
+pub(crate) struct MessageRecord {
     pub id: Uuid,
     pub sender_id: Uuid,
     pub recipient_id: Uuid,
@@ -13,8 +14,8 @@ pub(crate) struct Message {
     pub expires_at: OffsetDateTime,
 }
 
-impl From<Message> for crate::domain::message::Message {
-    fn from(record: Message) -> Self {
+impl From<MessageRecord> for Message {
+    fn from(record: MessageRecord) -> Self {
         Self {
             id: record.id,
             sender_id: record.sender_id,

@@ -1,3 +1,4 @@
+use crate::domain::crypto::{PublicKey as DomainPublicKey, Signature as DomainSignature};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 
@@ -5,17 +6,17 @@ use serde::{Deserialize, Serialize};
 #[serde(transparent)]
 pub struct PublicKey(pub String);
 
-impl From<crate::domain::crypto::PublicKey> for PublicKey {
-    fn from(pk: crate::domain::crypto::PublicKey) -> Self {
+impl From<DomainPublicKey> for PublicKey {
+    fn from(pk: DomainPublicKey) -> Self {
         Self(STANDARD.encode(pk.as_bytes()))
     }
 }
 
-impl TryFrom<PublicKey> for crate::domain::crypto::PublicKey {
+impl TryFrom<PublicKey> for DomainPublicKey {
     type Error = String;
     fn try_from(schema: PublicKey) -> Result<Self, Self::Error> {
         let bytes = STANDARD.decode(&schema.0).map_err(|e| e.to_string())?;
-        crate::domain::crypto::PublicKey::try_from_bytes(&bytes)
+        DomainPublicKey::try_from_bytes(&bytes)
     }
 }
 
@@ -23,24 +24,24 @@ impl TryFrom<PublicKey> for crate::domain::crypto::PublicKey {
 #[serde(transparent)]
 pub struct Signature(pub String);
 
-impl From<crate::domain::crypto::Signature> for Signature {
-    fn from(sig: crate::domain::crypto::Signature) -> Self {
+impl From<DomainSignature> for Signature {
+    fn from(sig: DomainSignature) -> Self {
         Self(STANDARD.encode(sig.as_bytes()))
     }
 }
 
-impl TryFrom<Signature> for crate::domain::crypto::Signature {
+impl TryFrom<Signature> for DomainSignature {
     type Error = String;
     fn try_from(schema: Signature) -> Result<Self, Self::Error> {
         let bytes = STANDARD.decode(&schema.0).map_err(|e| e.to_string())?;
-        crate::domain::crypto::Signature::try_from(bytes.as_slice())
+        DomainSignature::try_from(bytes.as_slice())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::crypto::{DJB_KEY_PREFIX, PublicKey as DomainPublicKey, Signature as DomainSignature};
+    use crate::domain::crypto::DJB_KEY_PREFIX;
 
     #[test]
     fn test_public_key_schema_conversion() {

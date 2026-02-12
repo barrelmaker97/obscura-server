@@ -19,6 +19,7 @@ use obscura_server::{storage, telemetry};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::watch;
+use tracing::Instrument;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -27,7 +28,6 @@ async fn main() -> anyhow::Result<()> {
     let telemetry_guard = telemetry::init_telemetry(&config.telemetry)?;
 
     let boot_span = tracing::info_span!("server_boot");
-    use tracing::Instrument;
 
     let boot_result: anyhow::Result<_> = async {
         std::panic::set_hook(Box::new(|panic_info| {
