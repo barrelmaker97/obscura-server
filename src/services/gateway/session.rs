@@ -26,7 +26,7 @@ impl Session {
         name = "websocket_session",
         skip(self),
         fields(
-            user.id = %self.user_id,
+            user_id = %self.user_id,
             request_id = %self.request_id,
             otel.kind = "server",
             ws.session_id = %Uuid::new_v4()

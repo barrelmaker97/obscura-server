@@ -31,7 +31,7 @@ impl MessagePump {
             async move {
                 Self::run_background(user_id, notify_rx, message_service, outbound_tx, metrics, batch_limit).await;
             }
-            .instrument(tracing::info_span!("message_pump", user.id = %user_id)),
+            .instrument(tracing::info_span!("message_pump", user_id = %user_id)),
         );
 
         Self { notify_tx, task }

@@ -82,7 +82,7 @@ impl AuthService {
             return Err(AppError::AuthError);
         };
 
-        tracing::Span::current().record("user.id", tracing::field::display(user.id));
+        tracing::Span::current().record("user_id", tracing::field::display(user.id));
 
         let is_valid = self.verify_password(&password, &user.password_hash).await?;
 
@@ -172,7 +172,7 @@ impl AuthService {
             .await?
             .ok_or(AppError::AuthError)?;
 
-        tracing::Span::current().record("user.id", tracing::field::display(user_id));
+        tracing::Span::current().record("user_id", tracing::field::display(user_id));
 
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(Duration::from_secs(0)).as_secs();
 

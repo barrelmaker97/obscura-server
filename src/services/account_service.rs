@@ -82,7 +82,7 @@ impl AccountService {
         // 1. Create User
         let user = self.user_repo.create(&mut tx, &username, &password_hash).await?;
 
-        tracing::Span::current().record("user.id", tracing::field::display(user.id));
+        tracing::Span::current().record("user_id", tracing::field::display(user.id));
 
         // 2. Upload Keys
         let key_params = KeyUploadParams {

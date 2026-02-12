@@ -145,7 +145,7 @@ pub fn app_router(
                         "url.path" = %request.uri().path(),
                         "http.response.status_code" = tracing::field::Empty,
                         "otel.kind" = "server",
-                        "user.id" = tracing::field::Empty,
+                        "user_id" = tracing::field::Empty,
                     )
                 })
                 .on_response(
