@@ -75,26 +75,65 @@ impl ValkeyNotificationService {
         // Background Pub/Sub listener
         let mut listener_shutdown = shutdown.clone();
         tokio::spawn(async move {
-            let mut pubsub = pubsub_client.get_async_pubsub().await.expect("Failed to get async pubsub");
-            pubsub.psubscribe("user:*").await.expect("Failed to psubscribe to user:*");
-            let mut message_stream = pubsub.into_on_message();
-            use futures::StreamExt;
+            let mut backoff = std::time::Duration::from_secs(1);
+            let max_backoff = std::time::Duration::from_secs(30);
 
             loop {
-                tokio::select! {
-                    _ = listener_shutdown.changed() => break,
+                let mut pubsub = match pubsub_client.get_async_pubsub().await {
+                    Ok(ps) => ps,
+                    Err(e) => {
+                        tracing::error!(error = %e, "Failed to get async pubsub, retrying in {:?}", backoff);
+                        tokio::select! {
+                            _ = tokio::time::sleep(backoff) => {
+                                backoff = std::cmp::min(backoff * 2, max_backoff);
+                                continue;
+                            }
+                            _ = listener_shutdown.changed() => break,
+                        }
+                    }
+                };
 
-                    // Handle incoming messages from Valkey
-                    Some(msg) = message_stream.next() => {
-                        let channel = msg.get_channel_name();
-                        if let Some(user_id_str) = channel.strip_prefix("user:") {
-                            if let Ok(user_id) = Uuid::parse_str(user_id_str) {
-                                let payload: u8 = msg.get_payload().unwrap_or_default();
+                if let Err(e) = pubsub.psubscribe("user:*").await {
+                    tracing::error!(error = %e, "Failed to psubscribe, retrying in {:?}", backoff);
+                    tokio::select! {
+                        _ = tokio::time::sleep(backoff) => {
+                            backoff = std::cmp::min(backoff * 2, max_backoff);
+                            continue;
+                        }
+                        _ = listener_shutdown.changed() => break,
+                    }
+                }
 
-                                if let Ok(event) = UserEvent::try_from(payload) {
-                                    if let Some(tx) = map_ref.get(&user_id) {
-                                        let _ = tx.send(event);
+                tracing::info!("Successfully subscribed to Valkey notifications");
+                backoff = std::time::Duration::from_secs(1); // Reset backoff on success
+
+                let mut message_stream = pubsub.into_on_message();
+                use futures::StreamExt;
+
+                loop {
+                    tokio::select! {
+                        _ = listener_shutdown.changed() => return,
+
+                        // Handle incoming messages from Valkey
+                        msg = message_stream.next() => {
+                            match msg {
+                                Some(msg) => {
+                                    let channel = msg.get_channel_name();
+                                    if let Some(user_id_str) = channel.strip_prefix("user:") {
+                                        if let Ok(user_id) = Uuid::parse_str(user_id_str) {
+                                            let payload: u8 = msg.get_payload().unwrap_or_default();
+
+                                            if let Ok(event) = UserEvent::try_from(payload) {
+                                                if let Some(tx) = map_ref.get(&user_id) {
+                                                    let _ = tx.send(event);
+                                                }
+                                            }
+                                        }
                                     }
+                                }
+                                None => {
+                                    tracing::warn!("Valkey pubsub connection lost, reconnecting...");
+                                    break; // Re-enter the outer loop to reconnect
                                 }
                             }
                         }
