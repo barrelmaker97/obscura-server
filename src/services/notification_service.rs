@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::storage::valkey::ValkeyClient;
+use crate::storage::redis::RedisClient;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use opentelemetry::{
@@ -31,11 +31,11 @@ impl Metrics {
                 .build(),
             received_total: meter
                 .u64_counter("notification_received_total")
-                .with_description("Total notifications received from Valkey")
+                .with_description("Total notifications received from PubSub")
                 .build(),
             unrouted_total: meter
                 .u64_counter("notification_unrouted_total")
-                .with_description("Notifications received from Valkey with no local subscribers")
+                .with_description("Notifications received from PubSub with no local subscribers")
                 .build(),
             active_channels: meter
                 .i64_up_down_counter("notification_active_channels")
@@ -85,20 +85,20 @@ const CHANNEL_PREFIX: &str = "user:";
 const CHANNEL_PATTERN: &str = "user:*";
 
 #[derive(Debug)]
-pub struct ValkeyNotificationService {
-    valkey: Arc<ValkeyClient>,
+pub struct DistributedNotificationService {
+    pubsub: Arc<RedisClient>,
     channels: Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
     user_channel_capacity: usize,
     metrics: Metrics,
 }
 
-impl ValkeyNotificationService {
-    /// Creates a new Valkey notification service.
+impl DistributedNotificationService {
+    /// Creates a new distributed notification service.
     ///
     /// # Errors
-    /// Returns an error if the subscription to Valkey fails.
+    /// Returns an error if the subscription to PubSub fails.
     pub async fn new(
-        valkey: Arc<ValkeyClient>,
+        pubsub: Arc<RedisClient>,
         config: &Config,
         shutdown: tokio::sync::watch::Receiver<bool>,
     ) -> anyhow::Result<Self> {
@@ -116,8 +116,8 @@ impl ValkeyNotificationService {
             .instrument(tracing::info_span!("notification_gc")),
         );
 
-        // Background dispatcher task: subscribes to ValkeyClient and routes to local channels
-        let mut valkey_rx = valkey.subscribe(CHANNEL_PATTERN).await?;
+        // Background dispatcher task: subscribes to RedisClient and routes to local channels
+        let mut pubsub_rx = pubsub.subscribe(CHANNEL_PATTERN).await?;
         let dispatcher_channels = Arc::clone(&channels);
         let dispatcher_metrics = metrics.clone();
 
@@ -127,7 +127,7 @@ impl ValkeyNotificationService {
                 loop {
                     tokio::select! {
                         _ = shutdown.changed() => break,
-                        msg = valkey_rx.recv() => {
+                        msg = pubsub_rx.recv() => {
                             match msg {
                                 Ok(msg) => {
                                     if let Some(user_id_str) = msg.channel.strip_prefix(CHANNEL_PREFIX)
@@ -148,7 +148,7 @@ impl ValkeyNotificationService {
                                         }
                                 }
                                 Err(broadcast::error::RecvError::Lagged(n)) => {
-                                    tracing::warn!(missed = n, "Valkey notification dispatcher lagged; missed {} notifications", n);
+                                    tracing::warn!(missed = n, "PubSub notification dispatcher lagged; missed {} notifications", n);
                                 }
                                 Err(broadcast::error::RecvError::Closed) => break,
                             }
@@ -159,7 +159,7 @@ impl ValkeyNotificationService {
             .instrument(tracing::info_span!("notification_dispatcher")),
         );
 
-        Ok(Self { valkey, channels, user_channel_capacity: config.notifications.user_channel_capacity, metrics })
+        Ok(Self { pubsub, channels, user_channel_capacity: config.notifications.user_channel_capacity, metrics })
     }
 
     async fn run_gc(
@@ -201,7 +201,7 @@ impl ValkeyNotificationService {
 }
 
 #[async_trait]
-impl NotificationService for ValkeyNotificationService {
+impl NotificationService for DistributedNotificationService {
     #[tracing::instrument(skip(self), fields(user_id = %user_id))]
     async fn subscribe(&self, user_id: Uuid) -> broadcast::Receiver<UserEvent> {
         let tx = self
@@ -223,10 +223,10 @@ impl NotificationService for ValkeyNotificationService {
         let channel_name = format!("{CHANNEL_PREFIX}{user_id}");
         let payload = [event as u8];
 
-        match self.valkey.publish(&channel_name, &payload).await {
+        match self.pubsub.publish(&channel_name, &payload).await {
             Ok(()) => self.metrics.sends_total.add(1, &[KeyValue::new("status", "sent")]),
             Err(e) => {
-                tracing::error!(error = %e, "Failed to publish to Valkey");
+                tracing::error!(error = %e, "Failed to publish to PubSub");
                 self.metrics.sends_total.add(1, &[KeyValue::new("status", "error")]);
             }
         }

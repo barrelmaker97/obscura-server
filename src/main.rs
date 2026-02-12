@@ -8,7 +8,7 @@ use obscura_server::services::gateway::GatewayService;
 use obscura_server::services::health_service::HealthService;
 use obscura_server::services::key_service::KeyService;
 use obscura_server::services::message_service::MessageService;
-use obscura_server::services::notification_service::{NotificationService, ValkeyNotificationService};
+use obscura_server::services::notification_service::{DistributedNotificationService, NotificationService};
 use obscura_server::services::rate_limit_service::RateLimitService;
 use obscura_server::storage::attachment_repo::AttachmentRepository;
 use obscura_server::storage::key_repo::KeyRepository;
@@ -72,11 +72,11 @@ async fn main() -> anyhow::Result<()> {
             let _ = signal_tx.send(true);
         });
 
-        // Valkey Setup
-        let valkey = {
-            let _span = tracing::info_span!("valkey_setup").entered();
-            storage::valkey::ValkeyClient::new(
-                &config.valkey,
+        // PubSub Setup (using Redis)
+        let pubsub = {
+            let _span = tracing::info_span!("pubsub_setup").entered();
+            storage::redis::RedisClient::new(
+                &config.pubsub,
                 config.notifications.global_channel_capacity,
                 shutdown_rx.clone(),
             )
@@ -84,7 +84,7 @@ async fn main() -> anyhow::Result<()> {
         };
 
         let notifier: Arc<dyn NotificationService> =
-            Arc::new(ValkeyNotificationService::new(valkey.clone(), &config, shutdown_rx.clone()).await?);
+            Arc::new(DistributedNotificationService::new(pubsub.clone(), &config, shutdown_rx.clone()).await?);
 
         // Storage Setup
         let s3_client = {

@@ -31,7 +31,7 @@ pub struct Config {
     pub notifications: NotificationConfig,
 
     #[command(flatten)]
-    pub valkey: ValkeyConfig,
+    pub pubsub: PubSubConfig,
 
     #[command(flatten)]
     pub websocket: WsConfig,
@@ -54,7 +54,7 @@ impl Default for Config {
             health: HealthConfig::default(),
             messaging: MessagingConfig::default(),
             notifications: NotificationConfig::default(),
-            valkey: ValkeyConfig::default(),
+            pubsub: PubSubConfig::default(),
             websocket: WsConfig::default(),
             storage: StorageConfig::default(),
             telemetry: TelemetryConfig::default(),
@@ -70,21 +70,21 @@ impl Config {
 }
 
 #[derive(Clone, Debug, Args)]
-pub struct ValkeyConfig {
-    /// Valkey connection URL (e.g. <redis://localhost:6379>)
-    #[arg(long = "valkey-url", env = "OBSCURA_VALKEY_URL", default_value_t = ValkeyConfig::default().url)]
+pub struct PubSubConfig {
+    /// PubSub connection URL (e.g. <redis://localhost:6379>)
+    #[arg(long = "pubsub-url", env = "OBSCURA_PUBSUB_URL", default_value_t = PubSubConfig::default().url)]
     pub url: String,
 
-    /// Minimum backoff time for Valkey reconnection in seconds
-    #[arg(long = "valkey-min-backoff-secs", env = "OBSCURA_VALKEY_MIN_BACKOFF_SECS", default_value_t = ValkeyConfig::default().min_backoff_secs)]
+    /// Minimum backoff time for PubSub reconnection in seconds
+    #[arg(long = "pubsub-min-backoff-secs", env = "OBSCURA_PUBSUB_MIN_BACKOFF_SECS", default_value_t = PubSubConfig::default().min_backoff_secs)]
     pub min_backoff_secs: u64,
 
-    /// Maximum backoff time for Valkey reconnection in seconds
-    #[arg(long = "valkey-max-backoff-secs", env = "OBSCURA_VALKEY_MAX_BACKOFF_SECS", default_value_t = ValkeyConfig::default().max_backoff_secs)]
+    /// Maximum backoff time for PubSub reconnection in seconds
+    #[arg(long = "pubsub-max-backoff-secs", env = "OBSCURA_PUBSUB_MAX_BACKOFF_SECS", default_value_t = PubSubConfig::default().max_backoff_secs)]
     pub max_backoff_secs: u64,
 }
 
-impl Default for ValkeyConfig {
+impl Default for PubSubConfig {
     fn default() -> Self {
         Self { url: "redis://localhost:6379".to_string(), min_backoff_secs: 1, max_backoff_secs: 30 }
     }

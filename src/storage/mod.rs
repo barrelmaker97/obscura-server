@@ -6,9 +6,9 @@ pub mod attachment_repo;
 pub mod key_repo;
 pub mod message_repo;
 pub(crate) mod records;
+pub mod redis;
 pub mod refresh_token_repo;
 pub mod user_repo;
-pub mod valkey;
 
 pub type DbPool = Pool<Postgres>;
 

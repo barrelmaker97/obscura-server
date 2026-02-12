@@ -1,4 +1,4 @@
-use crate::config::ValkeyConfig;
+use crate::config::PubSubConfig;
 use backon::{ExponentialBuilder, Retryable};
 use dashmap::DashMap;
 use futures::StreamExt;
@@ -8,29 +8,29 @@ use tokio::sync::{broadcast, watch};
 use tracing::Instrument;
 
 #[derive(Debug, Clone)]
-pub struct ValkeyMessage {
+pub struct PubSubMessage {
     pub channel: String,
     pub payload: Vec<u8>,
 }
 
 #[derive(Debug)]
-pub struct ValkeyClient {
+pub struct RedisClient {
     publisher: redis::aio::ConnectionManager,
     // Maps patterns (e.g. "user:*") to broadcast senders
-    subscriptions: Arc<DashMap<String, broadcast::Sender<ValkeyMessage>>>,
+    subscriptions: Arc<DashMap<String, broadcast::Sender<PubSubMessage>>>,
     client: redis::Client,
     shutdown: watch::Receiver<bool>,
     channel_capacity: usize,
-    config: ValkeyConfig,
+    config: PubSubConfig,
 }
 
-impl ValkeyClient {
-    /// Creates a new Valkey client.
+impl RedisClient {
+    /// Creates a new Redis-based PubSub client.
     ///
     /// # Errors
     /// Returns an error if the connection fails.
     pub async fn new(
-        config: &ValkeyConfig,
+        config: &PubSubConfig,
         channel_capacity: usize,
         shutdown: watch::Receiver<bool>,
     ) -> anyhow::Result<Arc<Self>> {
@@ -38,10 +38,10 @@ impl ValkeyClient {
         let publisher = client.get_connection_manager().await?;
         let subscriptions = Arc::new(DashMap::new());
 
-        let valkey_client =
+        let redis_client =
             Arc::new(Self { publisher, subscriptions, client, shutdown, channel_capacity, config: config.clone() });
 
-        Ok(valkey_client)
+        Ok(redis_client)
     }
 
     /// Returns a publisher connection that can be used for standard Redis commands.
@@ -55,7 +55,7 @@ impl ValkeyClient {
     ///
     /// # Errors
     /// Returns an error if the subscription fails.
-    pub async fn subscribe(&self, pattern: &str) -> anyhow::Result<broadcast::Receiver<ValkeyMessage>> {
+    pub async fn subscribe(&self, pattern: &str) -> anyhow::Result<broadcast::Receiver<PubSubMessage>> {
         if let Some(tx) = self.subscriptions.get(pattern) {
             return Ok(tx.subscribe());
         }
@@ -78,7 +78,7 @@ impl ValkeyClient {
             async move {
                 Self::run_pattern_listener(client, pattern_str, tx, shutdown, subscriptions, config, ready_tx).await;
             }
-            .instrument(tracing::info_span!("valkey_pattern_listener", pattern = %pattern)),
+            .instrument(tracing::info_span!("redis_pattern_listener", pattern = %pattern)),
         );
 
         // Wait for the listener to be ready (psubscribed)
@@ -90,10 +90,10 @@ impl ValkeyClient {
     async fn run_pattern_listener(
         client: redis::Client,
         pattern: String,
-        tx: broadcast::Sender<ValkeyMessage>,
+        tx: broadcast::Sender<PubSubMessage>,
         mut shutdown: watch::Receiver<bool>,
-        subscriptions: Arc<DashMap<String, broadcast::Sender<ValkeyMessage>>>,
-        config: ValkeyConfig,
+        subscriptions: Arc<DashMap<String, broadcast::Sender<PubSubMessage>>>,
+        config: PubSubConfig,
         ready_tx: tokio::sync::oneshot::Sender<()>,
     ) {
         let retry_strategy = ExponentialBuilder::default()
@@ -110,18 +110,18 @@ impl ValkeyClient {
             })
             .retry(&retry_strategy)
             .when(|e| {
-                tracing::warn!(error = %e, "Failed to subscribe to Valkey pattern, retrying...");
+                tracing::warn!(error = %e, "Failed to subscribe to Redis pattern, retrying...");
                 true
             })
             .notify(|e, duration| {
-                tracing::debug!("Valkey subscription retry in {:?} due to error: {:?}", duration, e);
+                tracing::debug!("Redis subscription retry in {:?} due to error: {:?}", duration, e);
             })
             .await;
 
             let pubsub: redis::aio::PubSub = match pubsub_result {
                 Ok(ps) => ps,
                 Err(e) => {
-                    tracing::error!(error = %e, "Valkey subscription failed after retries");
+                    tracing::error!(error = %e, "Redis subscription failed after retries");
                     break;
                 }
             };
@@ -138,16 +138,16 @@ impl ValkeyClient {
                     _ = shutdown.changed() => return,
                     msg = message_stream.next() => {
                         if let Some(msg) = msg {
-                            let valkey_msg = ValkeyMessage {
+                            let pubsub_msg = PubSubMessage {
                                 channel: msg.get_channel_name().to_string(),
                                 payload: msg.get_payload().unwrap_or_default(),
                             };
-                            if tx.send(valkey_msg).is_err() {
+                            if tx.send(pubsub_msg).is_err() {
                                 // If no one is listening, we could potentially stop the listener,
                                 // but for simplicity we'll keep it running until shutdown.
                             }
                         } else {
-                            tracing::warn!(pattern = %pattern, "Valkey pubsub connection lost, reconnecting...");
+                            tracing::warn!(pattern = %pattern, "Redis pubsub connection lost, reconnecting...");
                             break;
                         }
                     }

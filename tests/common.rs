@@ -14,7 +14,7 @@ use obscura_server::{
         health_service::HealthService,
         key_service::KeyService,
         message_service::MessageService,
-        notification_service::{NotificationService, ValkeyNotificationService},
+        notification_service::{DistributedNotificationService, NotificationService},
         rate_limit_service::RateLimitService,
     },
     storage::{
@@ -108,8 +108,8 @@ pub fn get_test_config() -> Config {
             force_path_style: true,
             ..Default::default()
         },
-        valkey: obscura_server::config::ValkeyConfig {
-            url: std::env::var("OBSCURA_VALKEY_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string()),
+        pubsub: obscura_server::config::PubSubConfig {
+            url: std::env::var("OBSCURA_PUBSUB_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string()),
             ..Default::default()
         },
         ..Default::default()
@@ -228,18 +228,18 @@ impl TestApp {
 
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
-        let valkey = storage::valkey::ValkeyClient::new(
-            &config.valkey,
+        let pubsub = storage::redis::RedisClient::new(
+            &config.pubsub,
             config.notifications.global_channel_capacity,
             shutdown_rx.clone(),
         )
         .await
-        .expect("Failed to create ValkeyClient for tests. Is Valkey running?");
+        .expect("Failed to create RedisClient for tests. Is Redis running?");
 
         let notifier: Arc<dyn NotificationService> = Arc::new(
-            ValkeyNotificationService::new(valkey, &config, shutdown_rx.clone())
+            DistributedNotificationService::new(pubsub, &config, shutdown_rx.clone())
                 .await
-                .expect("Failed to create ValkeyNotificationService for tests."),
+                .expect("Failed to create DistributedNotificationService for tests."),
         );
 
         let region_provider = aws_config::Region::new(config.storage.region.clone());

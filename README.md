@@ -68,15 +68,16 @@ Command-line options take precedence over environment variables.
 | `--pre-key-refill-threshold` | Threshold to trigger client refill notification | `OBSCURA_PRE_KEY_REFILL_THRESHOLD` | `20` |
 | `--max-pre-keys` | Max One-Time PreKeys allowed per user | `OBSCURA_MAX_PRE_KEYS` | `100` |
 | `--gc-interval-secs` | How often to run notification cleanup | `OBSCURA_GC_INTERVAL_SECS` | `60` |
-| `--channel-capacity` | Capacity of the notification channel | `OBSCURA_CHANNEL_CAPACITY` | `16` |
+| `--global-channel-capacity` | Capacity of global dispatcher channel | `OBSCURA_GLOBAL_CHANNEL_CAPACITY` | `1024` |
+| `--user-channel-capacity` | Capacity of per-user notification channel | `OBSCURA_USER_CHANNEL_CAPACITY` | `64` |
 
-### Valkey Configuration (Distributed Notifications)
+### PubSub Configuration (Distributed Notifications)
 
 | Option | Description | Environment Variable | Default |
 |--------|-------------|----------------------|---------|
-| `--valkey-url` | Valkey connection URL | `OBSCURA_VALKEY_URL` | `redis://localhost:6379` |
-| `--valkey-min-backoff-secs` | Min reconnection backoff | `OBSCURA_VALKEY_MIN_BACKOFF_SECS` | `1` |
-| `--valkey-max-backoff-secs` | Max reconnection backoff | `OBSCURA_VALKEY_MAX_BACKOFF_SECS` | `30` |
+| `--pubsub-url` | PubSub connection URL | `OBSCURA_PUBSUB_URL` | `redis://localhost:6379` |
+| `--pubsub-min-backoff-secs` | Min reconnection backoff | `OBSCURA_PUBSUB_MIN_BACKOFF_SECS` | `1` |
+| `--pubsub-max-backoff-secs` | Max reconnection backoff | `OBSCURA_PUBSUB_MAX_BACKOFF_SECS` | `30` |
 
 ### WebSocket Configuration
 
@@ -133,7 +134,7 @@ A Dockerfile is included for easy deployment.
      -p 3000:3000 \
      -p 9090:9090 \
      -e OBSCURA_DATABASE_URL="postgres://user:pass@host.docker.internal:5432/obscura" \
-     -e OBSCURA_VALKEY_URL="redis://host.docker.internal:6379" \
+     -e OBSCURA_PUBSUB_URL="redis://host.docker.internal:6379" \
      -e OBSCURA_JWT_SECRET="your_secret_key" \
      -e OBSCURA_STORAGE_BUCKET="obscura-attachments" \
      obscura-server
@@ -165,7 +166,7 @@ docker compose up -d
 2. Run the server:
    ```bash
    export OBSCURA_DATABASE_URL=postgres://user:password@localhost/signal_server
-   export OBSCURA_VALKEY_URL=redis://localhost:6379
+   export OBSCURA_PUBSUB_URL=redis://localhost:6379
    export OBSCURA_JWT_SECRET=test
    export OBSCURA_STORAGE_BUCKET=test
    cargo run
