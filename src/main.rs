@@ -72,8 +72,19 @@ async fn main() -> anyhow::Result<()> {
             let _ = signal_tx.send(true);
         });
 
+        // Valkey Setup
+        let valkey = {
+            let _span = tracing::info_span!("valkey_setup").entered();
+            storage::valkey::ValkeyClient::new(
+                &config.valkey,
+                config.notifications.channel_capacity,
+                shutdown_rx.clone(),
+            )
+            .await?
+        };
+
         let notifier: Arc<dyn NotificationService> =
-            Arc::new(ValkeyNotificationService::new(&config, shutdown_rx.clone()).await?);
+            Arc::new(ValkeyNotificationService::new(valkey.clone(), &config, shutdown_rx.clone()).await?);
 
         // Storage Setup
         let s3_client = {

@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::storage::valkey::ValkeyClient;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use opentelemetry::{
@@ -71,120 +72,69 @@ const CHANNEL_PATTERN: &str = "user:*";
 
 #[derive(Debug)]
 pub struct ValkeyNotificationService {
-    publisher: redis::aio::ConnectionManager,
+    valkey: Arc<ValkeyClient>,
     channels: Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
     channel_capacity: usize,
     metrics: Metrics,
 }
 
 impl ValkeyNotificationService {
-    pub async fn new(config: &Config, shutdown: tokio::sync::watch::Receiver<bool>) -> anyhow::Result<Self> {
-        let valkey_url = &config.valkey.url;
-        let client = redis::Client::open(valkey_url.as_str())?;
-        let publisher = client.get_connection_manager().await?;
+    pub async fn new(
+        valkey: Arc<ValkeyClient>,
+        config: &Config,
+        shutdown: tokio::sync::watch::Receiver<bool>,
+    ) -> anyhow::Result<Self> {
         let channels = Arc::new(DashMap::new());
         let metrics = Metrics::new();
 
-        let pubsub_client = redis::Client::open(valkey_url.as_str())?;
-
-        // Spawn background Pub/Sub listener
+        // Background GC task
         tokio::spawn(
-            Self::run_listener(pubsub_client, Arc::clone(&channels), metrics.clone(), config.clone(), shutdown.clone())
-                .instrument(tracing::info_span!("notification_listener")),
-        );
-
-        // Spawn background GC task
-        tokio::spawn(
-            Self::run_gc(Arc::clone(&channels), metrics.clone(), config.notifications.gc_interval_secs, shutdown)
+            Self::run_gc(Arc::clone(&channels), metrics.clone(), config.notifications.gc_interval_secs, shutdown.clone())
                 .instrument(tracing::info_span!("notification_gc")),
         );
 
-        Ok(Self {
-            publisher,
-            channels,
-            channel_capacity: config.notifications.channel_capacity,
-            metrics,
-        })
-    }
+        // Background dispatcher task: subscribes to ValkeyClient and routes to local channels
+        let mut valkey_rx = valkey.subscribe(CHANNEL_PATTERN).await?;
+        let dispatcher_channels = Arc::clone(&channels);
+        let dispatcher_metrics = metrics.clone();
 
-    async fn run_listener(
-        pubsub_client: redis::Client,
-        channels: Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
-        metrics: Metrics,
-        config: Config,
-        mut shutdown: tokio::sync::watch::Receiver<bool>,
-    ) {
-        let mut backoff = std::time::Duration::from_secs(config.valkey.min_backoff_secs);
-        let min_backoff = backoff;
-        let max_backoff = std::time::Duration::from_secs(config.valkey.max_backoff_secs);
-
-        loop {
-            let mut pubsub = match pubsub_client.get_async_pubsub().await {
-                Ok(ps) => ps,
-                Err(e) => {
-                    tracing::error!(error = %e, "Failed to get async pubsub, retrying in {:?}", backoff);
+        tokio::spawn(
+            async move {
+                let mut shutdown = shutdown;
+                loop {
                     tokio::select! {
-                        _ = tokio::time::sleep(backoff) => {
-                            backoff = std::cmp::min(backoff * 2, max_backoff);
-                            continue;
-                        }
                         _ = shutdown.changed() => break,
-                    }
-                }
-            };
-
-            if let Err(e) = pubsub.psubscribe(CHANNEL_PATTERN).await {
-                tracing::error!(error = %e, "Failed to psubscribe, retrying in {:?}", backoff);
-                tokio::select! {
-                    _ = tokio::time::sleep(backoff) => {
-                        backoff = std::cmp::min(backoff * 2, max_backoff);
-                        continue;
-                    }
-                    _ = shutdown.changed() => break,
-                }
-            }
-
-            tracing::info!(pattern = %CHANNEL_PATTERN, "Successfully subscribed to Valkey notifications");
-            backoff = min_backoff; // Reset backoff on success
-
-            let mut message_stream = pubsub.into_on_message();
-            use futures::StreamExt;
-
-            loop {
-                tokio::select! {
-                    _ = shutdown.changed() => return,
-
-                    // Handle incoming messages from Valkey
-                    msg = message_stream.next() => {
-                        match msg {
-                            Some(msg) => {
-                                let channel = msg.get_channel_name();
-                                if let Some(user_id_str) = channel.strip_prefix(CHANNEL_PREFIX) {
-                                    if let Ok(user_id) = Uuid::parse_str(user_id_str) {
-                                        let payload: u8 = msg.get_payload().unwrap_or_default();
-                                        let event_res = UserEvent::try_from(payload);
-
-                                        let span = tracing::debug_span!("process_notification", %user_id, ?event_res);
-                                        let _enter = span.enter();
-
-                                        if let Ok(event) = event_res {
-                                            metrics.received_total.add(1, &[KeyValue::new("event", format!("{:?}", event))]);
-                                            if let Some(tx) = channels.get(&user_id) {
-                                                let _ = tx.send(event);
+                        msg = valkey_rx.recv() => {
+                            match msg {
+                                Ok(msg) => {
+                                    if let Some(user_id_str) = msg.channel.strip_prefix(CHANNEL_PREFIX) {
+                                        if let Ok(user_id) = Uuid::parse_str(user_id_str) {
+                                            if let Some(payload) = msg.payload.first() {
+                                                if let Ok(event) = UserEvent::try_from(*payload) {
+                                                    let span = tracing::debug_span!("process_notification", %user_id, ?event);
+                                                    let _enter = span.enter();
+                                                    dispatcher_metrics.received_total.add(1, &[KeyValue::new("event", format!("{:?}", event))]);
+                                                    if let Some(tx) = dispatcher_channels.get(&user_id) {
+                                                        let _ = tx.send(event);
+                                                    }
+                                                }
                                             }
                                         }
                                     }
                                 }
-                            }
-                            None => {
-                                tracing::warn!("Valkey pubsub connection lost, reconnecting...");
-                                break; // Re-enter the outer loop to reconnect
+                                Err(broadcast::error::RecvError::Lagged(n)) => {
+                                    tracing::warn!(missed = n, "Valkey notification dispatcher lagged");
+                                }
+                                Err(broadcast::error::RecvError::Closed) => break,
                             }
                         }
                     }
                 }
             }
-        }
+            .instrument(tracing::info_span!("notification_dispatcher")),
+        );
+
+        Ok(Self { valkey, channels, channel_capacity: config.notifications.channel_capacity, metrics })
     }
 
     async fn run_gc(
@@ -231,12 +181,10 @@ impl NotificationService for ValkeyNotificationService {
 
     #[tracing::instrument(skip(self), fields(user_id = %user_id, event = ?event))]
     async fn notify(&self, user_id: Uuid, event: UserEvent) {
-        use redis::AsyncCommands;
-        let mut conn = self.publisher.clone();
         let channel_name = format!("{}{}", CHANNEL_PREFIX, user_id);
         let payload = event as u8;
 
-        match conn.publish::<_, _, i64>(channel_name, payload).await {
+        match self.valkey.publish(&channel_name, payload).await {
             Ok(_) => self.metrics.sends_total.add(1, &[KeyValue::new("status", "sent")]),
             Err(e) => {
                 tracing::error!(error = %e, "Failed to publish to Valkey");

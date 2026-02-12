@@ -8,6 +8,7 @@ pub mod message_repo;
 pub(crate) mod records;
 pub mod refresh_token_repo;
 pub mod user_repo;
+pub mod valkey;
 
 pub type DbPool = Pool<Postgres>;
 

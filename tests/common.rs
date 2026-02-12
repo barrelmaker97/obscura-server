@@ -227,10 +227,19 @@ impl TestApp {
         config.server.mgmt_port = mgmt_addr.port();
 
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+
+        let valkey = storage::valkey::ValkeyClient::new(
+            &config.valkey,
+            config.notifications.channel_capacity,
+            shutdown_rx.clone(),
+        )
+        .await
+        .expect("Failed to create ValkeyClient for tests. Is Valkey running?");
+
         let notifier: Arc<dyn NotificationService> = Arc::new(
-            ValkeyNotificationService::new(&config, shutdown_rx.clone())
+            ValkeyNotificationService::new(valkey, &config, shutdown_rx.clone())
                 .await
-                .expect("Failed to create ValkeyNotificationService for tests. Is Valkey running?"),
+                .expect("Failed to create ValkeyNotificationService for tests."),
         );
 
         let region_provider = aws_config::Region::new(config.storage.region.clone());
