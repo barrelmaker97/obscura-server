@@ -1,3 +1,4 @@
+#![allow(clippy::needless_raw_string_hashes)]
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Pool, Postgres};
 

@@ -7,7 +7,6 @@
 #![warn(clippy::dbg_macro)]
 #![warn(unreachable_pub)]
 #![warn(missing_debug_implementations)]
-#![allow(clippy::needless_raw_string_hashes)]
 #![deny(unused_must_use)]
 
 pub mod api;
