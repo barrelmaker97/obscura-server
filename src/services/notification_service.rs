@@ -1,8 +1,10 @@
 use crate::config::Config;
 use async_trait::async_trait;
 use dashmap::DashMap;
-use opentelemetry::{KeyValue, global, metrics::Counter};
+use opentelemetry::{global, metrics::Counter, KeyValue};
+use std::sync::Arc;
 use tokio::sync::broadcast;
+use tracing::Instrument;
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
@@ -53,7 +55,7 @@ pub trait NotificationService: Send + Sync + std::fmt::Debug {
 #[derive(Debug)]
 pub struct ValkeyNotificationService {
     publisher: redis::aio::ConnectionManager,
-    channels: std::sync::Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
+    channels: Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
     channel_capacity: usize,
     metrics: Metrics,
 }
@@ -66,99 +68,116 @@ impl ValkeyNotificationService {
     ) -> anyhow::Result<Self> {
         let client = redis::Client::open(valkey_url)?;
         let publisher = client.get_connection_manager().await?;
-        let channels = std::sync::Arc::new(DashMap::<Uuid, broadcast::Sender<UserEvent>>::new());
+        let channels = Arc::new(DashMap::new());
 
-        let map_ref = std::sync::Arc::clone(&channels);
         let pubsub_client = redis::Client::open(valkey_url)?;
-        let channel_capacity = config.notifications.channel_capacity;
 
-        // Background Pub/Sub listener
-        let mut listener_shutdown = shutdown.clone();
-        tokio::spawn(async move {
-            let mut backoff = std::time::Duration::from_secs(1);
-            let max_backoff = std::time::Duration::from_secs(30);
+        // Spawn background Pub/Sub listener
+        tokio::spawn(
+            Self::run_listener(pubsub_client, Arc::clone(&channels), shutdown.clone())
+                .instrument(tracing::info_span!("notification_listener")),
+        );
 
-            loop {
-                let mut pubsub = match pubsub_client.get_async_pubsub().await {
-                    Ok(ps) => ps,
-                    Err(e) => {
-                        tracing::error!(error = %e, "Failed to get async pubsub, retrying in {:?}", backoff);
-                        tokio::select! {
-                            _ = tokio::time::sleep(backoff) => {
-                                backoff = std::cmp::min(backoff * 2, max_backoff);
-                                continue;
-                            }
-                            _ = listener_shutdown.changed() => break,
-                        }
-                    }
-                };
+        // Spawn background GC task
+        tokio::spawn(
+            Self::run_gc(Arc::clone(&channels), config.notifications.gc_interval_secs, shutdown)
+                .instrument(tracing::info_span!("notification_gc")),
+        );
 
-                if let Err(e) = pubsub.psubscribe("user:*").await {
-                    tracing::error!(error = %e, "Failed to psubscribe, retrying in {:?}", backoff);
+        Ok(Self {
+            publisher,
+            channels,
+            channel_capacity: config.notifications.channel_capacity,
+            metrics: Metrics::new(),
+        })
+    }
+
+    async fn run_listener(
+        pubsub_client: redis::Client,
+        channels: Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
+        mut shutdown: tokio::sync::watch::Receiver<bool>,
+    ) {
+        let mut backoff = std::time::Duration::from_secs(1);
+        let max_backoff = std::time::Duration::from_secs(30);
+
+        loop {
+            let mut pubsub = match pubsub_client.get_async_pubsub().await {
+                Ok(ps) => ps,
+                Err(e) => {
+                    tracing::error!(error = %e, "Failed to get async pubsub, retrying in {:?}", backoff);
                     tokio::select! {
                         _ = tokio::time::sleep(backoff) => {
                             backoff = std::cmp::min(backoff * 2, max_backoff);
                             continue;
                         }
-                        _ = listener_shutdown.changed() => break,
+                        _ = shutdown.changed() => break,
                     }
                 }
+            };
 
-                tracing::info!("Successfully subscribed to Valkey notifications");
-                backoff = std::time::Duration::from_secs(1); // Reset backoff on success
+            if let Err(e) = pubsub.psubscribe("user:*").await {
+                tracing::error!(error = %e, "Failed to psubscribe, retrying in {:?}", backoff);
+                tokio::select! {
+                    _ = tokio::time::sleep(backoff) => {
+                        backoff = std::cmp::min(backoff * 2, max_backoff);
+                        continue;
+                    }
+                    _ = shutdown.changed() => break,
+                }
+            }
 
-                let mut message_stream = pubsub.into_on_message();
-                use futures::StreamExt;
+            tracing::info!("Successfully subscribed to Valkey notifications");
+            backoff = std::time::Duration::from_secs(1); // Reset backoff on success
 
-                loop {
-                    tokio::select! {
-                        _ = listener_shutdown.changed() => return,
+            let mut message_stream = pubsub.into_on_message();
+            use futures::StreamExt;
 
-                        // Handle incoming messages from Valkey
-                        msg = message_stream.next() => {
-                            match msg {
-                                Some(msg) => {
-                                    let channel = msg.get_channel_name();
-                                    if let Some(user_id_str) = channel.strip_prefix("user:") {
-                                        if let Ok(user_id) = Uuid::parse_str(user_id_str) {
-                                            let payload: u8 = msg.get_payload().unwrap_or_default();
+            loop {
+                tokio::select! {
+                    _ = shutdown.changed() => return,
 
-                                            if let Ok(event) = UserEvent::try_from(payload) {
-                                                if let Some(tx) = map_ref.get(&user_id) {
-                                                    let _ = tx.send(event);
-                                                }
+                    // Handle incoming messages from Valkey
+                    msg = message_stream.next() => {
+                        match msg {
+                            Some(msg) => {
+                                let channel = msg.get_channel_name();
+                                if let Some(user_id_str) = channel.strip_prefix("user:") {
+                                    if let Ok(user_id) = Uuid::parse_str(user_id_str) {
+                                        let payload: u8 = msg.get_payload().unwrap_or_default();
+
+                                        if let Ok(event) = UserEvent::try_from(payload) {
+                                            if let Some(tx) = channels.get(&user_id) {
+                                                let _ = tx.send(event);
                                             }
                                         }
                                     }
                                 }
-                                None => {
-                                    tracing::warn!("Valkey pubsub connection lost, reconnecting...");
-                                    break; // Re-enter the outer loop to reconnect
-                                }
+                            }
+                            None => {
+                                tracing::warn!("Valkey pubsub connection lost, reconnecting...");
+                                break; // Re-enter the outer loop to reconnect
                             }
                         }
                     }
                 }
             }
-        });
+        }
+    }
 
-        // Background GC task
-        let gc_map = std::sync::Arc::clone(&channels);
-        let gc_interval = config.notifications.gc_interval_secs;
-        let mut gc_shutdown = shutdown.clone();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(gc_interval));
-            while !*gc_shutdown.borrow() {
-                tokio::select! {
-                    _ = interval.tick() => {
-                        gc_map.retain(|_, sender: &mut broadcast::Sender<UserEvent>| sender.receiver_count() > 0);
-                    }
-                    _ = gc_shutdown.changed() => break,
+    async fn run_gc(
+        channels: Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
+        interval_secs: u64,
+        mut shutdown: tokio::sync::watch::Receiver<bool>,
+    ) {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    channels.retain(|_, sender| sender.receiver_count() > 0);
                 }
+                _ = shutdown.changed() => break,
             }
-        });
-
-        Ok(Self { publisher, channels, channel_capacity, metrics: Metrics::new() })
+        }
     }
 }
 
@@ -193,3 +212,4 @@ impl NotificationService for ValkeyNotificationService {
         }
     }
 }
+
