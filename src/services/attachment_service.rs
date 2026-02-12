@@ -5,8 +5,12 @@ use crate::storage::attachment_repo::AttachmentRepository;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::primitives::ByteStream;
 use axum::body::{Body, Bytes};
+use futures::StreamExt;
 use http_body_util::{BodyExt, LengthLimitError, Limited};
-use opentelemetry::{global, metrics::{Counter, Histogram}};
+use opentelemetry::{
+    global,
+    metrics::{Counter, Histogram},
+};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
@@ -16,7 +20,7 @@ use tokio::sync::mpsc;
 use tracing::Instrument;
 use uuid::Uuid;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Metrics {
     uploaded_bytes: Counter<u64>,
     upload_size_bytes: Histogram<u64>,
@@ -54,7 +58,7 @@ impl http_body::Body for SyncBody {
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<std::result::Result<http_body::Frame<Self::Data>, Self::Error>>> {
-        let mut rx = self.rx.lock().unwrap();
+        let mut rx = self.rx.lock().expect("Failed to lock receiver mutex");
 
         match rx.poll_recv(cx) {
             Poll::Ready(Some(Ok(bytes))) => Poll::Ready(Some(Ok(http_body::Frame::data(bytes)))),
@@ -65,7 +69,7 @@ impl http_body::Body for SyncBody {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AttachmentService {
     pool: DbPool,
     repo: AttachmentRepository,
@@ -76,23 +80,28 @@ pub struct AttachmentService {
 }
 
 impl AttachmentService {
-    pub fn new(pool: DbPool, repo: AttachmentRepository, s3_client: Client, config: StorageConfig, ttl_days: i64) -> Self {
-        Self {
-            pool,
-            repo,
-            s3_client,
-            config,
-            ttl_days,
-            metrics: Metrics::new(),
-        }
+    #[must_use]
+    pub fn new(
+        pool: DbPool,
+        repo: AttachmentRepository,
+        s3_client: Client,
+        config: StorageConfig,
+        ttl_days: i64,
+    ) -> Self {
+        Self { pool, repo, s3_client, config, ttl_days, metrics: Metrics::new() }
     }
 
+    /// Uploads an attachment to S3 and records it in the database.
+    ///
+    /// # Errors
+    /// Returns `AppError::BadRequest` if the attachment exceeds the size limit.
+    /// Returns `AppError::Internal` if S3 or the database fails.
     #[tracing::instrument(
         err(level = "warn"),
         skip(self, body),
         fields(attachment_id = tracing::field::Empty, attachment_size = tracing::field::Empty)
     )]
-    pub async fn upload(&self, content_len: Option<usize>, body: Body) -> Result<(Uuid, i64)> {
+    pub(crate) async fn upload(&self, content_len: Option<usize>, body: Body) -> Result<(Uuid, i64)> {
         if let Some(len) = content_len {
             tracing::Span::current().record("attachment.size", len);
             if len > self.config.attachment_max_size_bytes {
@@ -111,10 +120,8 @@ impl AttachmentService {
         let (tx, rx) = mpsc::channel(2);
         let mut data_stream = limited_body.into_data_stream();
 
-        use tracing::Instrument;
         tokio::spawn(
             async move {
-                use futures::StreamExt;
                 while let Some(item) = data_stream.next().await {
                     match item {
                         Ok(bytes) => {
@@ -151,7 +158,7 @@ impl AttachmentService {
             .put_object()
             .bucket(&self.config.bucket)
             .key(&key)
-            .set_content_length(content_len.map(|l| l as i64))
+            .set_content_length(content_len.map(|l| i64::try_from(l).unwrap_or(i64::MAX)))
             .body(byte_stream)
             .send()
             .await
@@ -174,12 +181,16 @@ impl AttachmentService {
         Ok((id, expires_at.unix_timestamp()))
     }
 
+    /// Downloads an attachment from S3.
+    ///
+    /// # Errors
+    /// Returns `AppError::NotFound` if the attachment does not exist or has expired.
     #[tracing::instrument(
         err(level = "warn"),
         skip(self),
         fields(attachment_id = %id, attachment_size = tracing::field::Empty)
     )]
-    pub async fn download(&self, id: Uuid) -> Result<(u64, ByteStream)> {
+    pub(crate) async fn download(&self, id: Uuid) -> Result<(u64, ByteStream)> {
         // 1. Check Existence & Expiry using Domain Logic
         let mut conn = self.pool.acquire().await?;
         match self.repo.find_by_id(&mut conn, id).await? {
@@ -202,7 +213,7 @@ impl AttachmentService {
         tracing::Span::current().record("attachment.size", content_length);
 
         tracing::debug!("Attachment download successful");
-        Ok((content_length as u64, output.body))
+        Ok((u64::try_from(content_length).unwrap_or(0), output.body))
     }
 
     pub async fn run_cleanup_loop(&self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
@@ -211,7 +222,7 @@ impl AttachmentService {
 
         while !*shutdown.borrow() {
             tokio::select! {
-                _ = tokio::time::sleep_until(next_tick) => {
+                () = tokio::time::sleep_until(next_tick) => {
                     async {
                         tracing::debug!("Running attachment cleanup...");
 
@@ -238,7 +249,10 @@ impl AttachmentService {
         loop {
             // Fetch expired attachments
             let mut conn = self.pool.acquire().await?;
-            let ids = self.repo.fetch_expired(&mut conn, self.config.cleanup_batch_size as i64).await?;
+            let ids = self
+                .repo
+                .fetch_expired(&mut conn, i64::try_from(self.config.cleanup_batch_size).unwrap_or(i64::MAX))
+                .await?;
 
             if ids.is_empty() {
                 break;
@@ -252,12 +266,7 @@ impl AttachmentService {
                 let key = id.to_string();
                 let res = async {
                     // Delete object from S3 first to avoid orphaned files
-                    let res = self.s3_client
-                        .delete_object()
-                        .bucket(&self.config.bucket)
-                        .key(&key)
-                        .send()
-                        .await;
+                    let res = self.s3_client.delete_object().bucket(&self.config.bucket).key(&key).send().await;
 
                     match res {
                         Ok(_) => {}

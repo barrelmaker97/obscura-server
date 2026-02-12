@@ -1,5 +1,5 @@
 use crate::api::MgmtState;
-use crate::api::schemas::health::Health as HealthSchema;
+use crate::api::schemas::health::HealthResponse;
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 
 /// Liveness probe: returns 200 OK as long as the server is running.
@@ -9,10 +9,7 @@ pub async fn livez() -> impl IntoResponse {
 
 /// Readiness probe: checks connectivity to the database and S3.
 pub async fn readyz(State(state): State<MgmtState>) -> impl IntoResponse {
-    let (db_res, storage_res) = tokio::join!(
-        state.health_service.check_db(),
-        state.health_service.check_storage()
-    );
+    let (db_res, storage_res) = tokio::join!(state.health_service.check_db(), state.health_service.check_storage());
 
     let mut status_code = StatusCode::OK;
     let db_status = if let Err(e) = db_res {
@@ -31,7 +28,7 @@ pub async fn readyz(State(state): State<MgmtState>) -> impl IntoResponse {
         "ok"
     };
 
-    let response = HealthSchema {
+    let response = HealthResponse {
         status: if status_code == StatusCode::OK { "ok" } else { "error" }.to_string(),
         database: db_status.to_string(),
         storage: storage_status.to_string(),

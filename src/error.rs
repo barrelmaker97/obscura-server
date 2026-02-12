@@ -1,4 +1,4 @@
-use crate::api::schemas::common::Error as ErrorSchema;
+use crate::api::schemas::common::ErrorResponse;
 use axum::{
     Json,
     http::StatusCode,
@@ -27,17 +27,16 @@ pub type Result<T> = std::result::Result<T, AppError>;
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
-            AppError::Database(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()),
-            AppError::AuthError => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
-            AppError::NotFound => (StatusCode::NOT_FOUND, "Not found".to_string()),
-            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
-            AppError::Conflict(msg) => (StatusCode::CONFLICT, msg),
-            AppError::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string()),
+            Self::AuthError => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
+            Self::NotFound => (StatusCode::NOT_FOUND, "Not found".to_string()),
+            Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
+            Self::Conflict(msg) => (StatusCode::CONFLICT, msg),
+            Self::Database(_) | Self::Internal => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+            }
         };
 
-        let body = Json(ErrorSchema {
-            error: message
-        });
+        let body = Json(ErrorResponse { error: message });
 
         (status, body).into_response()
     }

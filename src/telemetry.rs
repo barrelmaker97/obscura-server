@@ -1,41 +1,43 @@
 use crate::config::{LogFormat, TelemetryConfig};
+use opentelemetry::logs::{AnyValue, LogRecord, Logger, LoggerProvider, Severity};
 use opentelemetry::{KeyValue, global};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{
     Resource,
+    logs::BatchLogProcessor,
     logs::SdkLoggerProvider,
+    metrics::PeriodicReader,
     metrics::SdkMeterProvider,
     propagation::TraceContextPropagator,
-    trace::{SdkTracerProvider, BatchSpanProcessor, Sampler},
-    metrics::PeriodicReader,
-    logs::BatchLogProcessor,
+    trace::{BatchSpanProcessor, Sampler, SdkTracerProvider},
 };
 use opentelemetry_semantic_conventions::resource::{SERVICE_NAME, SERVICE_VERSION};
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
-use opentelemetry::logs::{Logger, Severity, AnyValue, LoggerProvider, LogRecord};
 
 /// A guard that ensures OpenTelemetry providers are properly shut down and flushed when dropped.
 // ... (TelemetryGuard implementation remains the same)
+#[derive(Debug)]
 pub struct TelemetryGuard {
-    tracer_provider: Option<SdkTracerProvider>,
-    meter_provider: Option<SdkMeterProvider>,
-    logger_provider: Option<SdkLoggerProvider>,
+    tracer: Option<SdkTracerProvider>,
+    meter: Option<SdkMeterProvider>,
+    logger: Option<SdkLoggerProvider>,
 }
 
 impl TelemetryGuard {
+    #[allow(clippy::print_stderr)]
     pub fn shutdown(self) {
-        if let Some(provider) = self.tracer_provider
+        if let Some(provider) = self.tracer
             && let Err(err) = provider.shutdown()
         {
-            eprintln!("Error shutting down tracer provider: {:?}", err);
+            eprintln!("Error shutting down tracer provider: {err:?}");
         }
-        if let Some(provider) = self.meter_provider
+        if let Some(provider) = self.meter
             && let Err(err) = provider.shutdown()
         {
-            eprintln!("Error shutting down meter provider: {:?}", err);
+            eprintln!("Error shutting down meter provider: {err:?}");
         }
-        if let Some(provider) = self.logger_provider {
+        if let Some(provider) = self.logger {
             // SdkLoggerProvider::shutdown returns a CompletableResultCode in some versions,
             // or a Result in others. We just call it to trigger the flush.
             let _ = provider.shutdown();
@@ -44,20 +46,28 @@ impl TelemetryGuard {
 }
 
 /// Initializes the OpenTelemetry tracing, metrics, and logging providers and hooks them into the tracing subscriber.
-pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<TelemetryGuard> {
+///
+/// # Errors
+/// Returns an error if any of the OTLP exporters fail to initialize.
+///
+/// # Panics
+/// Panics if the default `EnvFilter` or tracing subscriber cannot be initialized.
+pub fn init_telemetry(config: &TelemetryConfig) -> anyhow::Result<TelemetryGuard> {
     // 1. Build the Registry with EnvFilter
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "info".into())
-        .add_directive("sqlx=warn".parse().unwrap())
-        .add_directive("tower_http=warn".parse().unwrap())
-        .add_directive("hyper=warn".parse().unwrap())
-        .add_directive("opentelemetry=warn".parse().unwrap())
-        .add_directive("opentelemetry_sdk=warn".parse().unwrap());
+        .add_directive("sqlx=warn".parse().expect("Invalid directive for sqlx"))
+        .add_directive("tower_http=warn".parse().expect("Invalid directive for tower_http"))
+        .add_directive("hyper=warn".parse().expect("Invalid directive for hyper"))
+        .add_directive("opentelemetry=warn".parse().expect("Invalid directive for opentelemetry"))
+        .add_directive("opentelemetry_sdk=warn".parse().expect("Invalid directive for opentelemetry_sdk"));
 
     let registry = Registry::default().with(filter);
 
     // 2. Initialize OTLP Layers (Optional)
-    let (otel_layer, logger_layer, guard) = if let Some(endpoint) = &config.otlp_endpoint && !endpoint.is_empty() {
+    let (otel_layer, logger_layer, guard) = if let Some(endpoint) = &config.otlp_endpoint
+        && !endpoint.is_empty()
+    {
         let service_name = "obscura-server";
         let service_version = env!("CARGO_PKG_VERSION");
 
@@ -81,12 +91,8 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<TelemetryGuard>
 
         let tracer_provider = SdkTracerProvider::builder()
             .with_resource(resource.clone())
-            .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
-                config.trace_sampling_ratio,
-            ))))
-            .with_span_processor(
-                BatchSpanProcessor::builder(exporter).build()
-            )
+            .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(config.trace_sampling_ratio))))
+            .with_span_processor(BatchSpanProcessor::builder(exporter).build())
             .build();
 
         let tracer = opentelemetry::trace::TracerProvider::tracer(&tracer_provider, service_name);
@@ -114,27 +120,21 @@ pub fn init_telemetry(config: TelemetryConfig) -> anyhow::Result<TelemetryGuard>
 
         let logger_provider = SdkLoggerProvider::builder()
             .with_resource(resource)
-            .with_log_processor(
-                BatchLogProcessor::builder(exporter).build()
-            )
+            .with_log_processor(BatchLogProcessor::builder(exporter).build())
             .build();
-        
+
         let logger = logger_provider.logger("obscura-server");
         let layer = OtelLogLayer::new(logger);
 
         let guard = TelemetryGuard {
-            tracer_provider: Some(tracer_provider),
-            meter_provider: Some(meter_provider),
-            logger_provider: Some(logger_provider),
+            tracer: Some(tracer_provider),
+            meter: Some(meter_provider),
+            logger: Some(logger_provider),
         };
 
         (Some(OpenTelemetryLayer::new(tracer)), Some(layer), guard)
     } else {
-        let guard = TelemetryGuard {
-            tracer_provider: None,
-            meter_provider: None,
-            logger_provider: None,
-        };
+        let guard = TelemetryGuard { tracer: None, meter: None, logger: None };
         (None, None, guard)
     };
 
@@ -167,7 +167,7 @@ struct OtelLogLayer<L: Logger> {
 }
 
 impl<L: Logger> OtelLogLayer<L> {
-    fn new(logger: L) -> Self {
+    const fn new(logger: L) -> Self {
         Self { logger }
     }
 }
@@ -184,7 +184,7 @@ where
         let mut record = self.logger.create_log_record();
 
         let meta = event.metadata();
-        
+
         // Map Severity
         let severity = match *meta.level() {
             tracing::Level::ERROR => Severity::Error,
@@ -237,7 +237,7 @@ struct OtelLogVisitor {
 impl tracing::field::Visit for OtelLogVisitor {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
         let name = field.name();
-        let val = format!("{:?}", value);
+        let val = format!("{value:?}");
         if name == "message" {
             self.message = val;
         } else if name == "error" {

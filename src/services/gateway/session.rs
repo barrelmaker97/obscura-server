@@ -1,8 +1,8 @@
 use crate::config::WsConfig;
-use crate::services::message_service::MessageService;
-use crate::services::notification_service::{NotificationService, UserEvent};
 use crate::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
 use crate::services::gateway::{Metrics, ack_batcher::AckBatcher, message_pump::MessagePump};
+use crate::services::message_service::MessageService;
+use crate::services::notification_service::{NotificationService, UserEvent};
 use axum::extract::ws::{Message as WsMessage, WebSocket};
 use futures::{SinkExt, StreamExt};
 use prost::Message;
@@ -26,25 +26,16 @@ impl Session {
         name = "websocket_session",
         skip(self),
         fields(
-            user.id = %self.user_id,
+            user_id = %self.user_id,
             request_id = %self.request_id,
             otel.kind = "server",
             ws.session_id = %Uuid::new_v4()
         )
     )]
-    pub async fn run(self) {
+    pub(crate) async fn run(self) {
         // Destructuring allows independent mutable access to fields while the socket
         // is split into sink and stream halves.
-        let Session {
-            user_id,
-            socket,
-            message_service,
-            notifier,
-            metrics,
-            config,
-            mut shutdown_rx,
-            ..
-        } = self;
+        let Self { user_id, socket, message_service, notifier, metrics, config, mut shutdown_rx, .. } = self;
 
         metrics.active_connections.add(1, &[]);
         tracing::info!("WebSocket connected");
@@ -98,22 +89,21 @@ impl Session {
                     let continue_loop = match msg {
                         Some(Ok(WsMessage::Binary(bin))) => {
                             if let Ok(frame) = WebSocketFrame::decode(bin.as_ref()) {
-                                match frame.payload {
-                                    Some(Payload::Ack(ack)) => {
-                                        if let Ok(msg_id) = Uuid::parse_str(&ack.message_id) {
-                                            ack_batcher.push(msg_id);
-                                        } else {
-                                            tracing::warn!("Received ACK with invalid UUID");
-                                        }
+                                if let Some(Payload::Ack(ack)) = frame.payload {
+                                    if let Ok(msg_id) = Uuid::parse_str(&ack.message_id) {
+                                        ack_batcher.push(msg_id);
+                                    } else {
+                                        tracing::warn!("Received ACK with invalid UUID");
                                     }
-                                    _ => tracing::warn!("Received unexpected Protobuf payload type"),
+                                } else {
+                                    tracing::warn!("Received unexpected Protobuf payload type");
                                 }
                             } else {
                                 tracing::warn!("Failed to decode WebSocket frame");
                             }
                             true
                         }
-                        Some(Ok(WsMessage::Close(_))) | None | Some(Err(_)) => false,
+                        Some(Ok(WsMessage::Close(_)) | Err(_)) | None => false,
                         Some(Ok(WsMessage::Text(t))) => {
                             tracing::warn!("Received unexpected text message: {}", t);
                             true
@@ -145,7 +135,7 @@ impl Session {
                         Ok(UserEvent::MessageReceived) | Err(broadcast::error::RecvError::Lagged(_)) => {
                             message_pump.notify();
                             // Drain prevents queue buildup if notifications arrive faster than processing.
-                            while let Ok(UserEvent::MessageReceived) = notification_rx.try_recv() {
+                            while notification_rx.try_recv() == Ok(UserEvent::MessageReceived) {
                                  message_pump.notify();
                             }
                             true

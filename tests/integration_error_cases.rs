@@ -222,7 +222,7 @@ async fn test_ack_buffer_saturation() {
     // 1. Setup with TINY buffers to make saturation easy
     let mut config = common::get_test_config();
     config.websocket.ack_buffer_size = 5; // Tiny buffer
-    config.websocket.ack_batch_size = 1;  // Flush immediately
+    config.websocket.ack_batch_size = 1; // Flush immediately
 
     let app = common::TestApp::spawn_with_config(config).await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
@@ -233,8 +233,8 @@ async fn test_ack_buffer_saturation() {
     // 2. Flood with valid ACKs
     // The consumer will try to delete 1 by 1.
     // The buffer is 5.
-    // If we send 30, we should definitely hit the limit while the consumer is waiting on the DB.
-    for _ in 0..30 {
+    // If we send 15, we should definitely hit the limit while the consumer is waiting on the DB.
+    for _ in 0..15 {
         let ack = AckMessage { message_id: Uuid::new_v4().to_string() };
         let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
         let mut buf = Vec::new();

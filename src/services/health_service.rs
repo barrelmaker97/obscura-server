@@ -5,13 +5,14 @@ use opentelemetry::{KeyValue, global, metrics::Gauge};
 use std::time::Duration;
 use tokio::time::timeout;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Metrics {
     pub status: Gauge<i64>,
 }
 
 impl Metrics {
-    pub fn new() -> Self {
+    #[must_use]
+    pub(crate) fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
             status: meter
@@ -28,7 +29,7 @@ impl Default for Metrics {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct HealthService {
     pool: DbPool,
     s3_client: Client,
@@ -38,19 +39,18 @@ pub struct HealthService {
 }
 
 impl HealthService {
+    #[must_use]
     pub fn new(pool: DbPool, s3_client: Client, storage_bucket: String, config: HealthConfig) -> Self {
-        Self {
-            pool,
-            s3_client,
-            storage_bucket,
-            config,
-            metrics: Metrics::new(),
-        }
+        Self { pool, s3_client, storage_bucket, config, metrics: Metrics::new() }
     }
 
+    /// Checks database connectivity.
+    ///
+    /// # Errors
+    /// Returns a string describing the failure if the database is unreachable.
     pub async fn check_db(&self) -> Result<(), String> {
         let db_timeout = Duration::from_millis(self.config.db_timeout_ms);
-        
+
         match timeout(db_timeout, sqlx::query("SELECT 1").execute(&self.pool)).await {
             Ok(Ok(_)) => {
                 self.metrics.status.record(1, &[KeyValue::new("component", "database")]);
@@ -58,7 +58,7 @@ impl HealthService {
             }
             Ok(Err(e)) => {
                 self.metrics.status.record(0, &[KeyValue::new("component", "database")]);
-                Err(format!("Database connection failed: {:?}", e))
+                Err(format!("Database connection failed: {e:?}"))
             }
             Err(_) => {
                 self.metrics.status.record(0, &[KeyValue::new("component", "database")]);
@@ -67,6 +67,10 @@ impl HealthService {
         }
     }
 
+    /// Checks S3 connectivity.
+    ///
+    /// # Errors
+    /// Returns a string describing the failure if S3 is unreachable.
     pub async fn check_storage(&self) -> Result<(), String> {
         let storage_timeout = Duration::from_millis(self.config.storage_timeout_ms);
 

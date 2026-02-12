@@ -2,9 +2,9 @@ use crate::api::schemas::crypto::PublicKey;
 use crate::api::schemas::keys::{OneTimePreKey, SignedPreKey};
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Registration {
+pub struct RegistrationRequest {
     pub username: String,
     pub password: String,
     pub identity_key: PublicKey,
@@ -13,7 +13,11 @@ pub struct Registration {
     pub one_time_pre_keys: Vec<OneTimePreKey>,
 }
 
-impl Registration {
+impl RegistrationRequest {
+    /// Validates the registration payload.
+    ///
+    /// # Errors
+    /// Returns an error if the password is too short or if there are duplicate pre-key IDs.
     pub fn validate(&self) -> Result<(), String> {
         if self.password.len() < 12 {
             return Err("Password must be at least 12 characters long".into());
@@ -33,11 +37,11 @@ impl Registration {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::schemas::crypto::PublicKey as SchemaPublicKey;
+    use crate::api::schemas::crypto::{PublicKey as SchemaPublicKey, Signature};
     use crate::api::schemas::keys::{OneTimePreKey, SignedPreKey};
 
-    fn mock_registration(password: &str) -> Registration {
-        Registration {
+    fn mock_registration(password: &str) -> RegistrationRequest {
+        RegistrationRequest {
             username: "testuser".into(),
             password: password.into(),
             identity_key: SchemaPublicKey("A".repeat(44)), // Dummy B64
@@ -45,7 +49,7 @@ mod tests {
             signed_pre_key: SignedPreKey {
                 key_id: 1,
                 public_key: SchemaPublicKey("B".repeat(44)),
-                signature: crate::api::schemas::crypto::Signature("C".repeat(88)),
+                signature: Signature("C".repeat(88)),
             },
             one_time_pre_keys: vec![],
         }
@@ -78,27 +82,27 @@ mod tests {
     }
 }
 
-#[derive(Deserialize)]
-pub struct Login {
+#[derive(Debug, Deserialize)]
+pub struct LoginRequest {
     pub username: String,
     pub password: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Refresh {
+pub struct RefreshRequest {
     pub refresh_token: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Logout {
+pub struct LogoutRequest {
     pub refresh_token: String,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AuthSession {
+pub struct AuthResponse {
     pub token: String,
     pub refresh_token: String,
     pub expires_at: i64,

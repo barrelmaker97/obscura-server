@@ -11,6 +11,7 @@ pub struct RefreshToken {
 }
 
 impl RefreshToken {
+    #[must_use]
     pub fn is_expired_at(&self, now: OffsetDateTime) -> bool {
         self.expires_at < now
     }
@@ -23,7 +24,8 @@ pub struct Claims {
 }
 
 impl Claims {
-    pub fn new(user_id: Uuid, exp: usize) -> Self {
+    #[must_use]
+    pub const fn new(user_id: Uuid, exp: usize) -> Self {
         Self { sub: user_id, exp }
     }
 }
@@ -32,10 +34,12 @@ impl Claims {
 pub struct Jwt(pub String);
 
 impl Jwt {
-    pub fn new(token: String) -> Self {
+    #[must_use]
+    pub const fn new(token: String) -> Self {
         Self(token)
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -53,5 +57,7 @@ impl std::fmt::Display for Jwt {
     }
 }
 
+#[derive(Debug)]
 pub struct Password;
+#[derive(Debug)]
 pub struct OpaqueToken;

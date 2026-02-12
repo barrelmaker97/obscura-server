@@ -1,25 +1,30 @@
 use crate::domain::crypto::{PublicKey, Signature};
 use crate::error::{AppError, Result};
 use ed25519_dalek::Verifier;
+use xeddsa::ConvertMont;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct CryptoService;
 
 impl CryptoService {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self
     }
 
-    /// Verifies an XEdDSA signature.
+    /// Verifies an `XEdDSA` signature.
     ///
-    /// XEdDSA is used to verify Ed25519 signatures against Curve25519 (Montgomery) public keys.
+    /// `XEdDSA` is used to verify Ed25519 signatures against Curve25519 (Montgomery) public keys.
     /// Because a Montgomery X-coordinate corresponds to two Edwards points (sign bit 0 and 1),
     /// we try both to ensure compatibility with various client implementations and environments.
+    ///
+    /// # Errors
+    /// Returns `AppError::BadRequest` if the signature is invalid.
     #[tracing::instrument(skip(self, public_key, message, signature), level = "debug")]
-    pub fn verify_signature(&self, public_key: &PublicKey, message: &[u8], signature: &Signature) -> Result<()> {
+    #[allow(clippy::unused_self)]
+    pub(crate) fn verify_signature(&self, public_key: &PublicKey, message: &[u8], signature: &Signature) -> Result<()> {
         let pk = xeddsa::xed25519::PublicKey(*public_key.as_crypto_bytes());
 
-        use xeddsa::ConvertMont;
         let sig_bytes = signature.as_bytes();
 
         // We must clear the 255th bit of 's' for standard Ed25519 libraries.
@@ -46,12 +51,12 @@ impl CryptoService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::crypto::DJB_KEY_PREFIX;
     use curve25519_dalek::edwards::CompressedEdwardsY;
-    use xeddsa::xed25519::PrivateKey;
-    use xeddsa::{CalculateKeyPair, Sign};
     use rand::RngCore;
     use rand::rngs::OsRng;
-    use crate::domain::crypto::DJB_KEY_PREFIX;
+    use xeddsa::xed25519::PrivateKey;
+    use xeddsa::{CalculateKeyPair, Sign};
 
     #[test]
     fn test_verify_signature_exhaustive_robustness() {
@@ -82,8 +87,16 @@ mod tests {
             let sig_32 = Signature::new(xed_priv.sign(&msg_32, OsRng));
             let sig_33 = Signature::new(xed_priv.sign(&msg_33, OsRng));
 
-            assert!(service.verify_signature(&ik_pub, &msg_32, &sig_32).is_ok(), "Failed 32-byte msg for ik_sign={}", ik_sign);
-            assert!(service.verify_signature(&ik_pub, &msg_33, &sig_33).is_ok(), "Failed 33-byte msg for ik_sign={}", ik_sign);
+            assert!(
+                service.verify_signature(&ik_pub, &msg_32, &sig_32).is_ok(),
+                "Failed 32-byte msg for ik_sign={}",
+                ik_sign
+            );
+            assert!(
+                service.verify_signature(&ik_pub, &msg_33, &sig_33).is_ok(),
+                "Failed 33-byte msg for ik_sign={}",
+                ik_sign
+            );
         }
     }
 }

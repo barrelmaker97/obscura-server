@@ -1,19 +1,20 @@
-use axum::http::StatusCode;
+use axum::extract::ConnectInfo;
+use axum::http::{Request, StatusCode};
 use ipnetwork::IpNetwork;
 use opentelemetry::{KeyValue, global, metrics::Counter};
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use tower_governor::GovernorError;
 use tower_governor::key_extractor::KeyExtractor;
-use axum::http::Request;
 use tracing::warn;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Metrics {
-    pub decisions_total: Counter<u64>,
+    pub(crate) decisions_total: Counter<u64>,
 }
 
 impl Metrics {
-    pub fn new() -> Self {
+    #[must_use]
+    pub(crate) fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
             decisions_total: meter
@@ -30,17 +31,19 @@ impl Default for Metrics {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IpKeyExtractor {
-    trusted_proxies: Vec<IpNetwork>,
+    pub(crate) trusted_proxies: Vec<IpNetwork>,
 }
 
 impl IpKeyExtractor {
-    pub fn new(trusted_proxies: Vec<IpNetwork>) -> Self {
+    #[must_use]
+    pub(crate) const fn new(trusted_proxies: Vec<IpNetwork>) -> Self {
         Self { trusted_proxies }
     }
 
-    pub fn identify_client_ip(&self, headers: &axum::http::HeaderMap, peer_addr: IpAddr) -> IpAddr {
+    #[must_use]
+    pub(crate) fn identify_client_ip(&self, headers: &axum::http::HeaderMap, peer_addr: IpAddr) -> IpAddr {
         if !self.is_trusted(&peer_addr) {
             return peer_addr;
         }
@@ -48,10 +51,8 @@ impl IpKeyExtractor {
         let xff = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok());
 
         if let Some(xff_val) = xff
-            && let Some(real_ip) = xff_val
-                .rsplit(',')
-                .filter_map(|s| s.trim().parse::<IpAddr>().ok())
-                .find(|ip| !self.is_trusted(ip))
+            && let Some(real_ip) =
+                xff_val.rsplit(',').filter_map(|s| s.trim().parse::<IpAddr>().ok()).find(|ip| !self.is_trusted(ip))
         {
             return real_ip;
         }
@@ -68,9 +69,6 @@ impl KeyExtractor for IpKeyExtractor {
     type Key = IpAddr;
 
     fn extract<T>(&self, req: &Request<T>) -> Result<Self::Key, GovernorError> {
-        use axum::extract::ConnectInfo;
-        use std::net::SocketAddr;
-
         let peer_ip = req
             .extensions()
             .get::<ConnectInfo<SocketAddr>>()
@@ -81,18 +79,16 @@ impl KeyExtractor for IpKeyExtractor {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RateLimitService {
     pub extractor: IpKeyExtractor,
     pub metrics: Metrics,
 }
 
 impl RateLimitService {
+    #[must_use]
     pub fn new(trusted_proxies: Vec<IpNetwork>) -> Self {
-        Self {
-            extractor: IpKeyExtractor::new(trusted_proxies),
-            metrics: Metrics::new(),
-        }
+        Self { extractor: IpKeyExtractor::new(trusted_proxies), metrics: Metrics::new() }
     }
 
     pub fn log_decision(&self, status: StatusCode, ratelimit_after: Option<String>) {

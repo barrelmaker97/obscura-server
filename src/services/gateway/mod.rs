@@ -1,30 +1,35 @@
-pub mod session;
-pub mod ack_batcher;
-pub mod message_pump;
+#![allow(unreachable_pub)]
+pub(crate) mod ack_batcher;
+pub(crate) mod message_pump;
+pub(crate) mod session;
 
 use crate::config::WsConfig;
+use crate::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
+use crate::services::gateway::session::Session;
 use crate::services::key_service::KeyService;
 use crate::services::message_service::MessageService;
 use crate::services::notification_service::NotificationService;
-use crate::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
-use crate::services::gateway::session::Session;
 use axum::extract::ws::{Message as WsMessage, WebSocket};
 use futures::SinkExt;
-use opentelemetry::{global, metrics::{Counter, Histogram, UpDownCounter}};
+use opentelemetry::{
+    global,
+    metrics::{Counter, Histogram, UpDownCounter},
+};
 use prost::Message as ProstMessage;
 use std::sync::Arc;
 use uuid::Uuid;
 
-#[derive(Clone)]
-pub struct Metrics {
-    pub ack_batch_size: Histogram<u64>,
-    pub outbound_dropped_total: Counter<u64>,
-    pub active_connections: UpDownCounter<i64>,
-    pub ack_queue_dropped_total: Counter<u64>,
+#[derive(Clone, Debug)]
+pub(crate) struct Metrics {
+    pub(crate) ack_batch_size: Histogram<u64>,
+    pub(crate) outbound_dropped_total: Counter<u64>,
+    pub(crate) active_connections: UpDownCounter<i64>,
+    pub(crate) ack_queue_dropped_total: Counter<u64>,
 }
 
 impl Metrics {
-    pub fn new() -> Self {
+    #[must_use]
+    pub(crate) fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
             ack_batch_size: meter
@@ -53,7 +58,7 @@ impl Default for Metrics {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct GatewayService {
     message_service: MessageService,
     key_service: KeyService,
@@ -63,22 +68,23 @@ pub struct GatewayService {
 }
 
 impl GatewayService {
+    #[must_use]
     pub fn new(
         message_service: MessageService,
         key_service: KeyService,
         notifier: Arc<dyn NotificationService>,
         config: WsConfig,
     ) -> Self {
-        Self {
-            message_service,
-            key_service,
-            notifier,
-            config,
-            metrics: Metrics::new(),
-        }
+        Self { message_service, key_service, notifier, config, metrics: Metrics::new() }
     }
 
-    pub async fn handle_socket(&self, mut socket: WebSocket, user_id: Uuid, request_id: String, shutdown_rx: tokio::sync::watch::Receiver<bool>) {
+    pub async fn handle_socket(
+        &self,
+        mut socket: WebSocket,
+        user_id: Uuid,
+        request_id: String,
+        shutdown_rx: tokio::sync::watch::Receiver<bool>,
+    ) {
         // Validation is performed before spawning the session to provide immediate
         // feedback and avoid allocating resources for invalid connections.
         match self.key_service.fetch_identity_key(user_id).await {
@@ -117,7 +123,7 @@ impl GatewayService {
             request_id,
             socket,
             message_service: self.message_service.clone(),
-            notifier: self.notifier.clone(),
+            notifier: Arc::clone(&self.notifier),
             metrics: self.metrics.clone(),
             config: self.config.clone(),
             shutdown_rx,

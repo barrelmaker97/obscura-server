@@ -1,6 +1,7 @@
+use crate::error::Result;
+use crate::proto::obscura::v1::{EncryptedMessage, Envelope, WebSocketFrame, web_socket_frame::Payload};
 use crate::services::gateway::Metrics;
 use crate::services::message_service::MessageService;
-use crate::proto::obscura::v1::{EncryptedMessage, Envelope, WebSocketFrame, web_socket_frame::Payload};
 use axum::extract::ws::Message as WsMessage;
 use opentelemetry::KeyValue;
 use prost::Message as ProstMessage;
@@ -8,7 +9,7 @@ use tokio::sync::mpsc;
 use tracing::Instrument;
 use uuid::Uuid;
 
-/// MessagePump coalesces multiple delivery notifications into a single background
+/// `MessagePump` coalesces multiple delivery notifications into a single background
 /// database poll to avoid overwhelming the database with redundant queries.
 pub struct MessagePump {
     notify_tx: mpsc::Sender<()>,
@@ -28,17 +29,9 @@ impl MessagePump {
 
         let task = tokio::spawn(
             async move {
-                Self::run_background(
-                    user_id,
-                    notify_rx,
-                    message_service,
-                    outbound_tx,
-                    metrics,
-                    batch_limit,
-                )
-                .await;
+                Self::run_background(user_id, notify_rx, message_service, outbound_tx, metrics, batch_limit).await;
             }
-            .instrument(tracing::info_span!("message_pump", user.id = %user_id)),
+            .instrument(tracing::info_span!("message_pump", user_id = %user_id)),
         );
 
         Self { notify_tx, task }
@@ -64,10 +57,10 @@ impl MessagePump {
 
         while rx.recv().await.is_some() {
             // Continues fetching until the backlog is fully drained for the user.
-            while let Ok(true) =
-                Self::flush_batch(user_id, &message_service, &outbound_tx, &metrics, limit, &mut cursor)
-                    .await
-            {}
+            while matches!(
+                Self::flush_batch(user_id, &message_service, &outbound_tx, &metrics, limit, &mut cursor).await,
+                Ok(true)
+            ) {}
         }
     }
 
@@ -83,7 +76,7 @@ impl MessagePump {
         metrics: &Metrics,
         limit: i64,
         cursor: &mut Option<(time::OffsetDateTime, Uuid)>,
-    ) -> crate::error::Result<bool> {
+    ) -> Result<bool> {
         let messages = service.fetch_pending_batch(user_id, *cursor, limit).await?;
 
         if messages.is_empty() {
@@ -100,12 +93,10 @@ impl MessagePump {
         }
 
         for msg in messages {
-            let timestamp = msg
-                .created_at
-                .map(|ts| (ts.unix_timestamp_nanos() / 1_000_000) as u64)
-                .unwrap_or_else(|| {
-                    (time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000) as u64
-                });
+            let timestamp = msg.created_at.map_or_else(
+                || u64::try_from(time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000).unwrap_or(0),
+                |ts| u64::try_from(ts.unix_timestamp_nanos() / 1_000_000).unwrap_or(0),
+            );
 
             let envelope = Envelope {
                 id: msg.id.to_string(),
@@ -117,16 +108,12 @@ impl MessagePump {
             let frame = WebSocketFrame { payload: Some(Payload::Envelope(envelope)) };
             let mut buf = Vec::new();
 
-            if frame.encode(&mut buf).is_ok()
-                && outbound_tx.send(WsMessage::Binary(buf.into())).await.is_err()
-            {
-                metrics
-                    .outbound_dropped_total
-                    .add(1, &[KeyValue::new("reason", "buffer_full")]);
+            if frame.encode(&mut buf).is_ok() && outbound_tx.send(WsMessage::Binary(buf.into())).await.is_err() {
+                metrics.outbound_dropped_total.add(1, &[KeyValue::new("reason", "buffer_full")]);
                 return Ok(false);
             }
         }
 
-        Ok(batch_size >= limit as usize)
+        Ok(batch_size >= usize::try_from(limit).unwrap_or(usize::MAX))
     }
 }

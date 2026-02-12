@@ -4,7 +4,7 @@ use opentelemetry::{KeyValue, global, metrics::Counter};
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Metrics {
     sends_total: Counter<u64>,
 }
@@ -21,13 +21,13 @@ impl Metrics {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UserEvent {
     MessageReceived,
     Disconnect,
 }
 
-pub trait NotificationService: Send + Sync {
+pub trait NotificationService: Send + Sync + std::fmt::Debug {
     // Returns a receiver that will get a value when a notification arrives.
     fn subscribe(&self, user_id: Uuid) -> broadcast::Receiver<UserEvent>;
 
@@ -35,6 +35,7 @@ pub trait NotificationService: Send + Sync {
     fn notify(&self, user_id: Uuid, event: UserEvent);
 }
 
+#[derive(Debug)]
 pub struct InMemoryNotificationService {
     // Map UserID -> Broadcast Channel
     // We store the Sender. We create new Receivers from it.
@@ -45,9 +46,10 @@ pub struct InMemoryNotificationService {
 }
 
 impl InMemoryNotificationService {
-    pub fn new(config: Config, mut shutdown: tokio::sync::watch::Receiver<bool>) -> Self {
+    #[must_use]
+    pub fn new(config: &Config, mut shutdown: tokio::sync::watch::Receiver<bool>) -> Self {
         let channels = std::sync::Arc::new(DashMap::new());
-        let map_ref = channels.clone();
+        let map_ref = std::sync::Arc::clone(&channels);
         let interval_secs = config.notifications.gc_interval_secs;
 
         // Spawn background GC task
@@ -66,11 +68,7 @@ impl InMemoryNotificationService {
             }
         });
 
-        Self {
-            channels,
-            channel_capacity: config.notifications.channel_capacity,
-            metrics: Metrics::new(),
-        }
+        Self { channels, channel_capacity: config.notifications.channel_capacity, metrics: Metrics::new() }
     }
 }
 
@@ -96,7 +94,7 @@ impl NotificationService for InMemoryNotificationService {
             match tx.send(event) {
                 Ok(_) => self.metrics.sends_total.add(1, &[KeyValue::new("status", "sent")]),
                 Err(_) => {
-                    self.metrics.sends_total.add(1, &[KeyValue::new("status", "no_receivers")])
+                    self.metrics.sends_total.add(1, &[KeyValue::new("status", "no_receivers")]);
                 }
             }
         }
@@ -111,10 +109,7 @@ mod tests {
 
     fn test_config(gc_interval: u64) -> Config {
         Config {
-            notifications: NotificationConfig {
-                gc_interval_secs: gc_interval,
-                ..Default::default()
-            },
+            notifications: NotificationConfig { gc_interval_secs: gc_interval, ..Default::default() },
             ..Default::default()
         }
     }
@@ -122,7 +117,7 @@ mod tests {
     #[tokio::test]
     async fn test_notification_service_subscribe_and_notify() {
         let (_tx, rx_shutdown) = tokio::sync::watch::channel(false);
-        let service = InMemoryNotificationService::new(test_config(60), rx_shutdown);
+        let service = InMemoryNotificationService::new(&test_config(60), rx_shutdown);
         let user_id = Uuid::new_v4();
 
         let mut rx = service.subscribe(user_id);
@@ -135,7 +130,7 @@ mod tests {
     #[tokio::test]
     async fn test_notification_service_gc_logic() {
         let (_tx, rx_shutdown) = tokio::sync::watch::channel(false);
-        let service = InMemoryNotificationService::new(test_config(1), rx_shutdown);
+        let service = InMemoryNotificationService::new(&test_config(1), rx_shutdown);
         let user_id = Uuid::new_v4();
 
         // Subscribe and drop
@@ -161,7 +156,7 @@ mod tests {
     #[tokio::test]
     async fn test_notification_service_gc_keeps_active() {
         let (_tx, rx_shutdown) = tokio::sync::watch::channel(false);
-        let service = InMemoryNotificationService::new(test_config(1), rx_shutdown);
+        let service = InMemoryNotificationService::new(&test_config(1), rx_shutdown);
         let user_id = Uuid::new_v4();
 
         let _rx = service.subscribe(user_id);
@@ -174,7 +169,7 @@ mod tests {
     #[tokio::test]
     async fn test_notification_service_independent_channels() {
         let (_tx, rx_shutdown) = tokio::sync::watch::channel(false);
-        let service = InMemoryNotificationService::new(test_config(60), rx_shutdown);
+        let service = InMemoryNotificationService::new(&test_config(60), rx_shutdown);
         let user1 = Uuid::new_v4();
         let user2 = Uuid::new_v4();
 
@@ -184,6 +179,6 @@ mod tests {
         service.notify(user1, UserEvent::MessageReceived);
 
         assert_eq!(rx1.recv().await.unwrap(), UserEvent::MessageReceived);
-        assert!(tokio::time::timeout(std::time::Duration::from_millis(50), rx2.recv()).await.is_err());
+        assert!(tokio::time::timeout(Duration::from_millis(50), rx2.recv()).await.is_err());
     }
 }

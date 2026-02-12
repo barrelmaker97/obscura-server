@@ -1,7 +1,9 @@
-use obscura_server::api::{self, ServiceContainer};
+use obscura_server::api::{self, MgmtState, ServiceContainer};
 use obscura_server::config::Config;
 use obscura_server::services::account_service::AccountService;
 use obscura_server::services::attachment_service::AttachmentService;
+use obscura_server::services::auth_service::AuthService;
+use obscura_server::services::crypto_service::CryptoService;
 use obscura_server::services::gateway::GatewayService;
 use obscura_server::services::health_service::HealthService;
 use obscura_server::services::key_service::KeyService;
@@ -17,15 +19,15 @@ use obscura_server::{storage, telemetry};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::watch;
+use tracing::Instrument;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let config = Config::load();
 
-    let telemetry_guard = telemetry::init_telemetry(config.telemetry.clone())?;
+    let telemetry_guard = telemetry::init_telemetry(&config.telemetry)?;
 
     let boot_span = tracing::info_span!("server_boot");
-    use tracing::Instrument;
 
     let boot_result: anyhow::Result<_> = async {
         std::panic::set_hook(Box::new(|panic_info| {
@@ -70,28 +72,26 @@ async fn main() -> anyhow::Result<()> {
             let _ = signal_tx.send(true);
         });
 
-        let notifier = Arc::new(InMemoryNotificationService::new(config.clone(), shutdown_rx.clone()));
+        let notifier = Arc::new(InMemoryNotificationService::new(&config, shutdown_rx.clone()));
 
         // Storage Setup
         let s3_client = {
             let _span = tracing::info_span!("storage_setup").entered();
             let region_provider = aws_config::Region::new(config.storage.region.clone());
-            let mut config_loader =
-                aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider);
+            let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider);
 
             if let Some(ref endpoint) = config.storage.endpoint {
                 config_loader = config_loader.endpoint_url(endpoint);
             }
 
             if let (Some(ak), Some(sk)) = (&config.storage.access_key, &config.storage.secret_key) {
-                let creds =
-                    aws_credential_types::Credentials::new(ak.clone(), sk.clone(), None, None, "static");
+                let creds = aws_credential_types::Credentials::new(ak.clone(), sk.clone(), None, None, "static");
                 config_loader = config_loader.credentials_provider(creds);
             }
 
             let sdk_config = config_loader.load().await;
-            let s3_config_builder = aws_sdk_s3::config::Builder::from(&sdk_config)
-                .force_path_style(config.storage.force_path_style);
+            let s3_config_builder =
+                aws_sdk_s3::config::Builder::from(&sdk_config).force_path_style(config.storage.force_path_style);
             aws_sdk_s3::Client::from_conf(s3_config_builder.build())
         };
 
@@ -119,15 +119,10 @@ async fn main() -> anyhow::Result<()> {
             auth_service,
         ) = {
             let _span = tracing::info_span!("service_initialization").entered();
-            
-            let crypto_service = obscura_server::services::crypto_service::CryptoService::new();
 
-            let key_service = KeyService::new(
-                pool.clone(),
-                key_repo,
-                crypto_service.clone(),
-                config.messaging.clone(),
-            );
+            let crypto_service = CryptoService::new();
+
+            let key_service = KeyService::new(pool.clone(), key_repo, crypto_service.clone(), config.messaging.clone());
 
             let attachment_service = AttachmentService::new(
                 pool.clone(),
@@ -137,12 +132,8 @@ async fn main() -> anyhow::Result<()> {
                 config.ttl_days,
             );
 
-            let auth_service = obscura_server::services::auth_service::AuthService::new(
-                config.auth.clone(),
-                pool.clone(),
-                user_repo.clone(),
-                refresh_repo.clone(),
-            );
+            let auth_service =
+                AuthService::new(config.auth.clone(), pool.clone(), user_repo.clone(), refresh_repo.clone());
 
             let message_service = MessageService::new(
                 pool.clone(),
@@ -215,14 +206,13 @@ async fn main() -> anyhow::Result<()> {
 
         let app = api::app_router(config.clone(), services, shutdown_rx.clone());
 
-        let mgmt_state = obscura_server::api::MgmtState { health_service };
+        let mgmt_state = MgmtState { health_service };
         let mgmt_app = api::mgmt_router(mgmt_state);
 
         let addr_str = format!("{}:{}", config.server.host, config.server.port);
         let addr: SocketAddr = addr_str.parse().expect("Invalid address format");
         let mgmt_addr_str = format!("{}:{}", config.server.host, config.server.mgmt_port);
-        let mgmt_addr: SocketAddr =
-            mgmt_addr_str.parse().expect("Invalid management address format");
+        let mgmt_addr: SocketAddr = mgmt_addr_str.parse().expect("Invalid management address format");
 
         tracing::info!(address = %addr, "listening");
         tracing::info!(address = %mgmt_addr, "management server listening");
@@ -230,30 +220,13 @@ async fn main() -> anyhow::Result<()> {
         let api_listener = tokio::net::TcpListener::bind(addr).await?;
         let mgmt_listener = tokio::net::TcpListener::bind(mgmt_addr).await?;
 
-        Ok((
-            api_listener,
-            mgmt_listener,
-            app,
-            mgmt_app,
-            shutdown_tx,
-            shutdown_rx,
-            message_task,
-            attachment_task,
-        ))
+        Ok((api_listener, mgmt_listener, app, mgmt_app, shutdown_tx, shutdown_rx, message_task, attachment_task))
     }
     .instrument(boot_span)
     .await;
 
-    let (
-        api_listener,
-        mgmt_listener,
-        app,
-        mgmt_app,
-        shutdown_tx,
-        shutdown_rx,
-        message_task,
-        attachment_task,
-    ) = boot_result?;
+    let (api_listener, mgmt_listener, app, mgmt_app, shutdown_tx, shutdown_rx, message_task, attachment_task) =
+        boot_result?;
 
     let mut api_rx = shutdown_rx.clone();
     let api_server = axum::serve(api_listener, app.into_make_service_with_connect_info::<SocketAddr>())

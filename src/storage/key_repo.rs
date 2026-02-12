@@ -1,20 +1,25 @@
 use crate::domain::crypto::{PublicKey, Signature};
 use crate::domain::keys::{OneTimePreKey, PreKeyBundle, SignedPreKey};
 use crate::error::{AppError, Result};
-use crate::storage::records::{IdentityKey as IdentityKeyRecord, OneTimePreKey as OneTimePreKeyRecord, SignedPreKey as SignedPreKeyRecord};
+use crate::storage::records::{IdentityKeyRecord, OneTimePreKeyRecord, SignedPreKeyRecord};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct KeyRepository {}
 
 impl KeyRepository {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self {}
     }
 
+    /// Upserts an identity key for a user.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the database operation fails.
     #[tracing::instrument(level = "debug", skip(self, conn, identity_key))]
-    pub async fn upsert_identity_key(
+    pub(crate) async fn upsert_identity_key(
         &self,
         conn: &mut PgConnection,
         user_id: Uuid,
@@ -37,8 +42,12 @@ impl KeyRepository {
         Ok(())
     }
 
+    /// Upserts a signed pre-key for a user.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the database operation fails.
     #[tracing::instrument(level = "debug", skip(self, conn, public_key, signature))]
-    pub async fn upsert_signed_pre_key(
+    pub(crate) async fn upsert_signed_pre_key(
         &self,
         conn: &mut PgConnection,
         user_id: Uuid,
@@ -63,8 +72,12 @@ impl KeyRepository {
         Ok(())
     }
 
+    /// Inserts a batch of one-time pre-keys.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the database operation fails.
     #[tracing::instrument(level = "debug", skip(self, conn, keys))]
-    pub async fn insert_one_time_pre_keys(
+    pub(crate) async fn insert_one_time_pre_keys(
         &self,
         conn: &mut PgConnection,
         user_id: Uuid,
@@ -100,8 +113,13 @@ impl KeyRepository {
         Ok(())
     }
 
+    /// Fetches a pre-key bundle for a user and consumes one one-time pre-key.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the database operation fails.
+    /// Returns `AppError::Internal` if stored data is corrupt.
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub async fn fetch_pre_key_bundle(
+    pub(crate) async fn fetch_pre_key_bundle(
         &self,
         conn: &mut PgConnection,
         user_id: Uuid,
@@ -173,8 +191,13 @@ impl KeyRepository {
         Ok(Some(PreKeyBundle { registration_id, identity_key, signed_pre_key, one_time_pre_key }))
     }
 
+    /// Fetches the identity key for a user.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the query fails.
+    /// Returns `AppError::Internal` if stored data is corrupt.
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub async fn fetch_identity_key(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Option<PublicKey>> {
+    pub(crate) async fn fetch_identity_key(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Option<PublicKey>> {
         let rec = sqlx::query_as::<_, IdentityKeyRecord>(
             "SELECT user_id, identity_key, registration_id FROM identity_keys WHERE user_id = $1",
         )
@@ -194,8 +217,17 @@ impl KeyRepository {
         }
     }
 
+    /// Fetches the identity key for update (with LOCK).
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the query fails.
+    /// Returns `AppError::Internal` if stored data is corrupt.
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub async fn fetch_identity_key_for_update(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Option<PublicKey>> {
+    pub(crate) async fn fetch_identity_key_for_update(
+        &self,
+        conn: &mut PgConnection,
+        user_id: Uuid,
+    ) -> Result<Option<PublicKey>> {
         let rec = sqlx::query_as::<_, IdentityKeyRecord>(
             "SELECT user_id, identity_key, registration_id FROM identity_keys WHERE user_id = $1 FOR UPDATE",
         )
@@ -215,20 +247,32 @@ impl KeyRepository {
         }
     }
 
+    /// Deletes all signed pre-keys for a user.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the deletion fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub async fn delete_all_signed_pre_keys(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<()> {
+    pub(crate) async fn delete_all_signed_pre_keys(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<()> {
         sqlx::query("DELETE FROM signed_pre_keys WHERE user_id = $1").bind(user_id).execute(conn).await?;
         Ok(())
     }
 
+    /// Deletes all one-time pre-keys for a user.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the deletion fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub async fn delete_all_one_time_pre_keys(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<()> {
+    pub(crate) async fn delete_all_one_time_pre_keys(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<()> {
         sqlx::query("DELETE FROM one_time_pre_keys WHERE user_id = $1").bind(user_id).execute(conn).await?;
         Ok(())
     }
 
+    /// Counts the remaining one-time pre-keys for a user.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the query fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub async fn count_one_time_pre_keys(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<i64> {
+    pub(crate) async fn count_one_time_pre_keys(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<i64> {
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM one_time_pre_keys WHERE user_id = $1")
             .bind(user_id)
             .fetch_one(conn)
@@ -236,8 +280,16 @@ impl KeyRepository {
         Ok(count)
     }
 
+    /// Finds the maximum signed pre-key ID currently stored for a user.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the query fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub async fn find_max_signed_pre_key_id(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Option<i32>> {
+    pub(crate) async fn find_max_signed_pre_key_id(
+        &self,
+        conn: &mut PgConnection,
+        user_id: Uuid,
+    ) -> Result<Option<i32>> {
         let max_id: Option<i32> = sqlx::query_scalar("SELECT MAX(id) FROM signed_pre_keys WHERE user_id = $1")
             .bind(user_id)
             .fetch_one(conn)
@@ -245,8 +297,12 @@ impl KeyRepository {
         Ok(max_id)
     }
 
+    /// Deletes signed pre-keys with an ID smaller than the threshold.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the deletion fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub async fn delete_signed_pre_keys_older_than(
+    pub(crate) async fn delete_signed_pre_keys_older_than(
         &self,
         conn: &mut PgConnection,
         user_id: Uuid,
@@ -260,8 +316,17 @@ impl KeyRepository {
         Ok(())
     }
 
+    /// Deletes the oldest one-time pre-keys for a user up to the specified limit.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the deletion fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub async fn delete_oldest_one_time_pre_keys(&self, conn: &mut PgConnection, user_id: Uuid, limit: i64) -> Result<()> {
+    pub(crate) async fn delete_oldest_one_time_pre_keys(
+        &self,
+        conn: &mut PgConnection,
+        user_id: Uuid,
+        limit: i64,
+    ) -> Result<()> {
         sqlx::query(
             r#"
             DELETE FROM one_time_pre_keys

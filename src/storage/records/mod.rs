@@ -1,11 +1,10 @@
+#![allow(unreachable_pub)]
 pub mod attachment;
-pub mod auth;
 pub mod keys;
 pub mod message;
 pub mod user;
 
-pub(crate) use attachment::Attachment;
-pub(crate) use auth::RefreshToken;
-pub(crate) use keys::{IdentityKey, OneTimePreKey, SignedPreKey};
-pub(crate) use message::Message;
-pub(crate) use user::User;
+pub use attachment::AttachmentRecord;
+pub use keys::{IdentityKeyRecord, OneTimePreKeyRecord, SignedPreKeyRecord};
+pub use message::MessageRecord;
+pub use user::UserRecord;

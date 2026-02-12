@@ -59,6 +59,7 @@ impl Default for Config {
 }
 
 impl Config {
+    #[must_use]
     pub fn load() -> Self {
         Self::parse()
     }
@@ -73,7 +74,7 @@ pub enum LogFormat {
 
 #[derive(Clone, Debug, Args)]
 pub struct TelemetryConfig {
-    /// OTLP Endpoint for traces and metrics (e.g. http://localhost:4318)
+    /// OTLP Endpoint for traces and metrics (e.g. <http://localhost:4318>)
     /// If not set, OTLP export is disabled (logs only).
     #[arg(long, env = "OBSCURA_OTLP_ENDPOINT")]
     pub otlp_endpoint: Option<String>,
@@ -110,8 +111,8 @@ impl Default for TelemetryConfig {
 impl std::fmt::Display for LogFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LogFormat::Text => write!(f, "text"),
-            LogFormat::Json => write!(f, "json"),
+            Self::Text => write!(f, "text"),
+            Self::Json => write!(f, "json"),
         }
     }
 }
@@ -152,10 +153,10 @@ impl Default for ServerConfig {
             mgmt_port: 9090,
             shutdown_timeout_secs: 5,
             trusted_proxies: vec![
-                "10.0.0.0/8".parse().unwrap(),
-                "172.16.0.0/12".parse().unwrap(),
-                "192.168.0.0/16".parse().unwrap(),
-                "127.0.0.1/32".parse().unwrap(),
+                "10.0.0.0/8".parse().expect("Invalid default CIDR for private network"),
+                "172.16.0.0/12".parse().expect("Invalid default CIDR for private network"),
+                "192.168.0.0/16".parse().expect("Invalid default CIDR for private network"),
+                "127.0.0.1/32".parse().expect("Invalid default CIDR for localhost"),
             ],
         }
     }
@@ -207,12 +208,7 @@ pub struct RateLimitConfig {
 
 impl Default for RateLimitConfig {
     fn default() -> Self {
-        Self {
-            per_second: 10,
-            burst: 20,
-            auth_per_second: 1,
-            auth_burst: 3,
-        }
+        Self { per_second: 10, burst: 20, auth_per_second: 1, auth_burst: 3 }
     }
 }
 
@@ -269,10 +265,7 @@ pub struct NotificationConfig {
 
 impl Default for NotificationConfig {
     fn default() -> Self {
-        Self {
-            gc_interval_secs: 60,
-            channel_capacity: 16,
-        }
+        Self { gc_interval_secs: 60, channel_capacity: 16 }
     }
 }
 
@@ -297,12 +290,7 @@ pub struct WsConfig {
 
 impl Default for WsConfig {
     fn default() -> Self {
-        Self {
-            outbound_buffer_size: 32,
-            ack_buffer_size: 100,
-            ack_batch_size: 50,
-            ack_flush_interval_ms: 500,
-        }
+        Self { outbound_buffer_size: 32, ack_buffer_size: 100, ack_batch_size: 50, ack_flush_interval_ms: 500 }
     }
 }
 
@@ -316,7 +304,7 @@ pub struct StorageConfig {
     #[arg(long = "storage-region", env = "OBSCURA_STORAGE_REGION", default_value_t = StorageConfig::default().region)]
     pub region: String,
 
-    /// Custom storage endpoint (useful for MinIO or other S3-compatible services)
+    /// Custom storage endpoint (useful for `MinIO` or other S3-compatible services)
     #[arg(long = "storage-endpoint", env = "OBSCURA_STORAGE_ENDPOINT")]
     pub endpoint: Option<String>,
 
@@ -328,7 +316,7 @@ pub struct StorageConfig {
     #[arg(long = "storage-secret-key", env = "OBSCURA_STORAGE_SECRET_KEY")]
     pub secret_key: Option<String>,
 
-    /// Force path style (required for many MinIO setups: http://host/bucket/key)
+    /// Force path style (required for many `MinIO` setups: <http://host/bucket/key>)
     #[arg(long = "storage-force-path-style", env = "OBSCURA_STORAGE_FORCE_PATH_STYLE", default_value_t = StorageConfig::default().force_path_style)]
     pub force_path_style: bool,
 
@@ -379,9 +367,6 @@ pub struct HealthConfig {
 
 impl Default for HealthConfig {
     fn default() -> Self {
-        Self {
-            db_timeout_ms: 2000,
-            storage_timeout_ms: 2000,
-        }
+        Self { db_timeout_ms: 2000, storage_timeout_ms: 2000 }
     }
 }

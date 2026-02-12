@@ -8,6 +8,7 @@ use crate::services::health_service::HealthService;
 use crate::services::key_service::KeyService;
 use crate::services::message_service::MessageService;
 use crate::services::rate_limit_service::RateLimitService;
+use crate::storage::DbPool;
 use axum::body::Body;
 use axum::http::Request;
 use axum::{
@@ -15,11 +16,11 @@ use axum::{
     middleware::from_fn_with_state,
     routing::{get, post},
 };
+use std::sync::Arc;
 use tower_governor::GovernorLayer;
 use tower_governor::governor::GovernorConfigBuilder;
 use tower_http::request_id::{PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::trace::TraceLayer;
-use std::sync::Arc;
 
 pub mod attachments;
 pub mod auth;
@@ -32,7 +33,7 @@ pub mod middleware;
 pub mod rate_limit;
 pub mod schemas;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AppState {
     pub config: Config,
     pub key_service: KeyService,
@@ -45,13 +46,14 @@ pub struct AppState {
     pub shutdown_rx: tokio::sync::watch::Receiver<bool>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MgmtState {
     pub health_service: HealthService,
 }
 
+#[derive(Debug)]
 pub struct ServiceContainer {
-    pub pool: crate::storage::DbPool,
+    pub pool: DbPool,
     pub key_service: KeyService,
     pub attachment_service: AttachmentService,
     pub account_service: AccountService,
@@ -61,31 +63,34 @@ pub struct ServiceContainer {
     pub rate_limit_service: RateLimitService,
 }
 
+/// Configures and returns the primary application router.
+///
+/// # Panics
+/// Panics if the rate limiter configuration cannot be constructed.
 pub fn app_router(
     config: Config,
     services: ServiceContainer,
     shutdown_rx: tokio::sync::watch::Receiver<bool>,
 ) -> Router {
-    // ... (rate limit config remains same)
     let std_interval_ns = 1_000_000_000 / config.rate_limit.per_second.max(1);
     let standard_conf = Arc::new(
         GovernorConfigBuilder::default()
-            .per_nanosecond(std_interval_ns as u64)
+            .per_nanosecond(u64::from(std_interval_ns))
             .burst_size(config.rate_limit.burst)
             .key_extractor(services.rate_limit_service.extractor.clone())
             .finish()
-            .unwrap(),
+            .expect("Failed to build standard rate limiter config"),
     );
 
     // Auth Tier: Stricter limits for expensive/sensitive registration & login
     let auth_interval_ns = 1_000_000_000 / config.rate_limit.auth_per_second.max(1);
     let auth_conf = Arc::new(
         GovernorConfigBuilder::default()
-            .per_nanosecond(auth_interval_ns as u64)
+            .per_nanosecond(u64::from(auth_interval_ns))
             .burst_size(config.rate_limit.auth_burst)
             .key_extractor(services.rate_limit_service.extractor.clone())
             .finish()
-            .unwrap(),
+            .expect("Failed to build auth rate limiter config"),
     );
 
     let state = AppState {
@@ -140,7 +145,7 @@ pub fn app_router(
                         "url.path" = %request.uri().path(),
                         "http.response.status_code" = tracing::field::Empty,
                         "otel.kind" = "server",
-                        "user.id" = tracing::field::Empty,
+                        "user_id" = tracing::field::Empty,
                     )
                 })
                 .on_response(
