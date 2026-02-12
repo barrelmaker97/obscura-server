@@ -109,3 +109,88 @@ async fn test_multi_node_disconnect_notification() {
 
     assert!(disconnected, "Alice was not disconnected from Node A after takeover on Node B");
 }
+
+#[tokio::test]
+async fn test_distributed_fan_out_disconnect() {
+    // 1. Setup three nodes sharing infrastructure
+    let app_a = common::TestApp::spawn().await;
+    let app_b = common::TestApp::spawn().await;
+    let app_c = common::TestApp::spawn().await;
+
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let alice_name = format!("alice_fanout_{}", run_id);
+    let bob_name = format!("bob_fanout_{}", run_id);
+
+    let user_alice = app_a.register_user(&alice_name).await;
+    let user_bob = app_a.register_user(&bob_name).await;
+
+    // 2. Alice connects to Node A, and twice to Node B (3 sessions total)
+    let mut ws_a1 = app_a.connect_ws(&user_alice.token).await;
+    let mut ws_b1 = app_b.connect_ws(&user_alice.token).await;
+    let mut ws_b2 = app_b.connect_ws(&user_alice.token).await;
+
+    // 3. Bob connects to Node A (to verify isolation)
+    let mut ws_bob = app_a.connect_ws(&user_bob.token).await;
+
+    // 4. Perform takeover of Alice on Node C
+    use base64::Engine;
+    use serde_json::json;
+    let new_ik = common::generate_signing_key();
+    let (new_spk_pub, new_spk_sig) = common::generate_signed_pre_key(&new_ik);
+
+    // Identity Key Wire Format
+    use xeddsa::CalculateKeyPair;
+    use xeddsa::xed25519::PrivateKey;
+    let new_priv = PrivateKey(new_ik);
+    let (_, new_ik_pub_ed) = new_priv.calculate_key_pair(0);
+    let new_ik_pub_mont =
+        curve25519_dalek::edwards::CompressedEdwardsY(new_ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
+    let mut new_ik_pub_wire = new_ik_pub_mont.to_vec();
+    new_ik_pub_wire.insert(0, 0x05);
+
+    let takeover_payload = json!({
+        "identityKey": base64::engine::general_purpose::STANDARD.encode(new_ik_pub_wire),
+        "registrationId": 888,
+        "signedPreKey": {
+            "keyId": 200,
+            "publicKey": base64::engine::general_purpose::STANDARD.encode(&new_spk_pub),
+            "signature": base64::engine::general_purpose::STANDARD.encode(&new_spk_sig)
+        },
+        "oneTimePreKeys": []
+    });
+
+    let resp = app_c
+        .client
+        .post(format!("{}/v1/keys", app_c.server_url))
+        .header("Authorization", format!("Bearer {}", user_alice.token))
+        .json(&takeover_payload)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200, "Takeover on Node C failed");
+
+    // 5. Verify ALL Alice's sessions are dropped
+    let mut sessions = vec![("A1", &mut ws_a1), ("B1", &mut ws_b1), ("B2", &mut ws_b2)];
+
+    for (name, ws) in sessions.iter_mut() {
+        let mut disconnected = false;
+        let start = std::time::Instant::now();
+        while start.elapsed() < std::time::Duration::from_secs(5) {
+            match ws.receive_raw_timeout(std::time::Duration::from_millis(100)).await {
+                Some(Ok(tokio_tungstenite::tungstenite::Message::Close(_))) | Some(Err(_)) | None => {
+                    disconnected = true;
+                    break;
+                }
+                _ => {}
+            }
+        }
+        assert!(disconnected, "Alice session {} was not disconnected", name);
+    }
+
+    // 6. Verify Bob's session is STILL ALIVE
+    use futures::SinkExt;
+    ws_bob.sink.send(tokio_tungstenite::tungstenite::Message::Ping(vec![1].into())).await.unwrap();
+    let pong = ws_bob.receive_pong().await;
+    assert!(pong.is_some(), "Bob was disconnected but should have stayed connected");
+}
