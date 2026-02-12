@@ -109,7 +109,7 @@ pub struct TelemetryConfig {
     pub log_format: LogFormat,
 
     /// Trace sampling ratio (0.0 to 1.0)
-    #[arg(long, env = "OBSCURA_TRACE_SAMPLING_RATIO", default_value_t = TelemetryConfig::default().trace_sampling_ratio)]
+    #[arg(long, env = "OBSCURA_TELEMETRY_TRACE_SAMPLING_RATIO", default_value_t = TelemetryConfig::default().trace_sampling_ratio)]
     pub trace_sampling_ratio: f64,
 
     /// Metric export interval in seconds

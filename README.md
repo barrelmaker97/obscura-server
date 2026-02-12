@@ -113,7 +113,7 @@ Command-line options take precedence over environment variables.
 |--------|-------------|----------------------|---------|
 | `--otlp-endpoint` | OTLP endpoint for traces/metrics | `OBSCURA_TELEMETRY_OTLP_ENDPOINT` | - |
 | `--log-format` | Log format (`text` or `json`) | `OBSCURA_TELEMETRY_LOG_FORMAT` | `text` |
-| `--trace-sampling-ratio` | Trace sampling ratio (0.0 to 1.0) | `OBSCURA_TRACE_SAMPLING_RATIO` | `1.0` |
+| `--trace-sampling-ratio` | Trace sampling ratio (0.0 to 1.0) | `OBSCURA_TELEMETRY_TRACE_SAMPLING_RATIO` | `1.0` |
 | `--metrics-export-interval-secs` | How often to export metrics | `OBSCURA_TELEMETRY_METRICS_EXPORT_INTERVAL_SECS` | `60` |
 | `--export-timeout-secs` | OTLP export timeout | `OBSCURA_TELEMETRY_EXPORT_TIMEOUT_SECS` | `10` |
 
