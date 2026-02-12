@@ -21,7 +21,8 @@ impl CryptoService {
     /// # Errors
     /// Returns `AppError::BadRequest` if the signature is invalid.
     #[tracing::instrument(skip(self, public_key, message, signature), level = "debug")]
-    pub fn verify_signature(&self, public_key: &PublicKey, message: &[u8], signature: &Signature) -> Result<()> {
+    #[allow(clippy::unused_self)]
+    pub(crate) fn verify_signature(&self, public_key: &PublicKey, message: &[u8], signature: &Signature) -> Result<()> {
         let pk = xeddsa::xed25519::PublicKey(*public_key.as_crypto_bytes());
 
         let sig_bytes = signature.as_bytes();

@@ -20,7 +20,7 @@ impl MessageRepository {
     /// Returns `AppError::NotFound` if the recipient does not exist.
     /// Returns `AppError::Database` if the insert fails.
     #[tracing::instrument(level = "debug", skip(self, conn, content))]
-    pub async fn create(
+    pub(crate) async fn create(
         &self,
         conn: &mut PgConnection,
         sender_id: Uuid,
@@ -56,32 +56,12 @@ impl MessageRepository {
         }
     }
 
-    /// Finds a message by its ID.
-    ///
-    /// # Errors
-    /// Returns `sqlx::Error` if the query fails.
-    #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub async fn find_by_id(&self, conn: &mut PgConnection, id: Uuid) -> Result<Option<Message>> {
-        let record = sqlx::query_as::<_, MessageRecord>(
-            r#"
-            SELECT id, sender_id, recipient_id, message_type, content, created_at, expires_at
-            FROM messages
-            WHERE id = $1
-            "#,
-        )
-        .bind(id)
-        .fetch_optional(conn)
-        .await?;
-
-        Ok(record.map(Into::into))
-    }
-
     /// Fetches a batch of pending messages for a recipient.
     ///
     /// # Errors
     /// Returns `sqlx::Error` if the query fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub async fn fetch_pending_batch(
+    pub(crate) async fn fetch_pending_batch(
         &self,
         conn: &mut PgConnection,
         recipient_id: Uuid,
@@ -134,7 +114,7 @@ impl MessageRepository {
     /// # Errors
     /// Returns `sqlx::Error` if the deletion fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub async fn delete_batch(&self, conn: &mut PgConnection, message_ids: &[Uuid]) -> Result<()> {
+    pub(crate) async fn delete_batch(&self, conn: &mut PgConnection, message_ids: &[Uuid]) -> Result<()> {
         if message_ids.is_empty() {
             return Ok(());
         }
@@ -181,7 +161,7 @@ impl MessageRepository {
     /// # Errors
     /// Returns `sqlx::Error` if the deletion fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub async fn delete_all_for_user(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<u64> {
+    pub(crate) async fn delete_all_for_user(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<u64> {
         let result = sqlx::query("DELETE FROM messages WHERE recipient_id = $1").bind(user_id).execute(conn).await?;
         Ok(result.rows_affected())
     }

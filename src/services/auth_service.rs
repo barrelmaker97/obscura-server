@@ -75,7 +75,7 @@ impl AuthService {
         fields(user_id = tracing::field::Empty),
         err(level = "warn")
     )]
-    pub async fn login(&self, username: String, password: String) -> Result<AuthSession> {
+    pub(crate) async fn login(&self, username: String, password: String) -> Result<AuthSession> {
         let mut conn = self.pool.acquire().await?;
         let Some(user) = self.user_repo.find_by_username(&mut conn, &username).await? else {
             tracing::warn!("Login failed: user not found");
@@ -102,7 +102,7 @@ impl AuthService {
     /// # Errors
     /// Returns `AppError::Internal` if hashing fails.
     #[tracing::instrument(err, skip(self, password))]
-    pub async fn hash_password(&self, password: &str) -> Result<String> {
+    pub(crate) async fn hash_password(&self, password: &str) -> Result<String> {
         let password = password.to_string();
         tokio::task::spawn_blocking(move || {
             let salt = SaltString::generate(&mut OsRng);
@@ -118,7 +118,7 @@ impl AuthService {
     /// # Errors
     /// Returns `AppError::Internal` if verification logic fails.
     #[tracing::instrument(err, skip(self, password, password_hash))]
-    pub async fn verify_password(&self, password: &str, password_hash: &str) -> Result<bool> {
+    pub(crate) async fn verify_password(&self, password: &str, password_hash: &str) -> Result<bool> {
         let password = password.to_string();
         let password_hash = password_hash.to_string();
         tokio::task::spawn_blocking(move || {
@@ -134,7 +134,7 @@ impl AuthService {
     /// # Errors
     /// Returns `AppError::Database` if the session cannot be saved.
     #[tracing::instrument(err, skip(self, conn), fields(user_id = %user_id))]
-    pub async fn create_session(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<AuthSession> {
+    pub(crate) async fn create_session(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<AuthSession> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(Duration::from_secs(0)).as_secs();
 
         let exp = now.checked_add(self.config.access_token_ttl_secs).ok_or(AppError::Internal)?;
@@ -160,7 +160,7 @@ impl AuthService {
     /// # Errors
     /// Returns `AppError::AuthError` if the refresh token is invalid.
     #[tracing::instrument(err, skip(self, refresh_token))]
-    pub async fn refresh_session(&self, refresh_token: String) -> Result<AuthSession> {
+    pub(crate) async fn refresh_session(&self, refresh_token: String) -> Result<AuthSession> {
         let mut conn = self.pool.acquire().await?;
         let old_hash = Self::hash_opaque_token(&refresh_token);
         let new_refresh_token = Self::generate_opaque_token();
@@ -197,7 +197,7 @@ impl AuthService {
     /// # Errors
     /// Returns `AppError::Database` if the token cannot be deleted.
     #[tracing::instrument(err, skip(self, refresh_token), fields(user_id = %user_id))]
-    pub async fn logout(&self, user_id: Uuid, refresh_token: String) -> Result<()> {
+    pub(crate) async fn logout(&self, user_id: Uuid, refresh_token: String) -> Result<()> {
         let mut conn = self.pool.acquire().await?;
         let hash = Self::hash_opaque_token(&refresh_token);
         self.refresh_repo.delete_owned(&mut conn, &hash, user_id).await?;
@@ -209,7 +209,7 @@ impl AuthService {
     ///
     /// # Errors
     /// Returns `AppError::AuthError` if the token is invalid or expired.
-    pub fn verify_token(&self, jwt: &Jwt) -> Result<Uuid> {
+    pub(crate) fn verify_token(&self, jwt: &Jwt) -> Result<Uuid> {
         let token_data = decode::<Claims>(
             jwt.as_str(),
             &DecodingKey::from_secret(self.config.jwt_secret.as_bytes()),

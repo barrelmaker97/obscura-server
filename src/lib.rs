@@ -2,6 +2,7 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::needless_raw_string_hashes)]
 #![deny(unused_must_use)]
+#![warn(unreachable_pub)]
 
 pub mod api;
 pub mod config;

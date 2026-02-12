@@ -4,8 +4,8 @@ use uuid::Uuid;
 
 #[derive(sqlx::FromRow)]
 pub(crate) struct AttachmentRecord {
-    pub id: Uuid,
-    pub expires_at: OffsetDateTime,
+    pub(crate) id: Uuid,
+    pub(crate) expires_at: OffsetDateTime,
 }
 
 impl From<AttachmentRecord> for Attachment {

@@ -4,14 +4,14 @@ use uuid::Uuid;
 
 #[derive(sqlx::FromRow)]
 pub(crate) struct MessageRecord {
-    pub id: Uuid,
-    pub sender_id: Uuid,
-    pub recipient_id: Uuid,
+    pub(crate) id: Uuid,
+    pub(crate) sender_id: Uuid,
+    pub(crate) recipient_id: Uuid,
     #[sqlx(rename = "message_type")]
-    pub r#type: i32,
-    pub content: Vec<u8>,
-    pub created_at: Option<OffsetDateTime>,
-    pub expires_at: OffsetDateTime,
+    pub(crate) r#type: i32,
+    pub(crate) content: Vec<u8>,
+    pub(crate) created_at: Option<OffsetDateTime>,
+    pub(crate) expires_at: OffsetDateTime,
 }
 
 impl From<MessageRecord> for Message {

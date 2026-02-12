@@ -4,10 +4,10 @@ use uuid::Uuid;
 
 #[derive(sqlx::FromRow)]
 pub(crate) struct UserRecord {
-    pub id: Uuid,
-    pub username: String,
-    pub password_hash: String,
-    pub created_at: Option<OffsetDateTime>,
+    pub(crate) id: Uuid,
+    pub(crate) username: String,
+    pub(crate) password_hash: String,
+    pub(crate) created_at: Option<OffsetDateTime>,
 }
 
 impl From<UserRecord> for User {

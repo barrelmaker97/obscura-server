@@ -66,7 +66,7 @@ impl AccountService {
         fields(user_id = tracing::field::Empty),
         err(level = "warn")
     )]
-    pub async fn register(
+    pub(crate) async fn register(
         &self,
         username: String,
         password: String,
@@ -116,7 +116,7 @@ impl AccountService {
         fields(user_id = %params.user_id),
         err(level = "warn")
     )]
-    pub async fn upload_keys(&self, params: KeyUploadParams) -> Result<()> {
+    pub(crate) async fn upload_keys(&self, params: KeyUploadParams) -> Result<()> {
         let user_id = params.user_id;
 
         let mut tx = self.pool.begin().await?;

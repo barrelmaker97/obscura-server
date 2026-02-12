@@ -101,7 +101,7 @@ impl AttachmentService {
         skip(self, body),
         fields(attachment_id = tracing::field::Empty, attachment_size = tracing::field::Empty)
     )]
-    pub async fn upload(&self, content_len: Option<usize>, body: Body) -> Result<(Uuid, i64)> {
+    pub(crate) async fn upload(&self, content_len: Option<usize>, body: Body) -> Result<(Uuid, i64)> {
         if let Some(len) = content_len {
             tracing::Span::current().record("attachment.size", len);
             if len > self.config.attachment_max_size_bytes {
@@ -190,7 +190,7 @@ impl AttachmentService {
         skip(self),
         fields(attachment_id = %id, attachment_size = tracing::field::Empty)
     )]
-    pub async fn download(&self, id: Uuid) -> Result<(u64, ByteStream)> {
+    pub(crate) async fn download(&self, id: Uuid) -> Result<(u64, ByteStream)> {
         // 1. Check Existence & Expiry using Domain Logic
         let mut conn = self.pool.acquire().await?;
         match self.repo.find_by_id(&mut conn, id).await? {

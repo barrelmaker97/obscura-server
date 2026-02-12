@@ -18,7 +18,7 @@ impl UserRepository {
     /// Returns `AppError::Conflict` if the username already exists.
     /// Returns `AppError::Database` for other database failures.
     #[tracing::instrument(level = "debug", skip(self, conn, password_hash))]
-    pub async fn create(&self, conn: &mut PgConnection, username: &str, password_hash: &str) -> Result<User> {
+    pub(crate) async fn create(&self, conn: &mut PgConnection, username: &str, password_hash: &str) -> Result<User> {
         let user = sqlx::query_as::<_, UserRecord>(
             r#"
             INSERT INTO users (username, password_hash)
@@ -47,7 +47,7 @@ impl UserRepository {
     /// # Errors
     /// Returns `sqlx::Error` if the query fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub async fn find_by_username(&self, conn: &mut PgConnection, username: &str) -> Result<Option<User>> {
+    pub(crate) async fn find_by_username(&self, conn: &mut PgConnection, username: &str) -> Result<Option<User>> {
         let user = sqlx::query_as::<_, UserRecord>(
             r#"
             SELECT id, username, password_hash, created_at
