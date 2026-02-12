@@ -75,7 +75,7 @@ async fn main() -> anyhow::Result<()> {
         });
 
         let notifier: Arc<dyn NotificationService> = Arc::new(
-            ValkeyNotificationService::new(&config.notifications.valkey_url, &config, shutdown_rx.clone()).await?,
+            ValkeyNotificationService::new(&config.cache.url, &config, shutdown_rx.clone()).await?,
         );
 
         // Storage Setup

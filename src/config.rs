@@ -31,6 +31,9 @@ pub struct Config {
     pub notifications: NotificationConfig,
 
     #[command(flatten)]
+    pub cache: CacheConfig,
+
+    #[command(flatten)]
     pub websocket: WsConfig,
 
     #[command(flatten)]
@@ -51,6 +54,7 @@ impl Default for Config {
             health: HealthConfig::default(),
             messaging: MessagingConfig::default(),
             notifications: NotificationConfig::default(),
+            cache: CacheConfig::default(),
             websocket: WsConfig::default(),
             storage: StorageConfig::default(),
             telemetry: TelemetryConfig::default(),
@@ -62,6 +66,19 @@ impl Config {
     #[must_use]
     pub fn load() -> Self {
         Self::parse()
+    }
+}
+
+#[derive(Clone, Debug, Args)]
+pub struct CacheConfig {
+    /// Valkey connection URL (e.g. redis://localhost:6379)
+    #[arg(long = "cache-url", env = "OBSCURA_CACHE_URL", default_value_t = CacheConfig::default().url)]
+    pub url: String,
+}
+
+impl Default for CacheConfig {
+    fn default() -> Self {
+        Self { url: "redis://localhost:6379".to_string() }
     }
 }
 
@@ -254,10 +271,6 @@ impl Default for MessagingConfig {
 
 #[derive(Clone, Debug, Args)]
 pub struct NotificationConfig {
-    /// Valkey connection URL (e.g. redis://localhost:6379).
-    #[arg(long, env = "OBSCURA_VALKEY_URL", default_value_t = NotificationConfig::default().valkey_url)]
-    pub valkey_url: String,
-
     /// How often to run the notification garbage collection
     #[arg(long, env = "OBSCURA_GC_INTERVAL_SECS", default_value_t = NotificationConfig::default().gc_interval_secs)]
     pub gc_interval_secs: u64,
@@ -270,7 +283,6 @@ pub struct NotificationConfig {
 impl Default for NotificationConfig {
     fn default() -> Self {
         Self {
-            valkey_url: "redis://localhost:6379".to_string(),
             gc_interval_secs: 60,
             channel_capacity: 16,
         }
