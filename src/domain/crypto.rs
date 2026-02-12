@@ -30,7 +30,7 @@ impl PublicKey {
     ///
     /// # Errors
     /// Returns an error if the length is not 33 bytes or the prefix is incorrect.
-    pub fn try_from_bytes(bytes: &[u8]) -> std::result::Result<Self, String> {
+    pub fn try_from_bytes(bytes: &[u8]) -> Result<Self, String> {
         if bytes.len() != 33 {
             return Err(format!("Invalid key length: {} (expected 33 bytes with 0x05 prefix)", bytes.len()));
         }
@@ -45,14 +45,14 @@ impl PublicKey {
 
 impl TryFrom<&[u8]> for PublicKey {
     type Error = String;
-    fn try_from(bytes: &[u8]) -> std::result::Result<Self, Self::Error> {
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         Self::try_from_bytes(bytes)
     }
 }
 
 impl TryFrom<Vec<u8>> for PublicKey {
     type Error = String;
-    fn try_from(bytes: Vec<u8>) -> std::result::Result<Self, Self::Error> {
+    fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
         Self::try_from_bytes(&bytes)
     }
 }
@@ -81,7 +81,7 @@ impl Signature {
 
 impl TryFrom<&[u8]> for Signature {
     type Error = String;
-    fn try_from(bytes: &[u8]) -> std::result::Result<Self, Self::Error> {
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         if bytes.len() == 64 {
             let mut arr = [0u8; 64];
             arr.copy_from_slice(bytes);
@@ -94,7 +94,7 @@ impl TryFrom<&[u8]> for Signature {
 
 impl TryFrom<Vec<u8>> for Signature {
     type Error = String;
-    fn try_from(bytes: Vec<u8>) -> std::result::Result<Self, Self::Error> {
+    fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
         Self::try_from(bytes.as_slice())
     }
 }

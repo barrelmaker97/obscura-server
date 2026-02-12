@@ -25,6 +25,7 @@ pub struct TelemetryGuard {
 }
 
 impl TelemetryGuard {
+    #[allow(clippy::print_stderr)]
     pub fn shutdown(self) {
         if let Some(provider) = self.tracer
             && let Err(err) = provider.shutdown()

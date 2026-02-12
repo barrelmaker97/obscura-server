@@ -123,7 +123,7 @@ impl GatewayService {
             request_id,
             socket,
             message_service: self.message_service.clone(),
-            notifier: self.notifier.clone(),
+            notifier: Arc::clone(&self.notifier),
             metrics: self.metrics.clone(),
             config: self.config.clone(),
             shutdown_rx,

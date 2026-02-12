@@ -49,7 +49,7 @@ impl InMemoryNotificationService {
     #[must_use]
     pub fn new(config: &Config, mut shutdown: tokio::sync::watch::Receiver<bool>) -> Self {
         let channels = std::sync::Arc::new(DashMap::new());
-        let map_ref = channels.clone();
+        let map_ref = std::sync::Arc::clone(&channels);
         let interval_secs = config.notifications.gc_interval_secs;
 
         // Spawn background GC task
