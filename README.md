@@ -70,6 +70,14 @@ Command-line options take precedence over environment variables.
 | `--gc-interval-secs` | How often to run notification cleanup | `OBSCURA_GC_INTERVAL_SECS` | `60` |
 | `--channel-capacity` | Capacity of the notification channel | `OBSCURA_CHANNEL_CAPACITY` | `16` |
 
+### Valkey Configuration (Distributed Notifications)
+
+| Option | Description | Environment Variable | Default |
+|--------|-------------|----------------------|---------|
+| `--valkey-url` | Valkey connection URL | `OBSCURA_VALKEY_URL` | `redis://localhost:6379` |
+| `--valkey-min-backoff-secs` | Min reconnection backoff | `OBSCURA_VALKEY_MIN_BACKOFF_SECS` | `1` |
+| `--valkey-max-backoff-secs` | Max reconnection backoff | `OBSCURA_VALKEY_MAX_BACKOFF_SECS` | `30` |
+
 ### WebSocket Configuration
 
 | Option | Description | Environment Variable | Default |
@@ -125,6 +133,7 @@ A Dockerfile is included for easy deployment.
      -p 3000:3000 \
      -p 9090:9090 \
      -e OBSCURA_DATABASE_URL="postgres://user:pass@host.docker.internal:5432/obscura" \
+     -e OBSCURA_VALKEY_URL="redis://host.docker.internal:6379" \
      -e OBSCURA_JWT_SECRET="your_secret_key" \
      -e OBSCURA_STORAGE_BUCKET="obscura-attachments" \
      obscura-server
@@ -132,7 +141,7 @@ A Dockerfile is included for easy deployment.
 
 ### Docker Compose
 
-A `docker-compose.yml` is provided for a complete local stack (Postgres + Server):
+A `docker-compose.yml` is provided for a complete local stack (Postgres + Valkey + MinIO + Server):
 
 ```bash
 docker compose up -d
@@ -143,18 +152,20 @@ docker compose up -d
 ### Prerequisites
 - Rust 1.83+
 - PostgreSQL 16+
+- Valkey 8+ (or Redis)
 - `protoc` (Protocol Buffers compiler)
 
 ### Running Locally
 
-1. Start Postgres and MinIO:
+1. Start Postgres, MinIO, and Valkey:
    ```bash
-   docker compose up -d db minio
+   docker compose up -d db minio valkey
    ```
 
 2. Run the server:
    ```bash
    export OBSCURA_DATABASE_URL=postgres://user:password@localhost/signal_server
+   export OBSCURA_VALKEY_URL=redis://localhost:6379
    export OBSCURA_JWT_SECRET=test
    export OBSCURA_STORAGE_BUCKET=test
    cargo run

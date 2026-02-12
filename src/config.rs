@@ -31,7 +31,7 @@ pub struct Config {
     pub notifications: NotificationConfig,
 
     #[command(flatten)]
-    pub cache: CacheConfig,
+    pub valkey: ValkeyConfig,
 
     #[command(flatten)]
     pub websocket: WsConfig,
@@ -54,7 +54,7 @@ impl Default for Config {
             health: HealthConfig::default(),
             messaging: MessagingConfig::default(),
             notifications: NotificationConfig::default(),
-            cache: CacheConfig::default(),
+            valkey: ValkeyConfig::default(),
             websocket: WsConfig::default(),
             storage: StorageConfig::default(),
             telemetry: TelemetryConfig::default(),
@@ -70,15 +70,27 @@ impl Config {
 }
 
 #[derive(Clone, Debug, Args)]
-pub struct CacheConfig {
+pub struct ValkeyConfig {
     /// Valkey connection URL (e.g. redis://localhost:6379)
-    #[arg(long = "cache-url", env = "OBSCURA_CACHE_URL", default_value_t = CacheConfig::default().url)]
+    #[arg(long = "valkey-url", env = "OBSCURA_VALKEY_URL", default_value_t = ValkeyConfig::default().url)]
     pub url: String,
+
+    /// Minimum backoff time for Valkey reconnection in seconds
+    #[arg(long = "valkey-min-backoff-secs", env = "OBSCURA_VALKEY_MIN_BACKOFF_SECS", default_value_t = ValkeyConfig::default().min_backoff_secs)]
+    pub min_backoff_secs: u64,
+
+    /// Maximum backoff time for Valkey reconnection in seconds
+    #[arg(long = "valkey-max-backoff-secs", env = "OBSCURA_VALKEY_MAX_BACKOFF_SECS", default_value_t = ValkeyConfig::default().max_backoff_secs)]
+    pub max_backoff_secs: u64,
 }
 
-impl Default for CacheConfig {
+impl Default for ValkeyConfig {
     fn default() -> Self {
-        Self { url: "redis://localhost:6379".to_string() }
+        Self {
+            url: "redis://localhost:6379".to_string(),
+            min_backoff_secs: 1,
+            max_backoff_secs: 30,
+        }
     }
 }
 

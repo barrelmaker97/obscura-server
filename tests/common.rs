@@ -108,8 +108,9 @@ pub fn get_test_config() -> Config {
             force_path_style: true,
             ..Default::default()
         },
-        cache: obscura_server::config::CacheConfig {
-            url: std::env::var("OBSCURA_CACHE_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string()),
+        valkey: obscura_server::config::ValkeyConfig {
+            url: std::env::var("OBSCURA_VALKEY_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string()),
+            ..Default::default()
         },
         ..Default::default()
     }
@@ -226,9 +227,8 @@ impl TestApp {
         config.server.mgmt_port = mgmt_addr.port();
 
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-        let valkey_url = std::env::var("OBSCURA_CACHE_URL").unwrap_or_else(|_| config.cache.url.clone());
         let notifier: Arc<dyn NotificationService> = Arc::new(
-            ValkeyNotificationService::new(&valkey_url, &config, shutdown_rx.clone())
+            ValkeyNotificationService::new(&config, shutdown_rx.clone())
                 .await
                 .expect("Failed to create ValkeyNotificationService for tests. Is Valkey running?"),
         );

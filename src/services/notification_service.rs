@@ -66,6 +66,9 @@ pub trait NotificationService: Send + Sync + std::fmt::Debug {
     async fn notify(&self, user_id: Uuid, event: UserEvent);
 }
 
+const CHANNEL_PREFIX: &str = "user:";
+const CHANNEL_PATTERN: &str = "user:*";
+
 #[derive(Debug)]
 pub struct ValkeyNotificationService {
     publisher: redis::aio::ConnectionManager,
@@ -75,21 +78,18 @@ pub struct ValkeyNotificationService {
 }
 
 impl ValkeyNotificationService {
-    pub async fn new(
-        valkey_url: &str,
-        config: &Config,
-        shutdown: tokio::sync::watch::Receiver<bool>,
-    ) -> anyhow::Result<Self> {
-        let client = redis::Client::open(valkey_url)?;
+    pub async fn new(config: &Config, shutdown: tokio::sync::watch::Receiver<bool>) -> anyhow::Result<Self> {
+        let valkey_url = &config.valkey.url;
+        let client = redis::Client::open(valkey_url.as_str())?;
         let publisher = client.get_connection_manager().await?;
         let channels = Arc::new(DashMap::new());
         let metrics = Metrics::new();
 
-        let pubsub_client = redis::Client::open(valkey_url)?;
+        let pubsub_client = redis::Client::open(valkey_url.as_str())?;
 
         // Spawn background Pub/Sub listener
         tokio::spawn(
-            Self::run_listener(pubsub_client, Arc::clone(&channels), metrics.clone(), shutdown.clone())
+            Self::run_listener(pubsub_client, Arc::clone(&channels), metrics.clone(), config.clone(), shutdown.clone())
                 .instrument(tracing::info_span!("notification_listener")),
         );
 
@@ -99,17 +99,24 @@ impl ValkeyNotificationService {
                 .instrument(tracing::info_span!("notification_gc")),
         );
 
-        Ok(Self { publisher, channels, channel_capacity: config.notifications.channel_capacity, metrics })
+        Ok(Self {
+            publisher,
+            channels,
+            channel_capacity: config.notifications.channel_capacity,
+            metrics,
+        })
     }
 
     async fn run_listener(
         pubsub_client: redis::Client,
         channels: Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
         metrics: Metrics,
+        config: Config,
         mut shutdown: tokio::sync::watch::Receiver<bool>,
     ) {
-        let mut backoff = std::time::Duration::from_secs(1);
-        let max_backoff = std::time::Duration::from_secs(30);
+        let mut backoff = std::time::Duration::from_secs(config.valkey.min_backoff_secs);
+        let min_backoff = backoff;
+        let max_backoff = std::time::Duration::from_secs(config.valkey.max_backoff_secs);
 
         loop {
             let mut pubsub = match pubsub_client.get_async_pubsub().await {
@@ -126,7 +133,7 @@ impl ValkeyNotificationService {
                 }
             };
 
-            if let Err(e) = pubsub.psubscribe("user:*").await {
+            if let Err(e) = pubsub.psubscribe(CHANNEL_PATTERN).await {
                 tracing::error!(error = %e, "Failed to psubscribe, retrying in {:?}", backoff);
                 tokio::select! {
                     _ = tokio::time::sleep(backoff) => {
@@ -137,8 +144,8 @@ impl ValkeyNotificationService {
                 }
             }
 
-            tracing::info!("Successfully subscribed to Valkey notifications");
-            backoff = std::time::Duration::from_secs(1); // Reset backoff on success
+            tracing::info!(pattern = %CHANNEL_PATTERN, "Successfully subscribed to Valkey notifications");
+            backoff = min_backoff; // Reset backoff on success
 
             let mut message_stream = pubsub.into_on_message();
             use futures::StreamExt;
@@ -152,7 +159,7 @@ impl ValkeyNotificationService {
                         match msg {
                             Some(msg) => {
                                 let channel = msg.get_channel_name();
-                                if let Some(user_id_str) = channel.strip_prefix("user:") {
+                                if let Some(user_id_str) = channel.strip_prefix(CHANNEL_PREFIX) {
                                     if let Ok(user_id) = Uuid::parse_str(user_id_str) {
                                         let payload: u8 = msg.get_payload().unwrap_or_default();
                                         let event_res = UserEvent::try_from(payload);
@@ -226,7 +233,7 @@ impl NotificationService for ValkeyNotificationService {
     async fn notify(&self, user_id: Uuid, event: UserEvent) {
         use redis::AsyncCommands;
         let mut conn = self.publisher.clone();
-        let channel_name = format!("user:{}", user_id);
+        let channel_name = format!("{}{}", CHANNEL_PREFIX, user_id);
         let payload = event as u8;
 
         match conn.publish::<_, _, i64>(channel_name, payload).await {
