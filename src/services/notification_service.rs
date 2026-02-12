@@ -1,7 +1,11 @@
 use crate::config::Config;
 use async_trait::async_trait;
 use dashmap::DashMap;
-use opentelemetry::{global, metrics::Counter, KeyValue};
+use opentelemetry::{
+    global,
+    metrics::{Counter, UpDownCounter},
+    KeyValue,
+};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::Instrument;
@@ -10,6 +14,8 @@ use uuid::Uuid;
 #[derive(Clone, Debug)]
 struct Metrics {
     sends_total: Counter<u64>,
+    received_total: Counter<u64>,
+    active_channels: UpDownCounter<i64>,
 }
 
 impl Metrics {
@@ -19,6 +25,14 @@ impl Metrics {
             sends_total: meter
                 .u64_counter("notification_sends_total")
                 .with_description("Total notification send attempts")
+                .build(),
+            received_total: meter
+                .u64_counter("notification_received_total")
+                .with_description("Total notifications received from Valkey")
+                .build(),
+            active_channels: meter
+                .i64_up_down_counter("notification_active_channels")
+                .with_description("Number of active local notification channels")
                 .build(),
         }
     }
@@ -69,32 +83,29 @@ impl ValkeyNotificationService {
         let client = redis::Client::open(valkey_url)?;
         let publisher = client.get_connection_manager().await?;
         let channels = Arc::new(DashMap::new());
+        let metrics = Metrics::new();
 
         let pubsub_client = redis::Client::open(valkey_url)?;
 
         // Spawn background Pub/Sub listener
         tokio::spawn(
-            Self::run_listener(pubsub_client, Arc::clone(&channels), shutdown.clone())
+            Self::run_listener(pubsub_client, Arc::clone(&channels), metrics.clone(), shutdown.clone())
                 .instrument(tracing::info_span!("notification_listener")),
         );
 
         // Spawn background GC task
         tokio::spawn(
-            Self::run_gc(Arc::clone(&channels), config.notifications.gc_interval_secs, shutdown)
+            Self::run_gc(Arc::clone(&channels), metrics.clone(), config.notifications.gc_interval_secs, shutdown)
                 .instrument(tracing::info_span!("notification_gc")),
         );
 
-        Ok(Self {
-            publisher,
-            channels,
-            channel_capacity: config.notifications.channel_capacity,
-            metrics: Metrics::new(),
-        })
+        Ok(Self { publisher, channels, channel_capacity: config.notifications.channel_capacity, metrics })
     }
 
     async fn run_listener(
         pubsub_client: redis::Client,
         channels: Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
+        metrics: Metrics,
         mut shutdown: tokio::sync::watch::Receiver<bool>,
     ) {
         let mut backoff = std::time::Duration::from_secs(1);
@@ -144,8 +155,13 @@ impl ValkeyNotificationService {
                                 if let Some(user_id_str) = channel.strip_prefix("user:") {
                                     if let Ok(user_id) = Uuid::parse_str(user_id_str) {
                                         let payload: u8 = msg.get_payload().unwrap_or_default();
+                                        let event_res = UserEvent::try_from(payload);
 
-                                        if let Ok(event) = UserEvent::try_from(payload) {
+                                        let span = tracing::debug_span!("process_notification", %user_id, ?event_res);
+                                        let _enter = span.enter();
+
+                                        if let Ok(event) = event_res {
+                                            metrics.received_total.add(1, &[KeyValue::new("event", format!("{:?}", event))]);
                                             if let Some(tx) = channels.get(&user_id) {
                                                 let _ = tx.send(event);
                                             }
@@ -166,6 +182,7 @@ impl ValkeyNotificationService {
 
     async fn run_gc(
         channels: Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
+        metrics: Metrics,
         interval_secs: u64,
         mut shutdown: tokio::sync::watch::Receiver<bool>,
     ) {
@@ -173,7 +190,13 @@ impl ValkeyNotificationService {
         loop {
             tokio::select! {
                 _ = interval.tick() => {
-                    channels.retain(|_, sender| sender.receiver_count() > 0);
+                    channels.retain(|_, sender| {
+                        let active = sender.receiver_count() > 0;
+                        if !active {
+                            metrics.active_channels.add(-1, &[]);
+                        }
+                        active
+                    });
                 }
                 _ = shutdown.changed() => break,
             }
@@ -183,11 +206,13 @@ impl ValkeyNotificationService {
 
 #[async_trait]
 impl NotificationService for ValkeyNotificationService {
+    #[tracing::instrument(skip(self), fields(user_id = %user_id))]
     async fn subscribe(&self, user_id: Uuid) -> broadcast::Receiver<UserEvent> {
         let tx = self
             .channels
             .entry(user_id)
             .or_insert_with(|| {
+                self.metrics.active_channels.add(1, &[]);
                 let (tx, _rx) = broadcast::channel(self.channel_capacity);
                 tx
             })
@@ -197,6 +222,7 @@ impl NotificationService for ValkeyNotificationService {
         tx.subscribe()
     }
 
+    #[tracing::instrument(skip(self), fields(user_id = %user_id, event = ?event))]
     async fn notify(&self, user_id: Uuid, event: UserEvent) {
         use redis::AsyncCommands;
         let mut conn = self.publisher.clone();
@@ -206,10 +232,11 @@ impl NotificationService for ValkeyNotificationService {
         match conn.publish::<_, _, i64>(channel_name, payload).await {
             Ok(_) => self.metrics.sends_total.add(1, &[KeyValue::new("status", "sent")]),
             Err(e) => {
-                tracing::error!(error = %e, user_id = %user_id, "Failed to publish to Valkey");
+                tracing::error!(error = %e, "Failed to publish to Valkey");
                 self.metrics.sends_total.add(1, &[KeyValue::new("status", "error")]);
             }
         }
     }
 }
+
 
