@@ -117,7 +117,10 @@ mod tests {
         upload.registration_id = None;
         let res = upload.validate();
         assert!(res.is_err());
-        assert_eq!(res.unwrap_err(), "registrationId is required when identityKey is provided");
+        assert_eq!(
+            res.expect_err("Missing registrationId should fail"),
+            "registrationId is required when identityKey is provided"
+        );
     }
 
     #[test]
@@ -129,7 +132,7 @@ mod tests {
         ];
         let res = upload.validate();
         assert!(res.is_err());
-        assert_eq!(res.unwrap_err(), "Duplicate prekey ID: 1");
+        assert_eq!(res.expect_err("Duplicate prekey IDs should fail"), "Duplicate prekey ID: 1");
     }
 }
 

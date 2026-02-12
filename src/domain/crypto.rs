@@ -116,7 +116,7 @@ mod tests {
         let inner = [3u8; 32];
         bytes[1..].copy_from_slice(&inner);
 
-        let key = PublicKey::try_from_bytes(&bytes).unwrap();
+        let key = PublicKey::try_from_bytes(&bytes).expect("Valid public key bytes");
         assert_eq!(key.as_crypto_bytes(), &inner);
     }
 }

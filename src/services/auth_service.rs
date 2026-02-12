@@ -252,7 +252,7 @@ mod tests {
             access_token_ttl_secs: 3600,
             refresh_token_ttl_days: 7,
         };
-        let pool = sqlx::PgPool::connect_lazy("postgres://localhost/test").unwrap();
+        let pool = sqlx::PgPool::connect_lazy("postgres://localhost/test").expect("Valid test pool");
         AuthService::new(config, pool, UserRepository::new(), RefreshTokenRepository::new())
     }
 
@@ -260,11 +260,11 @@ mod tests {
     async fn test_jwt_roundtrip() {
         let service = setup_service();
         let user_id = Uuid::new_v4();
-        let exp = 10000000000;
+        let exp = 10_000_000_000;
         let claims = Claims::new(user_id, exp);
 
-        let jwt = service.encode_jwt(&claims).unwrap();
-        let decoded_id = service.verify_token(&jwt).unwrap();
+        let jwt = service.encode_jwt(&claims).expect("Failed to encode JWT");
+        let decoded_id = service.verify_token(&jwt).expect("Failed to verify valid token");
 
         assert_eq!(user_id, decoded_id);
     }
@@ -273,10 +273,10 @@ mod tests {
     async fn test_password_hashing() {
         let service = setup_service();
         let password = "password12345";
-        let hash = service.hash_password(password).await.unwrap();
+        let hash = service.hash_password(password).await.expect("Failed to hash password");
 
-        assert!(service.verify_password(password, &hash).await.unwrap());
-        assert!(!service.verify_password("wrong_password", &hash).await.unwrap());
+        assert!(service.verify_password(password, &hash).await.expect("Failed to verify password"));
+        assert!(!service.verify_password("wrong_password", &hash).await.expect("Failed to verify password"));
     }
 
     #[tokio::test]

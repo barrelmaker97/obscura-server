@@ -71,7 +71,7 @@ impl Config {
 
 #[derive(Clone, Debug, Args)]
 pub struct ValkeyConfig {
-    /// Valkey connection URL (e.g. redis://localhost:6379)
+    /// Valkey connection URL (e.g. <redis://localhost:6379>)
     #[arg(long = "valkey-url", env = "OBSCURA_VALKEY_URL", default_value_t = ValkeyConfig::default().url)]
     pub url: String,
 

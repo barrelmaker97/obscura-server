@@ -74,8 +74,11 @@ impl AckBatcher {
             }
 
             if !batch.is_empty() {
+                tracing::debug!(batch_size = batch.len(), "Flushing ACK batch");
                 metrics.ack_batch_size.record(batch.len() as u64, &[]);
-                let _ = message_service.delete_batch(&batch).await;
+                if let Err(e) = message_service.delete_batch(&batch).await {
+                    tracing::error!(error = %e, "Failed to delete message batch");
+                }
             }
         }
     }

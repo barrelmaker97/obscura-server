@@ -78,6 +78,10 @@ pub struct ValkeyNotificationService {
 }
 
 impl ValkeyNotificationService {
+    /// Creates a new Valkey notification service.
+    ///
+    /// # Errors
+    /// Returns an error if the subscription to Valkey fails.
     pub async fn new(
         valkey: Arc<ValkeyClient>,
         config: &Config,
@@ -111,20 +115,20 @@ impl ValkeyNotificationService {
                         msg = valkey_rx.recv() => {
                             match msg {
                                 Ok(msg) => {
-                                    if let Some(user_id_str) = msg.channel.strip_prefix(CHANNEL_PREFIX) {
-                                        if let Ok(user_id) = Uuid::parse_str(user_id_str) {
-                                            if let Some(payload) = msg.payload.first() {
-                                                if let Ok(event) = UserEvent::try_from(*payload) {
-                                                    let span = tracing::debug_span!("process_notification", %user_id, ?event);
-                                                    let _enter = span.enter();
-                                                    dispatcher_metrics.received_total.add(1, &[KeyValue::new("event", format!("{:?}", event))]);
-                                                    if let Some(tx) = dispatcher_channels.get(&user_id) {
-                                                        let _ = tx.send(event);
-                                                    }
+                                    if let Some(user_id_str) = msg.channel.strip_prefix(CHANNEL_PREFIX)
+                                        && let Ok(user_id) = Uuid::parse_str(user_id_str)
+                                        && let Some(payload_byte) = msg.payload.first() {
+                                            if let Ok(event) = UserEvent::try_from(*payload_byte) {
+                                                let span = tracing::debug_span!("process_notification", %user_id, ?event);
+                                                let _enter = span.enter();
+                                                dispatcher_metrics.received_total.add(1, &[KeyValue::new("event", format!("{event:?}"))]);
+                                                if let Some(tx) = dispatcher_channels.get(&user_id) {
+                                                    let _ = tx.send(event);
                                                 }
+                                            } else {
+                                                tracing::error!(payload = ?msg.payload, "Received invalid UserEvent payload");
                                             }
                                         }
-                                    }
                                 }
                                 Err(broadcast::error::RecvError::Lagged(n)) => {
                                     tracing::warn!(missed = n, "Valkey notification dispatcher lagged");
@@ -185,11 +189,11 @@ impl NotificationService for ValkeyNotificationService {
 
     #[tracing::instrument(skip(self), fields(user_id = %user_id, event = ?event))]
     async fn notify(&self, user_id: Uuid, event: UserEvent) {
-        let channel_name = format!("{}{}", CHANNEL_PREFIX, user_id);
-        let payload = event as u8;
+        let channel_name = format!("{CHANNEL_PREFIX}{user_id}");
+        let payload = [event as u8];
 
-        match self.valkey.publish(&channel_name, payload).await {
-            Ok(_) => self.metrics.sends_total.add(1, &[KeyValue::new("status", "sent")]),
+        match self.valkey.publish(&channel_name, &payload).await {
+            Ok(()) => self.metrics.sends_total.add(1, &[KeyValue::new("status", "sent")]),
             Err(e) => {
                 tracing::error!(error = %e, "Failed to publish to Valkey");
                 self.metrics.sends_total.add(1, &[KeyValue::new("status", "error")]);
