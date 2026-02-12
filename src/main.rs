@@ -1,7 +1,9 @@
-use obscura_server::api::{self, ServiceContainer};
+use obscura_server::api::{self, MgmtState, ServiceContainer};
 use obscura_server::config::Config;
 use obscura_server::services::account_service::AccountService;
 use obscura_server::services::attachment_service::AttachmentService;
+use obscura_server::services::auth_service::AuthService;
+use obscura_server::services::crypto_service::CryptoService;
 use obscura_server::services::gateway::GatewayService;
 use obscura_server::services::health_service::HealthService;
 use obscura_server::services::key_service::KeyService;
@@ -118,7 +120,7 @@ async fn main() -> anyhow::Result<()> {
         ) = {
             let _span = tracing::info_span!("service_initialization").entered();
 
-            let crypto_service = obscura_server::services::crypto_service::CryptoService::new();
+            let crypto_service = CryptoService::new();
 
             let key_service = KeyService::new(pool.clone(), key_repo, crypto_service.clone(), config.messaging.clone());
 
@@ -130,12 +132,8 @@ async fn main() -> anyhow::Result<()> {
                 config.ttl_days,
             );
 
-            let auth_service = obscura_server::services::auth_service::AuthService::new(
-                config.auth.clone(),
-                pool.clone(),
-                user_repo.clone(),
-                refresh_repo.clone(),
-            );
+            let auth_service =
+                AuthService::new(config.auth.clone(), pool.clone(), user_repo.clone(), refresh_repo.clone());
 
             let message_service = MessageService::new(
                 pool.clone(),
@@ -208,7 +206,7 @@ async fn main() -> anyhow::Result<()> {
 
         let app = api::app_router(config.clone(), services, shutdown_rx.clone());
 
-        let mgmt_state = obscura_server::api::MgmtState { health_service };
+        let mgmt_state = MgmtState { health_service };
         let mgmt_app = api::mgmt_router(mgmt_state);
 
         let addr_str = format!("{}:{}", config.server.host, config.server.port);

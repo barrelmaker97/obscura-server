@@ -4,6 +4,7 @@ use crate::api::schemas::auth::{AuthSession as AuthSessionSchema, Login, Logout,
 use crate::domain::auth_session::AuthSession;
 use crate::error::{AppError, Result};
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
+use std::convert::TryInto;
 
 /// Authenticates a user and returns a session.
 ///
@@ -34,7 +35,7 @@ pub async fn register(State(state): State<AppState>, Json(payload): Json<Registr
             payload
                 .one_time_pre_keys
                 .into_iter()
-                .map(std::convert::TryInto::try_into)
+                .map(TryInto::try_into)
                 .collect::<std::result::Result<Vec<_>, _>>()
                 .map_err(AppError::BadRequest)?,
         )

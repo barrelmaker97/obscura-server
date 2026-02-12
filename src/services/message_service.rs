@@ -1,6 +1,6 @@
 use crate::config::MessagingConfig;
 use crate::domain::message::Message;
-use crate::error::Result;
+use crate::error::{AppError, Result};
 use crate::services::notification_service::{NotificationService, UserEvent};
 use crate::storage::DbPool;
 use crate::storage::message_repo::MessageRepository;
@@ -151,7 +151,7 @@ impl MessageService {
                         let res_expiry = if let Ok(mut conn) = self.pool.acquire().await {
                              self.repo.delete_expired(&mut conn).await
                         } else {
-                             Err(crate::error::AppError::Internal)
+                             Err(AppError::Internal)
                         };
 
                         match res_expiry {
@@ -167,7 +167,7 @@ impl MessageService {
                         let res_overflow = if let Ok(mut conn) = self.pool.acquire().await {
                             self.repo.delete_global_overflow(&mut conn, self.config.max_inbox_size).await
                         } else {
-                            Err(crate::error::AppError::Internal)
+                            Err(AppError::Internal)
                         };
 
                         match res_overflow {

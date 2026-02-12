@@ -1,4 +1,5 @@
 use crate::domain::auth_session::AuthSession;
+use crate::domain::crypto::PublicKey;
 use crate::domain::keys::{OneTimePreKey, SignedPreKey};
 use crate::error::Result;
 use crate::services::auth_service::AuthService;
@@ -55,21 +56,21 @@ impl AccountService {
         Self { pool, user_repo, message_repo, auth_service, key_service, notifier, metrics: Metrics::new() }
     }
 
-    #[tracing::instrument(
-        skip(self, username, password, identity_key, signed_pre_key, one_time_pre_keys),
-        fields(user_id = tracing::field::Empty),
-        err(level = "warn")
-    )]
     /// Registers a new user account atomically.
     ///
     /// # Errors
     /// Returns `AppError::Conflict` if the username already exists.
     /// Returns `AppError::Database` if any of the underlying transactions fail.
+    #[tracing::instrument(
+        skip(self, username, password, identity_key, signed_pre_key, one_time_pre_keys),
+        fields(user_id = tracing::field::Empty),
+        err(level = "warn")
+    )]
     pub async fn register(
         &self,
         username: String,
         password: String,
-        identity_key: crate::domain::crypto::PublicKey,
+        identity_key: PublicKey,
         registration_id: i32,
         signed_pre_key: SignedPreKey,
         one_time_pre_keys: Vec<OneTimePreKey>,
@@ -105,16 +106,16 @@ impl AccountService {
         Ok(session)
     }
 
-    #[tracing::instrument(
-        skip(self, params),
-        fields(user_id = %params.user_id),
-        err(level = "warn")
-    )]
     /// Uploads new keys for an existing account.
     ///
     /// # Errors
     /// Returns `AppError::BadRequest` if key validation fails.
     /// Returns `AppError::Database` if the database operation fails.
+    #[tracing::instrument(
+        skip(self, params),
+        fields(user_id = %params.user_id),
+        err(level = "warn")
+    )]
     pub async fn upload_keys(&self, params: KeyUploadParams) -> Result<()> {
         let user_id = params.user_id;
 

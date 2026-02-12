@@ -9,6 +9,7 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
+use std::convert::TryInto;
 use uuid::Uuid;
 
 /// Fetches a pre-key bundle for a user.
@@ -20,7 +21,7 @@ pub async fn get_pre_key_bundle(State(state): State<AppState>, Path(user_id): Pa
 
     match bundle {
         Some(b) => Ok(Json(PreKeyBundleSchema::from(b))),
-        None => Err(crate::error::AppError::NotFound),
+        None => Err(AppError::NotFound),
     }
 }
 
@@ -38,17 +39,13 @@ pub async fn upload_keys(
     // Call Service directly with domain types from payload
     let params = KeyUploadParams {
         user_id: auth_user.user_id,
-        identity_key: payload
-            .identity_key
-            .map(std::convert::TryInto::try_into)
-            .transpose()
-            .map_err(AppError::BadRequest)?,
+        identity_key: payload.identity_key.map(TryInto::try_into).transpose().map_err(AppError::BadRequest)?,
         registration_id: payload.registration_id,
         signed_pre_key: payload.signed_pre_key.try_into().map_err(AppError::BadRequest)?,
         one_time_pre_keys: payload
             .one_time_pre_keys
             .into_iter()
-            .map(std::convert::TryInto::try_into)
+            .map(TryInto::try_into)
             .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(AppError::BadRequest)?,
     };

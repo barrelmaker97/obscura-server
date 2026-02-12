@@ -90,16 +90,16 @@ impl AttachmentService {
         Self { pool, repo, s3_client, config, ttl_days, metrics: Metrics::new() }
     }
 
-    #[tracing::instrument(
-        err(level = "warn"),
-        skip(self, body),
-        fields(attachment_id = tracing::field::Empty, attachment_size = tracing::field::Empty)
-    )]
     /// Uploads an attachment to S3 and records it in the database.
     ///
     /// # Errors
     /// Returns `AppError::BadRequest` if the attachment exceeds the size limit.
     /// Returns `AppError::Internal` if S3 or the database fails.
+    #[tracing::instrument(
+        err(level = "warn"),
+        skip(self, body),
+        fields(attachment_id = tracing::field::Empty, attachment_size = tracing::field::Empty)
+    )]
     pub async fn upload(&self, content_len: Option<usize>, body: Body) -> Result<(Uuid, i64)> {
         if let Some(len) = content_len {
             tracing::Span::current().record("attachment.size", len);
@@ -182,15 +182,15 @@ impl AttachmentService {
         Ok((id, expires_at.unix_timestamp()))
     }
 
+    /// Downloads an attachment from S3.
+    ///
+    /// # Errors
+    /// Returns `AppError::NotFound` if the attachment does not exist or has expired.
     #[tracing::instrument(
         err(level = "warn"),
         skip(self),
         fields(attachment_id = %id, attachment_size = tracing::field::Empty)
     )]
-    /// Downloads an attachment from S3.
-    ///
-    /// # Errors
-    /// Returns `AppError::NotFound` if the attachment does not exist or has expired.
     pub async fn download(&self, id: Uuid) -> Result<(u64, ByteStream)> {
         // 1. Check Existence & Expiry using Domain Logic
         let mut conn = self.pool.acquire().await?;

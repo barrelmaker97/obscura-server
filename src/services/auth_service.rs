@@ -2,6 +2,7 @@ use crate::config::AuthConfig;
 use crate::domain::auth::{Claims, Jwt};
 use crate::domain::auth_session::AuthSession;
 use crate::error::{AppError, Result};
+use crate::storage::DbPool;
 use crate::storage::refresh_token_repo::RefreshTokenRepository;
 use crate::storage::user_repo::UserRepository;
 use argon2::{
@@ -14,7 +15,7 @@ use opentelemetry::{global, metrics::Counter};
 use rand::{RngCore, rngs::OsRng};
 use sha2::{Digest, Sha256};
 use sqlx::PgConnection;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -25,6 +26,7 @@ struct Metrics {
 }
 
 impl Metrics {
+    #[must_use]
     fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
@@ -47,7 +49,7 @@ impl Metrics {
 #[derive(Clone)]
 pub struct AuthService {
     config: AuthConfig,
-    pool: crate::storage::DbPool,
+    pool: DbPool,
     user_repo: UserRepository,
     refresh_repo: RefreshTokenRepository,
     metrics: Metrics,
@@ -57,22 +59,22 @@ impl AuthService {
     #[must_use]
     pub fn new(
         config: AuthConfig,
-        pool: crate::storage::DbPool,
+        pool: DbPool,
         user_repo: UserRepository,
         refresh_repo: RefreshTokenRepository,
     ) -> Self {
         Self { config, pool, user_repo, refresh_repo, metrics: Metrics::new() }
     }
 
+    /// Authenticates a user.
+    ///
+    /// # Errors
+    /// Returns `AppError::AuthError` if credentials are invalid.
     #[tracing::instrument(
         skip(self, username, password),
         fields(user_id = tracing::field::Empty),
         err(level = "warn")
     )]
-    /// Authenticates a user.
-    ///
-    /// # Errors
-    /// Returns `AppError::AuthError` if credentials are invalid.
     pub async fn login(&self, username: String, password: String) -> Result<AuthSession> {
         let mut conn = self.pool.acquire().await?;
         let Some(user) = self.user_repo.find_by_username(&mut conn, &username).await? else {
@@ -95,11 +97,11 @@ impl AuthService {
         Ok(session)
     }
 
-    #[tracing::instrument(err, skip(self, password))]
     /// Hashes a password using Argon2.
     ///
     /// # Errors
     /// Returns `AppError::Internal` if hashing fails.
+    #[tracing::instrument(err, skip(self, password))]
     pub async fn hash_password(&self, password: &str) -> Result<String> {
         let password = password.to_string();
         tokio::task::spawn_blocking(move || {
@@ -111,11 +113,11 @@ impl AuthService {
         .map_err(|_| AppError::Internal)?
     }
 
-    #[tracing::instrument(err, skip(self, password, password_hash))]
     /// Verifies a password against a hash.
     ///
     /// # Errors
     /// Returns `AppError::Internal` if verification logic fails.
+    #[tracing::instrument(err, skip(self, password, password_hash))]
     pub async fn verify_password(&self, password: &str, password_hash: &str) -> Result<bool> {
         let password = password.to_string();
         let password_hash = password_hash.to_string();
@@ -127,13 +129,13 @@ impl AuthService {
         .map_err(|_| AppError::Internal)?
     }
 
-    #[tracing::instrument(err, skip(self, conn), fields(user_id = %user_id))]
     /// Creates a new authenticated session.
     ///
     /// # Errors
     /// Returns `AppError::Database` if the session cannot be saved.
+    #[tracing::instrument(err, skip(self, conn), fields(user_id = %user_id))]
     pub async fn create_session(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<AuthSession> {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(std::time::Duration::from_secs(0)).as_secs();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(Duration::from_secs(0)).as_secs();
 
         let exp = now.checked_add(self.config.access_token_ttl_secs).ok_or(AppError::Internal)?;
         let exp_usize = usize::try_from(exp).map_err(|_| AppError::Internal)?;
@@ -152,11 +154,12 @@ impl AuthService {
             expires_at: i64::try_from(exp).map_err(|_| AppError::Internal)?,
         })
     }
-    #[tracing::instrument(err, skip(self, refresh_token))]
+
     /// Refreshes an existing session.
     ///
     /// # Errors
     /// Returns `AppError::AuthError` if the refresh token is invalid.
+    #[tracing::instrument(err, skip(self, refresh_token))]
     pub async fn refresh_session(&self, refresh_token: String) -> Result<AuthSession> {
         let mut conn = self.pool.acquire().await?;
         let old_hash = Self::hash_opaque_token(&refresh_token);
@@ -171,7 +174,7 @@ impl AuthService {
 
         tracing::Span::current().record("user.id", tracing::field::display(user_id));
 
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(std::time::Duration::from_secs(0)).as_secs();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(Duration::from_secs(0)).as_secs();
 
         let exp = now.checked_add(self.config.access_token_ttl_secs).ok_or(AppError::Internal)?;
         let exp_usize = usize::try_from(exp).map_err(|_| AppError::Internal)?;
@@ -189,11 +192,11 @@ impl AuthService {
         })
     }
 
-    #[tracing::instrument(err, skip(self, refresh_token), fields(user_id = %user_id))]
     /// Logs out a user by deleting their refresh token.
     ///
     /// # Errors
     /// Returns `AppError::Database` if the token cannot be deleted.
+    #[tracing::instrument(err, skip(self, refresh_token), fields(user_id = %user_id))]
     pub async fn logout(&self, user_id: Uuid, refresh_token: String) -> Result<()> {
         let mut conn = self.pool.acquire().await?;
         let hash = Self::hash_opaque_token(&refresh_token);
@@ -201,6 +204,7 @@ impl AuthService {
         self.metrics.logout.add(1, &[]);
         Ok(())
     }
+
     /// Verifies a JWT access token and returns the user ID (subject).
     ///
     /// # Errors
@@ -235,6 +239,7 @@ impl AuthService {
         hex::encode(hasher.finalize())
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,7 +281,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_opaque_token_logic() {
-        let _service = setup_service();
         let token1 = AuthService::generate_opaque_token();
         let token2 = AuthService::generate_opaque_token();
 

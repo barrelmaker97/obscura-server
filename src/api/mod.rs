@@ -8,6 +8,7 @@ use crate::services::health_service::HealthService;
 use crate::services::key_service::KeyService;
 use crate::services::message_service::MessageService;
 use crate::services::rate_limit_service::RateLimitService;
+use crate::storage::DbPool;
 use axum::body::Body;
 use axum::http::Request;
 use axum::{
@@ -51,7 +52,7 @@ pub struct MgmtState {
 }
 
 pub struct ServiceContainer {
-    pub pool: crate::storage::DbPool,
+    pub pool: DbPool,
     pub key_service: KeyService,
     pub attachment_service: AttachmentService,
     pub account_service: AccountService,
