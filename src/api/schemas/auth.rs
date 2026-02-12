@@ -66,10 +66,7 @@ mod tests {
         let reg = mock_registration("short");
         let res = reg.validate();
         assert!(res.is_err());
-        assert_eq!(
-            res.expect_err("Password too short should fail"),
-            "Password must be at least 12 characters long"
-        );
+        assert_eq!(res.expect_err("Password too short should fail"), "Password must be at least 12 characters long");
     }
 
     #[test]
