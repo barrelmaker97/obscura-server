@@ -78,7 +78,7 @@ impl RedisClient {
             async move {
                 Self::run_pattern_listener(client, pattern_str, tx, shutdown, subscriptions, config, ready_tx).await;
             }
-            .instrument(tracing::info_span!("redis_pattern_listener", pattern = %pattern)),
+            .instrument(tracing::info_span!("pubsub_listener", pattern = %pattern)),
         );
 
         // Wait for the listener to be ready (psubscribed)
@@ -110,23 +110,23 @@ impl RedisClient {
             })
             .retry(&retry_strategy)
             .when(|e| {
-                tracing::warn!(error = %e, "Failed to subscribe to Redis pattern, retrying...");
+                tracing::warn!(error = %e, "Failed to subscribe to pubsub, retrying...");
                 true
             })
             .notify(|e, duration| {
-                tracing::debug!("Redis subscription retry in {:?} due to error: {:?}", duration, e);
+                tracing::debug!("Pubsub subscription retry in {:?} due to error: {:?}", duration, e);
             })
             .await;
 
             let pubsub: redis::aio::PubSub = match pubsub_result {
                 Ok(ps) => ps,
                 Err(e) => {
-                    tracing::error!(error = %e, "Redis subscription failed after retries");
+                    tracing::error!(error = %e, "Pubsub subscription failed after retries");
                     break;
                 }
             };
 
-            tracing::info!(pattern = %pattern, "Successfully subscribed to pattern");
+            tracing::info!(pattern = %pattern, "Successfully subscribed to pubsub");
             if let Some(rtx) = ready_tx.take() {
                 let _ = rtx.send(());
             }
@@ -147,7 +147,7 @@ impl RedisClient {
                                 // but for simplicity we'll keep it running until shutdown.
                             }
                         } else {
-                            tracing::warn!(pattern = %pattern, "Redis pubsub connection lost, reconnecting...");
+                            tracing::warn!(pattern = %pattern, "Pubsub connection lost, reconnecting...");
                             break;
                         }
                     }
