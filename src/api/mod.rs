@@ -14,7 +14,7 @@ use axum::http::Request;
 use axum::{
     Router,
     middleware::from_fn_with_state,
-    routing::{get, post},
+    routing::{delete, get, post, put},
 };
 use std::sync::Arc;
 use tower_governor::GovernorLayer;
@@ -110,7 +110,7 @@ pub fn app_router(
     let auth_routes = Router::new()
         .route("/users", post(auth::register))
         .route("/sessions", post(auth::login))
-        .route("/sessions", axum::routing::delete(auth::logout))
+        .route("/sessions", delete(auth::logout))
         .route("/sessions/refresh", post(auth::refresh))
         .layer(GovernorLayer::new(auth_conf));
 
@@ -122,7 +122,7 @@ pub fn app_router(
         .route("/gateway", get(gateway::websocket_handler))
         .route("/attachments", post(attachments::upload_attachment))
         .route("/attachments/{id}", get(attachments::download_attachment))
-        .route("/push/token", axum::routing::put(notifications::register_token))
+        .route("/push/token", put(notifications::register_token))
         .layer(GovernorLayer::new(standard_conf));
 
     Router::new()
