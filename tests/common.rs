@@ -2,11 +2,6 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use futures::{SinkExt, StreamExt};
 use obscura_server::{
-    adapters::{
-        self, database::attachment_repo::AttachmentRepository, database::key_repo::KeyRepository,
-        database::message_repo::MessageRepository, database::push_token_repo::PushTokenRepository,
-        database::refresh_token_repo::RefreshTokenRepository, database::user_repo::UserRepository,
-    },
     api::{ServiceContainer, app_router},
     config::Config,
     proto::obscura::v1::{
@@ -20,7 +15,17 @@ use obscura_server::{
         key_service::KeyService,
         message_service::MessageService,
         notification::{DistributedNotificationService, NotificationService},
+        push_token_service::PushTokenService,
         rate_limit_service::RateLimitService,
+    },
+    adapters::{
+        self,
+        database::attachment_repo::AttachmentRepository,
+        database::key_repo::KeyRepository,
+        database::message_repo::MessageRepository,
+        database::push_token_repo::PushTokenRepository,
+        database::refresh_token_repo::RefreshTokenRepository,
+        database::user_repo::UserRepository,
     },
 };
 use prost::Message as ProstMessage;
@@ -29,7 +34,7 @@ use rand::rngs::OsRng;
 use reqwest::Client;
 use serde_json::json;
 use sqlx::PgPool;
-use std::sync::{Arc, Once};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio_tungstenite::{WebSocketStream, connect_async, tungstenite::protocol::Message};
@@ -37,10 +42,10 @@ use uuid::Uuid;
 use xeddsa::xed25519::PrivateKey;
 use xeddsa::{CalculateKeyPair, Sign};
 
-static INIT: Once = Once::new();
+static INIT: OnceLock<()> = OnceLock::new();
 
 pub fn setup_tracing() {
-    INIT.call_once(|| {
+    INIT.get_or_init(|| {
         obscura_server::telemetry::init_test_telemetry();
         let filter = tracing_subscriber::EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| "warn".into())
@@ -71,8 +76,7 @@ pub async fn get_test_pool() -> PgPool {
     let database_url = std::env::var("OBSCURA_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://user:password@localhost/signal_server".to_string());
 
-    let pool =
-        adapters::database::init_pool(&database_url).await.expect("Failed to connect to DB. Is Postgres running?");
+    let pool = adapters::database::init_pool(&database_url).await.expect("Failed to connect to DB. Is Postgres running?");
 
     sqlx::migrate!().run(&pool).await.expect("Failed to run migrations");
 
@@ -246,17 +250,12 @@ impl TestApp {
         let attachment_repo = AttachmentRepository::new();
         let push_token_repo = PushTokenRepository::new();
 
+        let push_token_service = PushTokenService::new(pool.clone(), push_token_repo);
+
         let notifier: Arc<dyn NotificationService> = Arc::new(
-            DistributedNotificationService::new(
-                pubsub.clone(),
-                &config,
-                shutdown_rx.clone(),
-                None,
-                push_token_repo.clone(),
-                pool.clone(),
-            )
-            .await
-            .expect("Failed to create DistributedNotificationService for tests."),
+            DistributedNotificationService::new(pubsub.clone(), &config, shutdown_rx.clone(), None, push_token_service.clone())
+                .await
+                .expect("Failed to create DistributedNotificationService for tests."),
         );
 
         let region_provider = aws_config::Region::new(config.storage.region.clone());
@@ -339,6 +338,7 @@ impl TestApp {
             message_service,
             gateway_service,
             notification_service: notifier.clone(),
+            push_token_service,
             rate_limit_service,
         };
 

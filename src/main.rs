@@ -1,9 +1,3 @@
-use obscura_server::adapters::database::attachment_repo::AttachmentRepository;
-use obscura_server::adapters::database::key_repo::KeyRepository;
-use obscura_server::adapters::database::message_repo::MessageRepository;
-use obscura_server::adapters::database::push_token_repo::PushTokenRepository;
-use obscura_server::adapters::database::refresh_token_repo::RefreshTokenRepository;
-use obscura_server::adapters::database::user_repo::UserRepository;
 use obscura_server::api::{self, MgmtState, ServiceContainer};
 use obscura_server::config::Config;
 use obscura_server::services::account_service::AccountService;
@@ -15,7 +9,14 @@ use obscura_server::services::health_service::HealthService;
 use obscura_server::services::key_service::KeyService;
 use obscura_server::services::message_service::MessageService;
 use obscura_server::services::notification::{DistributedNotificationService, NotificationService};
+use obscura_server::services::push_token_service::PushTokenService;
 use obscura_server::services::rate_limit_service::RateLimitService;
+use obscura_server::adapters::database::attachment_repo::AttachmentRepository;
+use obscura_server::adapters::database::key_repo::KeyRepository;
+use obscura_server::adapters::database::message_repo::MessageRepository;
+use obscura_server::adapters::database::push_token_repo::PushTokenRepository;
+use obscura_server::adapters::database::refresh_token_repo::RefreshTokenRepository;
+use obscura_server::adapters::database::user_repo::UserRepository;
 use obscura_server::{adapters, telemetry};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -97,17 +98,17 @@ async fn main() -> anyhow::Result<()> {
             )
         };
 
-        let notifier: Arc<dyn NotificationService> = Arc::new(
-            DistributedNotificationService::new(
-                pubsub.clone(),
-                &config,
-                shutdown_rx.clone(),
-                None,
-                push_token_repo.clone(),
-                pool.clone(),
-            )
-            .await?,
-        );
+        // Initialize Specialized Services
+        let push_token_service = PushTokenService::new(pool.clone(), push_token_repo);
+
+        let notifier: Arc<dyn NotificationService> =
+            Arc::new(DistributedNotificationService::new(
+                pubsub.clone(), 
+                &config, 
+                shutdown_rx.clone(), 
+                None, 
+                push_token_service.clone()
+            ).await?);
 
         // Storage Setup
         let s3_client = {
@@ -130,7 +131,7 @@ async fn main() -> anyhow::Result<()> {
             aws_sdk_s3::Client::from_conf(s3_config_builder.build())
         };
 
-        // Initialize Services
+        // Initialize Core Services
         let (
             key_service,
             attachment_service,
@@ -226,6 +227,7 @@ async fn main() -> anyhow::Result<()> {
             message_service,
             gateway_service,
             notification_service: notifier.clone(),
+            push_token_service,
             rate_limit_service,
         };
 

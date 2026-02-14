@@ -1,37 +1,33 @@
 use crate::services::notification::scheduler::NotificationScheduler;
 use crate::services::notification::provider::{PushProvider, PushError};
-use crate::adapters::database::push_token_repo::PushTokenRepository;
-use crate::adapters::database::DbPool;
+use crate::services::push_token_service::PushTokenService;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::Instrument;
 
 #[derive(Debug)]
 pub struct NotificationWorker {
-    pool: DbPool,
     scheduler: Arc<NotificationScheduler>,
     provider: Arc<dyn PushProvider>,
-    token_repo: PushTokenRepository,
+    token_service: PushTokenService,
     poll_limit: isize,
     interval_secs: u64,
-    _concurrency: usize, // For future use with Semaphore
+    _concurrency: usize,
 }
 
 impl NotificationWorker {
     pub fn new(
-        pool: DbPool,
         scheduler: Arc<NotificationScheduler>, 
         provider: Arc<dyn PushProvider>,
-        token_repo: PushTokenRepository,
+        token_service: PushTokenService,
         poll_limit: isize,
         interval_secs: u64,
         concurrency: usize,
     ) -> Self {
         Self { 
-            pool, 
             scheduler, 
             provider, 
-            token_repo, 
+            token_service, 
             poll_limit, 
             interval_secs, 
             _concurrency: concurrency 
@@ -64,15 +60,13 @@ impl NotificationWorker {
 
         tracing::info!(count = user_ids.len(), "Processing due push notifications");
 
-        // 1. Batch lookup tokens for all users in one query
-        let mut conn = self.pool.acquire().await?;
-        let user_token_pairs = self.token_repo.find_tokens_for_users(&mut conn, &user_ids).await?;
+        // 1. Batch lookup tokens for all users
+        let user_token_pairs = self.token_service.get_tokens_for_users(&user_ids).await?;
 
         // 2. Dispatch concurrently
         for (user_id, token) in user_token_pairs {
             let provider = Arc::clone(&self.provider);
-            let token_repo = self.token_repo.clone();
-            let pool = self.pool.clone();
+            let token_service = self.token_service.clone();
             
             tokio::spawn(async move {
                 match provider.send_push(&token).await {
@@ -81,9 +75,7 @@ impl NotificationWorker {
                     }
                     Err(PushError::Unregistered) => {
                         tracing::info!(token = %token, "Token unregistered, deleting from database");
-                        if let Ok(mut conn) = pool.acquire().await
-                            && let Err(e) = token_repo.delete_token(&mut conn, &token).await
-                        {
+                        if let Err(e) = token_service.invalidate_token(&token).await {
                             tracing::error!(error = %e, token = %token, "Failed to delete unregistered token");
                         }
                     }

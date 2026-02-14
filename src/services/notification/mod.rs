@@ -1,7 +1,5 @@
-use crate::adapters::database::DbPool;
-use crate::adapters::database::push_token_repo::PushTokenRepository;
-use crate::adapters::redis::RedisClient;
 use crate::config::Config;
+use crate::adapters::redis::RedisClient;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use opentelemetry::{
@@ -17,9 +15,10 @@ pub mod provider;
 pub mod scheduler;
 pub mod worker;
 
-use provider::PushProvider;
 use scheduler::NotificationScheduler;
+use provider::PushProvider;
 use worker::NotificationWorker;
+use crate::services::push_token_service::PushTokenService;
 
 #[derive(Clone, Debug)]
 struct Metrics {
@@ -92,9 +91,6 @@ pub trait NotificationService: Send + Sync + std::fmt::Debug {
 
     // Cancels any pending slow-path notifications (e.g. push).
     async fn cancel_pending_notifications(&self, user_id: Uuid);
-
-    // Registers a push token for a user.
-    async fn register_push_token(&self, user_id: Uuid, token: String) -> crate::error::Result<()>;
 }
 
 const CHANNEL_PREFIX: &str = "user:";
@@ -102,10 +98,8 @@ const CHANNEL_PATTERN: &str = "user:*";
 
 #[derive(Debug)]
 pub struct DistributedNotificationService {
-    pool: DbPool,
     pubsub: Arc<RedisClient>,
     scheduler: Arc<NotificationScheduler>,
-    token_repo: PushTokenRepository,
     channels: Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
     user_channel_capacity: usize,
     push_delay_secs: u64,
@@ -122,15 +116,16 @@ impl DistributedNotificationService {
         config: &Config,
         shutdown: tokio::sync::watch::Receiver<bool>,
         provider: Option<Arc<dyn PushProvider>>,
-        token_repo: PushTokenRepository,
-        pool: DbPool,
+        token_service: PushTokenService,
     ) -> anyhow::Result<Self> {
         let channels = Arc::new(DashMap::new());
         let metrics = Metrics::new();
         let scheduler = Arc::new(NotificationScheduler::new(Arc::clone(&pubsub)));
 
-        let provider = provider.unwrap_or_else(|| Arc::new(crate::adapters::push::fcm::FcmPushProvider));
-
+        let provider = provider.unwrap_or_else(|| {
+            Arc::new(crate::adapters::push::fcm::FcmPushProvider)
+        });
+        
         let push_delay_secs = config.notifications.push_delay_secs;
         tokio::spawn(
             Self::run_gc(
@@ -184,25 +179,22 @@ impl DistributedNotificationService {
 
         // 3. Background Push Worker task
         let push_worker = NotificationWorker::new(
-            pool.clone(), 
             Arc::clone(&scheduler), 
             provider, 
-            token_repo.clone(),
+            token_service,
             config.notifications.worker_poll_limit,
             config.notifications.worker_interval_secs,
             config.notifications.worker_concurrency,
         );
         tokio::spawn(push_worker.run(shutdown).instrument(tracing::info_span!("push_worker")));
 
-        Ok(Self {
-            pool,
-            pubsub,
-            scheduler,
-            token_repo,
-            channels,
-            user_channel_capacity: config.notifications.user_channel_capacity,
-            push_delay_secs,
-            metrics,
+        Ok(Self { 
+            pubsub, 
+            scheduler, 
+            channels, 
+            user_channel_capacity: config.notifications.user_channel_capacity, 
+            push_delay_secs, 
+            metrics 
         })
     }
 
@@ -286,11 +278,5 @@ impl NotificationService for DistributedNotificationService {
         if let Err(e) = self.scheduler.cancel_push(user_id).await {
             tracing::error!(error = %e, "Failed to cancel pending push notification");
         }
-    }
-
-    #[tracing::instrument(skip(self), fields(user_id = %user_id))]
-    async fn register_push_token(&self, user_id: Uuid, token: String) -> crate::error::Result<()> {
-        let mut conn = self.pool.acquire().await?;
-        self.token_repo.upsert_token(&mut conn, user_id, &token).await
     }
 }

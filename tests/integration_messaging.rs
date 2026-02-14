@@ -32,8 +32,8 @@ async fn test_message_pagination_large_backlog() {
     let app = TestApp::spawn().await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
 
-    let user_a = app.register_user(&format!("alice_{}", run_id)).await;
-    let user_b = app.register_user(&format!("bob_{}", run_id)).await;
+    let user_a = app.register_user(&format!("alice_pag_{}", run_id)).await;
+    let user_b = app.register_user(&format!("bob_pag_{}", run_id)).await;
 
     let message_count = 125;
     for i in 0..message_count {
@@ -69,8 +69,8 @@ async fn test_ack_batching_behavior() {
     let app = TestApp::spawn_with_config(config).await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
 
-    let user_a = app.register_user(&format!("alice_{}", run_id)).await;
-    let user_b = app.register_user(&format!("bob_{}", run_id)).await;
+    let user_a = app.register_user(&format!("alice_ack_{}", run_id)).await;
+    let user_b = app.register_user(&format!("bob_ack_{}", run_id)).await;
 
     for i in 0..3 {
         app.send_message(&user_a.token, user_b.user_id, format!("msg {}", i).as_bytes()).await;
@@ -123,7 +123,7 @@ async fn test_send_message_malformed_protobuf() {
     let app = TestApp::spawn().await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
     let user = app.register_user(&format!("malformed_{}", run_id)).await;
-    let recipient = app.register_user(&format!("recipient_malformed_{}", run_id)).await;
+    let recipient = app.register_user(&format!("rec_malformed_{}", run_id)).await;
 
     let resp = app.client
         .post(format!("{}/v1/messages/{}", app.server_url, recipient.user_id))
@@ -145,7 +145,7 @@ async fn test_websocket_auth_failure() {
 async fn test_gateway_missing_identity_key() {
     let app = TestApp::spawn().await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("missing_id_{}", run_id)).await;
+    let user = app.register_user(&format!("miss_id_{}", run_id)).await;
 
     sqlx::query("DELETE FROM identity_keys WHERE user_id = $1").bind(user.user_id).execute(&app.pool).await.unwrap();
 

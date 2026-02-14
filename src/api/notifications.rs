@@ -14,6 +14,6 @@ pub async fn register_token(
     State(state): State<AppState>,
     Json(payload): Json<RegisterTokenRequest>,
 ) -> Result<impl IntoResponse> {
-    state.notification_service.register_push_token(auth_user.user_id, payload.token).await?;
+    state.push_token_service.register_token(auth_user.user_id, payload.token).await?;
     Ok(StatusCode::OK)
 }

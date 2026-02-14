@@ -5,6 +5,7 @@ use common::TestApp;
 use dashmap::DashMap;
 use obscura_server::services::notification::provider::{PushProvider, PushError};
 use obscura_server::services::notification::{DistributedNotificationService, NotificationService};
+use obscura_server::services::push_token_service::PushTokenService;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use uuid::Uuid;
@@ -48,17 +49,16 @@ async fn test_scheduled_push_delivery() {
     
     let user_id = Uuid::new_v4();
 
-    // Register a token manually in DB for this user
     let token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
+    let token_service = PushTokenService::new(pool.clone(), token_repo);
     {
         let mut conn = pool.acquire().await.unwrap();
-        // We need a real user first due to FK
         sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
             .bind(user_id)
             .bind(format!("user_{}", user_id))
             .execute(&mut *conn).await.unwrap();
             
-        token_repo.upsert_token(&mut conn, user_id, &format!("token:{}", user_id)).await.unwrap();
+        token_service.register_token(user_id, format!("token:{}", user_id)).await.unwrap();
     }
 
     let mut test_config = config.clone();
@@ -70,8 +70,7 @@ async fn test_scheduled_push_delivery() {
             &test_config,
             shutdown_rx.clone(),
             Some(Arc::new(SharedMockPushProvider) as Arc<dyn PushProvider>),
-            token_repo,
-            pool.clone()
+            token_service,
         ).await.unwrap()
     );
 
@@ -99,7 +98,7 @@ async fn test_scheduled_push_delivery() {
 async fn test_push_cancellation_on_ack() {
     common::setup_tracing();
     let mut config = common::get_test_config();
-    config.notifications.push_delay_secs = 15; // Long delay so worker doesn't steal it
+    config.notifications.push_delay_secs = 15; 
 
     let app = TestApp::spawn_with_config(config).await;
     
@@ -113,7 +112,6 @@ async fn test_push_cancellation_on_ack() {
     let username = format!("u_{}", &Uuid::new_v4().to_string()[..8]);
     let user = app.register_user(&username).await;
 
-    // 1. Schedule a push manually
     let mut conn = pubsub.publisher();
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
     let run_at = now + 20; 
@@ -126,10 +124,8 @@ async fn test_push_cancellation_on_ack() {
         .query_async::<i64>(&mut conn)
         .await.unwrap();
 
-    // 2. Connect via WebSocket
     let mut ws = app.connect_ws(&user.token).await;
     
-    // Gateway cancelled it on connect. Let's add it BACK.
     redis::cmd("ZADD")
         .arg("jobs:push_notifications")
         .arg("NX")
@@ -138,11 +134,9 @@ async fn test_push_cancellation_on_ack() {
         .query_async::<i64>(&mut conn)
         .await.unwrap();
 
-    // 3. Send an ACK
     let msg_id = Uuid::new_v4();
     ws.send_ack(msg_id.to_string()).await;
 
-    // 4. Wait and verify it's removed from Redis by AckBatcher
     let success = app.wait_until(|| {
         let pubsub = pubsub.clone();
         let user_id = user.user_id;
@@ -182,7 +176,7 @@ async fn test_push_cancellation_on_websocket_connect() {
 
     let mut conn = pubsub.publisher();
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
-    let run_at = now + 20; // 20 seconds in future
+    let run_at = now + 20; 
     
     redis::cmd("ZADD")
         .arg("jobs:push_notifications")
@@ -228,17 +222,18 @@ async fn test_delivery_exactly_once_under_competition() {
     
     let user_id = Uuid::new_v4();
     let token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
+    let token_service = PushTokenService::new(pool.clone(), token_repo);
     {
         let mut conn = pool.acquire().await.unwrap();
         sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
             .bind(user_id)
             .bind(format!("user_{}", user_id))
             .execute(&mut *conn).await.unwrap();
-        token_repo.upsert_token(&mut conn, user_id, &format!("token:{}", user_id)).await.unwrap();
+        token_service.register_token(user_id, format!("token:{}", user_id)).await.unwrap();
     }
 
     let mut test_config = config.clone();
-    test_config.notifications.push_delay_secs = 0; // Immediate for this test
+    test_config.notifications.push_delay_secs = 0; 
 
     let scheduler = std::sync::Arc::new(
         obscura_server::services::notification::scheduler::NotificationScheduler::new(pubsub.clone())
@@ -247,10 +242,9 @@ async fn test_delivery_exactly_once_under_competition() {
     // Spawn 10 competing workers
     for i in 0..10 {
         let worker = obscura_server::services::notification::worker::NotificationWorker::new(
-            pool.clone(),
             scheduler.clone(),
             Arc::new(SharedMockPushProvider),
-            token_repo.clone(),
+            token_service.clone(),
             test_config.notifications.worker_poll_limit,
             test_config.notifications.worker_interval_secs,
             test_config.notifications.worker_concurrency,
@@ -261,13 +255,10 @@ async fn test_delivery_exactly_once_under_competition() {
         }.instrument(tracing::info_span!("competing_worker", id = i)));
     }
 
-    // Give workers a moment to start
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    // Schedule 1 push
     scheduler.schedule_push(user_id, 0).await.unwrap();
 
-    // Wait for delivery
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(5) {
         if notification_counts().get(&user_id).is_some() {
@@ -276,7 +267,6 @@ async fn test_delivery_exactly_once_under_competition() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 
-    // ASSERT: Exactly one worker should have succeeded
     let count = notification_counts().get(&user_id).map(|c| *c).unwrap_or(0);
     assert_eq!(count, 1, "Notification delivered {} times, expected exactly 1", count);
     
@@ -298,17 +288,18 @@ async fn test_push_coalescing() {
     
     let user_id = Uuid::new_v4();
     let token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
+    let token_service = PushTokenService::new(pool.clone(), token_repo);
     {
         let mut conn = pool.acquire().await.unwrap();
         sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
             .bind(user_id)
             .bind(format!("user_{}", user_id))
             .execute(&mut *conn).await.unwrap();
-        token_repo.upsert_token(&mut conn, user_id, &format!("token:{}", user_id)).await.unwrap();
+        token_service.register_token(user_id, format!("token:{}", user_id)).await.unwrap();
     }
 
     let mut test_config = config.clone();
-    test_config.notifications.push_delay_secs = 2; // Long enough to send multiple
+    test_config.notifications.push_delay_secs = 2; 
 
     let notifier: Arc<dyn NotificationService> = Arc::new(
         DistributedNotificationService::new(
@@ -316,20 +307,16 @@ async fn test_push_coalescing() {
             &test_config,
             shutdown_rx.clone(),
             Some(Arc::new(SharedMockPushProvider) as Arc<dyn PushProvider>),
-            token_repo,
-            pool.clone()
+            token_service,
         ).await.unwrap()
     );
 
-    // 1. Notify multiple times rapidly
     for _ in 0..5 {
         notifier.notify(user_id, obscura_server::services::notification::UserEvent::MessageReceived).await;
     }
 
-    // 2. Wait for push
     tokio::time::sleep(Duration::from_secs(5)).await;
 
-    // 3. ASSERT: Coalesced into exactly one delivery
     let count = notification_counts().get(&user_id).map(|c| *c).unwrap_or(0);
     assert_eq!(count, 1, "Expected 1 coalesced notification, got {}", count);
     
@@ -357,7 +344,6 @@ async fn test_register_push_token() {
 
     assert_eq!(resp.status(), 200);
 
-    // Verify in database
     let stored_token: String = sqlx::query_scalar("SELECT token FROM push_tokens WHERE user_id = $1")
         .bind(user.user_id)
         .fetch_one(&app.pool)
@@ -366,7 +352,6 @@ async fn test_register_push_token() {
 
     assert_eq!(stored_token, token);
 
-    // Update token
     let new_token = "updated_fcm_token_456";
     let resp = app.client
         .put(format!("{}/v1/push/token", app.server_url))
@@ -404,31 +389,25 @@ async fn test_register_push_token_unauthorized() {
 #[tokio::test]
 async fn test_notification_lag_recovery() {
     common::setup_tracing();
-    // 1. Setup with small buffer
     let mut config = common::get_test_config();
     config.websocket.outbound_buffer_size = 10;
 
     let app = common::TestApp::spawn_with_config(config).await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
 
-    // 2. Register Users
     let user_a = app.register_user(&format!("alice_{}", run_id)).await;
     let user_b = app.register_user(&format!("bob_{}", run_id)).await;
 
-    // 3. Connect User B but DO NOT read from the stream initially
     let mut ws = app.connect_ws(&user_b.token).await;
 
-    // 4. Flood the system with messages (100 > 10 buffer)
     let message_count = 100;
     for i in 0..message_count {
         let content = format!("Message {}", i).into_bytes();
         app.send_message(&user_a.token, user_b.user_id, &content).await;
     }
 
-    // Allow time for notifications to propagate and overflow
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-    // 5. Start reading everything from the WebSocket
     let mut received = 0;
     let start = std::time::Instant::now();
     let timeout = std::time::Duration::from_secs(10);
@@ -439,6 +418,5 @@ async fn test_notification_lag_recovery() {
         }
     }
 
-    // Verify that the server's lag-recovery logic successfully delivered ALL messages
     assert_eq!(received, message_count, "Should receive all {} messages despite notification lag", message_count);
 }
