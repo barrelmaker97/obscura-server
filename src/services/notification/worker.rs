@@ -1,12 +1,14 @@
 use crate::services::notification::scheduler::NotificationScheduler;
-use crate::services::notification::provider::PushProvider;
+use crate::services::notification::provider::{PushProvider, PushError};
 use crate::adapters::database::push_token_repo::PushTokenRepository;
+use crate::adapters::database::DbPool;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::Instrument;
 
 #[derive(Debug)]
 pub struct NotificationWorker {
+    pool: DbPool,
     scheduler: Arc<NotificationScheduler>,
     provider: Arc<dyn PushProvider>,
     token_repo: PushTokenRepository,
@@ -14,11 +16,12 @@ pub struct NotificationWorker {
 
 impl NotificationWorker {
     pub fn new(
+        pool: DbPool,
         scheduler: Arc<NotificationScheduler>, 
         provider: Arc<dyn PushProvider>,
         token_repo: PushTokenRepository,
     ) -> Self {
-        Self { scheduler, provider, token_repo }
+        Self { pool, scheduler, provider, token_repo }
     }
 
     pub async fn run(self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
@@ -47,28 +50,37 @@ impl NotificationWorker {
 
         tracing::info!(count = user_ids.len(), "Processing due push notifications");
 
-        for user_id in user_ids {
+        // 1. Batch lookup tokens for all users in one query
+        let mut conn = self.pool.acquire().await?;
+        let user_token_pairs = self.token_repo.find_tokens_for_users(&mut conn, &user_ids).await?;
+
+        // 2. Dispatch concurrently
+        for (user_id, token) in user_token_pairs {
             let provider = Arc::clone(&self.provider);
             let token_repo = self.token_repo.clone();
+            let pool = self.pool.clone();
             
             tokio::spawn(async move {
-                // 1. Lookup tokens for the user
-                let tokens = match token_repo.find_tokens_for_user(user_id).await {
-                    Ok(t) => t,
-                    Err(e) => {
-                        tracing::error!(error = %e, user_id = %user_id, "Failed to lookup push tokens");
-                        return;
+                match provider.send_push(&token).await {
+                    Ok(()) => {
+                        tracing::debug!(token = %token, "Push notification sent successfully");
                     }
-                };
-
-                // 2. Dispatch to each token
-                for token in tokens {
-                    if let Err(e) = provider.send_push(&token).await {
-                        // In the future, we can handle specific errors here (e.g. invalid token)
+                    Err(PushError::Unregistered) => {
+                        tracing::info!(token = %token, "Token unregistered, deleting from database");
+                        if let Ok(mut conn) = pool.acquire().await
+                            && let Err(e) = token_repo.delete_token(&mut conn, &token).await
+                        {
+                            tracing::error!(error = %e, token = %token, "Failed to delete unregistered token");
+                        }
+                    }
+                    Err(PushError::QuotaExceeded) => {
+                        tracing::warn!("Push quota exceeded, should implement backoff");
+                    }
+                    Err(PushError::Other(e)) => {
                         tracing::error!(error = %e, token = %token, "Failed to send push notification");
                     }
                 }
-            }.instrument(tracing::debug_span!("dispatch_push", user_id = %user_id)));
+            }.instrument(tracing::debug_span!("dispatch_push", %user_id)));
         }
 
         Ok(())

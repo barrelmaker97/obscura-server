@@ -3,7 +3,7 @@ mod common;
 use async_trait::async_trait;
 use common::TestApp;
 use dashmap::DashMap;
-use obscura_server::services::notification::provider::PushProvider;
+use obscura_server::services::notification::provider::{PushProvider, PushError};
 use obscura_server::services::notification::{DistributedNotificationService, NotificationService};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -22,7 +22,7 @@ struct SharedMockPushProvider;
 
 #[async_trait]
 impl PushProvider for SharedMockPushProvider {
-    async fn send_push(&self, token: &str) -> anyhow::Result<()> {
+    async fn send_push(&self, token: &str) -> Result<(), PushError> {
         if let Some(user_id_str) = token.strip_prefix("token:") {
             if let Ok(user_id) = Uuid::parse_str(user_id_str) {
                 *notification_counts().entry(user_id).or_insert(0) += 1;
@@ -36,6 +36,7 @@ impl PushProvider for SharedMockPushProvider {
 async fn test_scheduled_push_delivery() {
     common::setup_tracing();
     let config = common::get_test_config();
+    let pool = common::get_test_pool().await;
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     
     let pubsub = obscura_server::adapters::redis::RedisClient::new(
@@ -55,7 +56,8 @@ async fn test_scheduled_push_delivery() {
             &test_config,
             shutdown_rx.clone(),
             Some(Arc::new(SharedMockPushProvider) as Arc<dyn PushProvider>),
-            obscura_server::adapters::database::push_token_repo::PushTokenRepository::new()
+            obscura_server::adapters::database::push_token_repo::PushTokenRepository::new(),
+            pool.clone()
         ).await.unwrap()
     );
 
@@ -83,6 +85,7 @@ async fn test_scheduled_push_delivery() {
 async fn test_push_cancellation_on_ack() {
     common::setup_tracing();
     let config = common::get_test_config();
+    let pool = common::get_test_pool().await;
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     
     let pubsub = obscura_server::adapters::redis::RedisClient::new(
@@ -102,7 +105,8 @@ async fn test_push_cancellation_on_ack() {
             &test_config,
             shutdown_rx.clone(),
             Some(Arc::new(SharedMockPushProvider) as Arc<dyn PushProvider>),
-            obscura_server::adapters::database::push_token_repo::PushTokenRepository::new()
+            obscura_server::adapters::database::push_token_repo::PushTokenRepository::new(),
+            pool.clone()
         ).await.unwrap()
     );
 
@@ -125,10 +129,6 @@ async fn test_push_cancellation_on_websocket_connect() {
     let mut config = common::get_test_config();
     config.notifications.push_delay_secs = 10;
 
-    // We can't inject the shared provider into the app easily, but we don't need to.
-    // The Gateway cancellation logic is independent of the provider.
-    // We just check if the job is removed from Redis.
-    
     let app = TestApp::spawn_with_config(config).await;
     
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
@@ -177,6 +177,7 @@ async fn test_push_cancellation_on_websocket_connect() {
 async fn test_delivery_exactly_once_under_competition() {
     common::setup_tracing();
     let config = common::get_test_config();
+    let pool = common::get_test_pool().await;
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     
     let pubsub = obscura_server::adapters::redis::RedisClient::new(
@@ -196,6 +197,7 @@ async fn test_delivery_exactly_once_under_competition() {
     // Spawn 10 competing workers
     for i in 0..10 {
         let worker = obscura_server::services::notification::worker::NotificationWorker::new(
+            pool.clone(),
             scheduler.clone(),
             Arc::new(SharedMockPushProvider),
             obscura_server::adapters::database::push_token_repo::PushTokenRepository::new()
@@ -232,6 +234,7 @@ async fn test_delivery_exactly_once_under_competition() {
 async fn test_push_coalescing() {
     common::setup_tracing();
     let config = common::get_test_config();
+    let pool = common::get_test_pool().await;
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     
     let pubsub = obscura_server::adapters::redis::RedisClient::new(
@@ -250,7 +253,8 @@ async fn test_push_coalescing() {
             &test_config,
             shutdown_rx.clone(),
             Some(Arc::new(SharedMockPushProvider) as Arc<dyn PushProvider>),
-            obscura_server::adapters::database::push_token_repo::PushTokenRepository::new()
+            obscura_server::adapters::database::push_token_repo::PushTokenRepository::new(),
+            pool.clone()
         ).await.unwrap()
     );
 

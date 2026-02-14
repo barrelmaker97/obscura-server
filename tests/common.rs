@@ -250,7 +250,7 @@ impl TestApp {
         let push_token_repo = PushTokenRepository::new();
 
         let notifier: Arc<dyn NotificationService> = Arc::new(
-            DistributedNotificationService::new(pubsub.clone(), &config, shutdown_rx.clone(), None, push_token_repo.clone())
+            DistributedNotificationService::new(pubsub.clone(), &config, shutdown_rx.clone(), None, push_token_repo.clone(), pool.clone())
                 .await
                 .expect("Failed to create DistributedNotificationService for tests."),
         );

@@ -98,7 +98,7 @@ async fn main() -> anyhow::Result<()> {
         };
 
         let notifier: Arc<dyn NotificationService> =
-            Arc::new(DistributedNotificationService::new(pubsub.clone(), &config, shutdown_rx.clone(), None, push_token_repo.clone()).await?);
+            Arc::new(DistributedNotificationService::new(pubsub.clone(), &config, shutdown_rx.clone(), None, push_token_repo.clone(), pool.clone()).await?);
 
         // Storage Setup
         let s3_client = {

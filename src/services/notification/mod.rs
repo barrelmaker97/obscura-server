@@ -1,6 +1,7 @@
 use crate::config::Config;
 use crate::adapters::redis::RedisClient;
 use crate::adapters::database::push_token_repo::PushTokenRepository;
+use crate::adapters::database::DbPool;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use opentelemetry::{
@@ -117,6 +118,7 @@ impl DistributedNotificationService {
         shutdown: tokio::sync::watch::Receiver<bool>,
         provider: Option<Arc<dyn PushProvider>>,
         token_repo: PushTokenRepository,
+        pool: DbPool,
     ) -> anyhow::Result<Self> {
         let channels = Arc::new(DashMap::new());
         let metrics = Metrics::new();
@@ -178,7 +180,7 @@ impl DistributedNotificationService {
         );
 
         // 3. Background Push Worker task
-        let push_worker = NotificationWorker::new(Arc::clone(&scheduler), provider, token_repo);
+        let push_worker = NotificationWorker::new(pool, Arc::clone(&scheduler), provider, token_repo);
         tokio::spawn(push_worker.run(shutdown).instrument(tracing::info_span!("push_worker")));
 
         Ok(Self { pubsub, scheduler, channels, user_channel_capacity: config.notifications.user_channel_capacity, push_delay_secs, metrics })

@@ -1,5 +1,6 @@
 use uuid::Uuid;
 use crate::error::Result;
+use sqlx::PgConnection;
 
 #[derive(Clone, Debug, Default)]
 pub struct PushTokenRepository {}
@@ -10,28 +11,90 @@ impl PushTokenRepository {
         Self {}
     }
 
+    /// Register or update a push token for a user.
+    ///
+    /// # Errors
+    /// Returns a database error if the upsert fails.
+    #[tracing::instrument(level = "debug", skip(self, conn, token))]
+    pub async fn upsert_token(&self, conn: &mut PgConnection, user_id: Uuid, token: &str) -> Result<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO push_tokens (user_id, token, updated_at)
+            VALUES ($1, $2, NOW())
+            ON CONFLICT (user_id) DO UPDATE
+            SET token = $2, updated_at = NOW()
+            "#,
+        )
+        .bind(user_id)
+        .bind(token)
+        .execute(conn)
+        .await?;
+        Ok(())
+    }
+
     /// Finds all registered push tokens for a user.
     ///
     /// # Errors
     /// Returns a database error if the query fails.
-    pub async fn find_tokens_for_user(&self, user_id: Uuid) -> Result<Vec<String>> {
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub async fn find_tokens_for_user(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Vec<String>> {
         // Yield to satisfy clippy's unused_async while this is a stub.
         // In the future, this will be a real DB call.
         tokio::task::yield_now().await;
+
+        let tokens = sqlx::query_scalar::<_, String>(
+            "SELECT token FROM push_tokens WHERE user_id = $1"
+        )
+        .bind(user_id)
+        .fetch_all(conn)
+        .await?;
         
-        // STUB: This will eventually query the push_tokens table.
-        // For testing, return a dummy token that encodes the user_id.
-        Ok(vec![format!("token:{}", user_id)])
+        Ok(tokens)
+    }
+
+    /// Finds tokens for a batch of users.
+    /// Returns a list of (`user_id`, token) pairs.
+    ///
+    /// # Errors
+    /// Returns a database error if the query fails.
+    #[tracing::instrument(level = "debug", skip(self, _conn))]
+    pub async fn find_tokens_for_users(&self, _conn: &mut PgConnection, user_ids: &[Uuid]) -> Result<Vec<(Uuid, String)>> {
+        tokio::task::yield_now().await;
+
+        // STUB: For testing, return a dummy token for every requested user
+        let mut result = Vec::new();
+        for id in user_ids {
+            result.push((*id, format!("token:{id}")));
+        }
+        Ok(result)
     }
 
     /// Deletes a specific push token (e.g. if invalidated by FCM).
     ///
     /// # Errors
     /// Returns a database error if the deletion fails.
-    pub async fn delete_token(&self, _token: &str) -> Result<()> {
-        tokio::task::yield_now().await;
-        
-        // STUB: Implementation for deleting an invalid token.
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub async fn delete_token(&self, conn: &mut PgConnection, token: &str) -> Result<()> {
+        sqlx::query("DELETE FROM push_tokens WHERE token = $1")
+            .bind(token)
+            .execute(conn)
+            .await?;
         Ok(())
+    }
+
+    /// Prunes tokens that haven't been updated in a long time.
+    ///
+    /// # Errors
+    /// Returns a database error if the deletion fails.
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub async fn delete_stale_tokens(&self, conn: &mut PgConnection, older_than_days: i64) -> Result<u64> {
+        let result = sqlx::query(
+            "DELETE FROM push_tokens WHERE updated_at < NOW() - make_interval(days => $1)"
+        )
+        .bind(older_than_days)
+        .execute(conn)
+        .await?;
+        
+        Ok(result.rows_affected())
     }
 }
