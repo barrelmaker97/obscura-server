@@ -1,5 +1,5 @@
-use crate::config::Config;
 use crate::adapters::redis::RedisClient;
+use crate::config::Config;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use opentelemetry::{
@@ -15,10 +15,10 @@ pub mod provider;
 pub mod scheduler;
 pub mod worker;
 
-use scheduler::NotificationScheduler;
-use provider::PushProvider;
-use worker::NotificationWorker;
 use crate::services::push_token_service::PushTokenService;
+use provider::PushProvider;
+use scheduler::NotificationScheduler;
+use worker::NotificationWorker;
 
 #[derive(Clone, Debug)]
 struct Metrics {
@@ -93,14 +93,12 @@ pub trait NotificationService: Send + Sync + std::fmt::Debug {
     async fn cancel_pending_notifications(&self, user_id: Uuid);
 }
 
-const CHANNEL_PREFIX: &str = "user:";
-const CHANNEL_PATTERN: &str = "user:*";
-
 #[derive(Debug)]
 pub struct DistributedNotificationService {
     pubsub: Arc<RedisClient>,
     scheduler: Arc<NotificationScheduler>,
     channels: Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
+    channel_prefix: String,
     user_channel_capacity: usize,
     push_delay_secs: u64,
     metrics: Metrics,
@@ -120,13 +118,15 @@ impl DistributedNotificationService {
     ) -> anyhow::Result<Self> {
         let channels = Arc::new(DashMap::new());
         let metrics = Metrics::new();
-        let scheduler = Arc::new(NotificationScheduler::new(Arc::clone(&pubsub)));
+        let scheduler =
+            Arc::new(NotificationScheduler::new(Arc::clone(&pubsub), config.notifications.push_queue_key.clone()));
 
-        let provider = provider.unwrap_or_else(|| {
-            Arc::new(crate::adapters::push::fcm::FcmPushProvider)
-        });
-        
+        let provider = provider.unwrap_or_else(|| Arc::new(crate::adapters::push::fcm::FcmPushProvider));
+
+        let channel_prefix = config.notifications.channel_prefix.clone();
+        let channel_pattern = format!("{channel_prefix}*");
         let push_delay_secs = config.notifications.push_delay_secs;
+
         tokio::spawn(
             Self::run_gc(
                 Arc::clone(&channels),
@@ -138,10 +138,11 @@ impl DistributedNotificationService {
         );
 
         // 2. Background Dispatcher task (PubSub -> Local Channels)
-        let mut pubsub_rx = pubsub.subscribe(CHANNEL_PATTERN).await?;
+        let mut pubsub_rx = pubsub.subscribe(&channel_pattern).await?;
         let dispatcher_channels = Arc::clone(&channels);
         let dispatcher_metrics = metrics.clone();
         let mut dispatcher_shutdown = shutdown.clone();
+        let dispatcher_prefix = channel_prefix.clone();
 
         tokio::spawn(
             async move {
@@ -151,7 +152,7 @@ impl DistributedNotificationService {
                         msg = pubsub_rx.recv() => {
                             match msg {
                                 Ok(msg) => {
-                                    if let Some(user_id_str) = msg.channel.strip_prefix(CHANNEL_PREFIX)
+                                    if let Some(user_id_str) = msg.channel.strip_prefix(&dispatcher_prefix)
                                         && let Ok(user_id) = Uuid::parse_str(user_id_str)
                                         && let Some(payload_byte) = msg.payload.first()
                                         && let Ok(event) = UserEvent::try_from(*payload_byte)
@@ -179,8 +180,8 @@ impl DistributedNotificationService {
 
         // 3. Background Push Worker task
         let push_worker = NotificationWorker::new(
-            Arc::clone(&scheduler), 
-            provider, 
+            Arc::clone(&scheduler),
+            provider,
             token_service,
             config.notifications.worker_poll_limit,
             config.notifications.worker_interval_secs,
@@ -188,13 +189,14 @@ impl DistributedNotificationService {
         );
         tokio::spawn(push_worker.run(shutdown).instrument(tracing::info_span!("push_worker")));
 
-        Ok(Self { 
-            pubsub, 
-            scheduler, 
-            channels, 
-            user_channel_capacity: config.notifications.user_channel_capacity, 
-            push_delay_secs, 
-            metrics 
+        Ok(Self {
+            pubsub,
+            scheduler,
+            channels,
+            channel_prefix,
+            user_channel_capacity: config.notifications.user_channel_capacity,
+            push_delay_secs,
+            metrics,
         })
     }
 
@@ -253,7 +255,7 @@ impl NotificationService for DistributedNotificationService {
     #[tracing::instrument(skip(self), fields(user_id = %user_id, event = ?event))]
     async fn notify(&self, user_id: Uuid, event: UserEvent) {
         // Fast Path: WebSocket/PubSub
-        let channel_name = format!("{CHANNEL_PREFIX}{user_id}");
+        let channel_name = format!("{}{user_id}", self.channel_prefix);
         let payload = [event as u8];
 
         if let Err(e) = self.pubsub.publish(&channel_name, &payload).await {

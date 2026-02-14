@@ -1,7 +1,14 @@
 #![allow(dead_code)]
+use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use dashmap::DashMap;
 use futures::{SinkExt, StreamExt};
 use obscura_server::{
+    adapters::{
+        self, database::attachment_repo::AttachmentRepository, database::key_repo::KeyRepository,
+        database::message_repo::MessageRepository, database::push_token_repo::PushTokenRepository,
+        database::refresh_token_repo::RefreshTokenRepository, database::user_repo::UserRepository,
+    },
     api::{ServiceContainer, app_router},
     config::Config,
     proto::obscura::v1::{
@@ -14,18 +21,12 @@ use obscura_server::{
         health_service::HealthService,
         key_service::KeyService,
         message_service::MessageService,
-        notification::{DistributedNotificationService, NotificationService},
+        notification::{
+            DistributedNotificationService, NotificationService,
+            provider::{PushError, PushProvider},
+        },
         push_token_service::PushTokenService,
         rate_limit_service::RateLimitService,
-    },
-    adapters::{
-        self,
-        database::attachment_repo::AttachmentRepository,
-        database::key_repo::KeyRepository,
-        database::message_repo::MessageRepository,
-        database::push_token_repo::PushTokenRepository,
-        database::refresh_token_repo::RefreshTokenRepository,
-        database::user_repo::UserRepository,
     },
 };
 use prost::Message as ProstMessage;
@@ -71,12 +72,34 @@ pub fn setup_tracing() {
     });
 }
 
+/// Shared global state for all test providers to report to.
+pub fn notification_counts() -> &'static DashMap<Uuid, u32> {
+    static COUNTS: OnceLock<DashMap<Uuid, u32>> = OnceLock::new();
+    COUNTS.get_or_init(DashMap::new)
+}
+
+#[derive(Debug, Default)]
+pub struct SharedMockPushProvider;
+
+#[async_trait]
+impl PushProvider for SharedMockPushProvider {
+    async fn send_push(&self, token: &str) -> Result<(), PushError> {
+        if let Some(user_id_str) = token.strip_prefix("token:") {
+            if let Ok(user_id) = Uuid::parse_str(user_id_str) {
+                *notification_counts().entry(user_id).or_insert(0) += 1;
+            }
+        }
+        Ok(())
+    }
+}
+
 pub async fn get_test_pool() -> PgPool {
     setup_tracing();
     let database_url = std::env::var("OBSCURA_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://user:password@localhost/signal_server".to_string());
 
-    let pool = adapters::database::init_pool(&database_url).await.expect("Failed to connect to DB. Is Postgres running?");
+    let pool =
+        adapters::database::init_pool(&database_url).await.expect("Failed to connect to DB. Is Postgres running?");
 
     sqlx::migrate!().run(&pool).await.expect("Failed to run migrations");
 
@@ -88,38 +111,31 @@ pub async fn ensure_storage_bucket(s3_client: &aws_sdk_s3::Client, bucket: &str)
 }
 
 pub fn get_test_config() -> Config {
-    Config {
-        database_url: std::env::var("OBSCURA_DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://user:password@localhost/signal_server".to_string()),
-        server: obscura_server::config::ServerConfig {
-            port: 0,
-            mgmt_port: 0,
-            trusted_proxies: vec!["127.0.0.1/32".parse().unwrap(), "::1/128".parse().unwrap()],
-            ..Default::default()
-        },
-        auth: obscura_server::config::AuthConfig { jwt_secret: "test_secret".to_string(), ..Default::default() },
-        rate_limit: obscura_server::config::RateLimitConfig {
-            per_second: 10000,
-            burst: 10000,
-            auth_per_second: 10000,
-            auth_burst: 10000,
-        },
-        storage: obscura_server::config::StorageConfig {
-            bucket: "test-bucket".to_string(),
-            endpoint: Some(
-                std::env::var("OBSCURA_STORAGE_ENDPOINT").unwrap_or_else(|_| "http://localhost:9000".to_string()),
-            ),
-            access_key: Some("minioadmin".to_string()),
-            secret_key: Some("minioadmin".to_string()),
-            force_path_style: true,
-            ..Default::default()
-        },
-        pubsub: obscura_server::config::PubSubConfig {
-            url: std::env::var("OBSCURA_PUBSUB_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string()),
-            ..Default::default()
-        },
-        ..Default::default()
-    }
+    let mut config = Config::default();
+    config.database_url = std::env::var("OBSCURA_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://user:password@localhost/signal_server".to_string());
+    config.server.port = 0;
+    config.server.mgmt_port = 0;
+    config.server.trusted_proxies = vec!["127.0.0.1/32".parse().unwrap(), "::1/128".parse().unwrap()];
+    config.auth.jwt_secret = "test_secret".to_string();
+    config.rate_limit.per_second = 10000;
+    config.rate_limit.burst = 10000;
+    config.rate_limit.auth_per_second = 10000;
+    config.rate_limit.auth_burst = 10000;
+    config.storage.bucket = "test-bucket".to_string();
+    config.storage.endpoint =
+        Some(std::env::var("OBSCURA_STORAGE_ENDPOINT").unwrap_or_else(|_| "http://localhost:9000".to_string()));
+    config.storage.access_key = Some("minioadmin".to_string());
+    config.storage.secret_key = Some("minioadmin".to_string());
+    config.storage.force_path_style = true;
+    config.pubsub.url = std::env::var("OBSCURA_PUBSUB_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
+
+    // Test Isolation
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    config.notifications.push_queue_key = format!("jobs:test:{}", run_id);
+    config.notifications.channel_prefix = format!("test:{}:", run_id);
+
+    config
 }
 
 pub fn generate_signing_key() -> [u8; 32] {
@@ -252,10 +268,17 @@ impl TestApp {
 
         let push_token_service = PushTokenService::new(pool.clone(), push_token_repo);
 
+        // ALWAYS USE SHARED MOCK PROVIDER IN TESTS
         let notifier: Arc<dyn NotificationService> = Arc::new(
-            DistributedNotificationService::new(pubsub.clone(), &config, shutdown_rx.clone(), None, push_token_service.clone())
-                .await
-                .expect("Failed to create DistributedNotificationService for tests."),
+            DistributedNotificationService::new(
+                pubsub.clone(),
+                &config,
+                shutdown_rx.clone(),
+                Some(Arc::new(SharedMockPushProvider)),
+                push_token_service.clone(),
+            )
+            .await
+            .expect("Failed to create DistributedNotificationService for tests."),
         );
 
         let region_provider = aws_config::Region::new(config.storage.region.clone());

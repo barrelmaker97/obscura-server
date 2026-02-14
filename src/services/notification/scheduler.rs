@@ -2,17 +2,16 @@ use crate::adapters::redis::RedisClient;
 use std::sync::Arc;
 use uuid::Uuid;
 
-const PUSH_QUEUE_KEY: &str = "jobs:push_notifications";
-
 #[derive(Debug)]
 pub struct NotificationScheduler {
     redis: Arc<RedisClient>,
+    queue_key: String,
 }
 
 impl NotificationScheduler {
     #[must_use]
-    pub const fn new(redis: Arc<RedisClient>) -> Self {
-        Self { redis }
+    pub const fn new(redis: Arc<RedisClient>, queue_key: String) -> Self {
+        Self { redis, queue_key }
     }
 
     /// Schedules a push notification for a user.
@@ -28,7 +27,7 @@ impl NotificationScheduler {
         let mut conn = self.redis.publisher();
         // ZADD key NX score member
         let _: i64 = redis::cmd("ZADD")
-            .arg(PUSH_QUEUE_KEY)
+            .arg(&self.queue_key)
             .arg("NX")
             .arg(run_at as f64)
             .arg(user_id.to_string())
@@ -42,7 +41,7 @@ impl NotificationScheduler {
     /// # Errors
     /// Returns an error if the Redis operation fails.
     pub async fn cancel_push(&self, user_id: Uuid) -> anyhow::Result<()> {
-        let _ = self.redis.zrem(PUSH_QUEUE_KEY, &user_id.to_string()).await?;
+        let _ = self.redis.zrem(&self.queue_key, &user_id.to_string()).await?;
         Ok(())
     }
 
@@ -55,14 +54,14 @@ impl NotificationScheduler {
         let now = time::OffsetDateTime::now_utc().unix_timestamp() as f64;
 
         // 1. Read candidates
-        let candidates = self.redis.zrange_byscore_limit(PUSH_QUEUE_KEY, now, limit).await?;
+        let candidates = self.redis.zrange_byscore_limit(&self.queue_key, now, limit).await?;
 
         let mut claimed = Vec::new();
 
         // 2. Claim candidates one by one
         for member in candidates {
             // ZREM returns 1 if the item was removed (we claimed it), 0 if someone else did.
-            match self.redis.zrem(PUSH_QUEUE_KEY, &member).await {
+            match self.redis.zrem(&self.queue_key, &member).await {
                 Ok(1) => {
                     if let Ok(id) = Uuid::parse_str(&member) {
                         claimed.push(id);

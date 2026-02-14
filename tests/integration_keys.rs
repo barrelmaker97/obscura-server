@@ -1,12 +1,12 @@
 mod common;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use common::TestApp;
 use rand::rngs::OsRng;
 use serde_json::json;
 use uuid::Uuid;
 use xeddsa::xed25519::PrivateKey;
 use xeddsa::{CalculateKeyPair, Sign};
-use common::TestApp;
 
 #[tokio::test]
 async fn test_format_typescript_standard() {
@@ -95,7 +95,7 @@ async fn test_format_pure_math_32_byte() {
 #[tokio::test]
 async fn test_key_limit_enforced() {
     let mut config = common::get_test_config();
-    config.messaging.max_pre_keys = 50; 
+    config.messaging.max_pre_keys = 50;
     let app = TestApp::spawn_with_config(config).await;
 
     let username = format!("limit_{}", &Uuid::new_v4().to_string()[..8]);
@@ -124,14 +124,24 @@ async fn test_key_limit_enforced() {
         "oneTimePreKeys": refill_keys
     });
 
-    let resp = app.client.post(format!("{}/v1/keys", app.server_url))
+    let resp = app
+        .client
+        .post(format!("{}/v1/keys", app.server_url))
         .header("Authorization", format!("Bearer {}", token))
-        .json(&refill_payload).send().await.unwrap();
+        .json(&refill_payload)
+        .send()
+        .await
+        .unwrap();
 
     assert_eq!(resp.status(), 200);
 
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM one_time_pre_keys WHERE user_id IN (SELECT id FROM users WHERE username = $1)")
-        .bind(&username).fetch_one(&app.pool).await.unwrap();
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM one_time_pre_keys WHERE user_id IN (SELECT id FROM users WHERE username = $1)",
+    )
+    .bind(&username)
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
     assert_eq!(count, 50, "Total keys should be capped at 50");
 }
 
@@ -173,13 +183,13 @@ async fn test_key_rotation_monotonic_check() {
 async fn test_key_rotation_cleanup() {
     let app = TestApp::spawn().await;
     let username = format!("cleanup_{}", &Uuid::new_v4().to_string()[..8]);
-    
+
     let (reg_payload, identity_key) = common::generate_registration_payload(&username, "password12345", 123, 0);
     let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&reg_payload).send().await.unwrap();
     assert_eq!(resp.status(), 201);
     let body = resp.json::<serde_json::Value>().await.unwrap();
     let token = body["token"].as_str().unwrap().to_string();
-    
+
     // Extract user_id from token
     let parts: Vec<&str> = token.split('.').collect();
     let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[1]).unwrap();
@@ -198,11 +208,17 @@ async fn test_key_rotation_cleanup() {
 
     // Verify DB
     let count_1: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM signed_pre_keys WHERE user_id = $1 AND id = 1")
-        .bind(user_id).fetch_one(&app.pool).await.unwrap();
+        .bind(user_id)
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
     assert_eq!(count_1, 0, "Old key ID 1 should be deleted");
 
     let count_10: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM signed_pre_keys WHERE user_id = $1 AND id = 10")
-        .bind(user_id).fetch_one(&app.pool).await.unwrap();
+        .bind(user_id)
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
     assert_eq!(count_10, 1, "New key ID 10 should exist");
 }
 
@@ -223,11 +239,16 @@ async fn test_device_takeover_success() {
     let user = app.register_user_with_keys(&username, 111, 1).await;
 
     app.send_message(&user.token, user.user_id, b"hello").await;
-    
+
     let new_identity_key = common::generate_signing_key();
     let (new_spk_pub, new_spk_sig) = common::generate_signed_pre_key(&new_identity_key);
     let (_, ik_pub_ed) = PrivateKey(new_identity_key).calculate_key_pair(0);
-    let mut new_ik_wire = curve25519_dalek::edwards::CompressedEdwardsY(ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes().to_vec();
+    let mut new_ik_wire = curve25519_dalek::edwards::CompressedEdwardsY(ik_pub_ed)
+        .decompress()
+        .unwrap()
+        .to_montgomery()
+        .to_bytes()
+        .to_vec();
     new_ik_wire.insert(0, 0x05);
 
     let resp = app.client.post(format!("{}/v1/keys", app.server_url))
@@ -260,9 +281,14 @@ async fn test_upload_keys_bad_signature() {
         "oneTimePreKeys": []
     });
 
-    let resp = app.client.post(format!("{}/v1/keys", app.server_url))
+    let resp = app
+        .client
+        .post(format!("{}/v1/keys", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
-        .json(&payload).send().await.unwrap();
+        .json(&payload)
+        .send()
+        .await
+        .unwrap();
 
     assert_eq!(resp.status(), 400);
 }

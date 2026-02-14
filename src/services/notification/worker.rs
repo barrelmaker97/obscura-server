@@ -1,8 +1,9 @@
+use crate::services::notification::provider::{PushError, PushProvider};
 use crate::services::notification::scheduler::NotificationScheduler;
-use crate::services::notification::provider::{PushProvider, PushError};
 use crate::services::push_token_service::PushTokenService;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::Semaphore;
 use tracing::Instrument;
 
 #[derive(Debug)]
@@ -12,25 +13,25 @@ pub struct NotificationWorker {
     token_service: PushTokenService,
     poll_limit: isize,
     interval_secs: u64,
-    _concurrency: usize,
+    semaphore: Arc<Semaphore>,
 }
 
 impl NotificationWorker {
     pub fn new(
-        scheduler: Arc<NotificationScheduler>, 
+        scheduler: Arc<NotificationScheduler>,
         provider: Arc<dyn PushProvider>,
         token_service: PushTokenService,
         poll_limit: isize,
         interval_secs: u64,
         concurrency: usize,
     ) -> Self {
-        Self { 
-            scheduler, 
-            provider, 
-            token_service, 
-            poll_limit, 
-            interval_secs, 
-            _concurrency: concurrency 
+        Self {
+            scheduler,
+            provider,
+            token_service,
+            poll_limit,
+            interval_secs,
+            semaphore: Arc::new(Semaphore::new(concurrency)),
         }
     }
 
@@ -63,30 +64,41 @@ impl NotificationWorker {
         // 1. Batch lookup tokens for all users
         let user_token_pairs = self.token_service.get_tokens_for_users(&user_ids).await?;
 
-        // 2. Dispatch concurrently
+        // 2. Dispatch concurrently, bounded by the semaphore
         for (user_id, token) in user_token_pairs {
             let provider = Arc::clone(&self.provider);
             let token_service = self.token_service.clone();
-            
-            tokio::spawn(async move {
-                match provider.send_push(&token).await {
-                    Ok(()) => {
-                        tracing::debug!(token = %token, "Push notification sent successfully");
-                    }
-                    Err(PushError::Unregistered) => {
-                        tracing::info!(token = %token, "Token unregistered, deleting from database");
-                        if let Err(e) = token_service.invalidate_token(&token).await {
-                            tracing::error!(error = %e, token = %token, "Failed to delete unregistered token");
+
+            // Acquire a permit before spawning.
+            let permit = Arc::clone(&self.semaphore)
+                .acquire_owned()
+                .await
+                .map_err(|e| anyhow::anyhow!("Semaphore closed: {e}"))?;
+
+            tokio::spawn(
+                async move {
+                    let _permit = permit;
+
+                    match provider.send_push(&token).await {
+                        Ok(()) => {
+                            tracing::debug!(token = %token, "Push notification sent successfully");
+                        }
+                        Err(PushError::Unregistered) => {
+                            tracing::info!(token = %token, "Token unregistered, deleting from database");
+                            if let Err(e) = token_service.invalidate_token(&token).await {
+                                tracing::error!(error = %e, token = %token, "Failed to delete unregistered token");
+                            }
+                        }
+                        Err(PushError::QuotaExceeded) => {
+                            tracing::warn!("Push quota exceeded, should implement backoff");
+                        }
+                        Err(PushError::Other(e)) => {
+                            tracing::error!(error = %e, token = %token, "Failed to send push notification");
                         }
                     }
-                    Err(PushError::QuotaExceeded) => {
-                        tracing::warn!("Push quota exceeded, should implement backoff");
-                    }
-                    Err(PushError::Other(e)) => {
-                        tracing::error!(error = %e, token = %token, "Failed to send push notification");
-                    }
                 }
-            }.instrument(tracing::debug_span!("dispatch_push", %user_id)));
+                .instrument(tracing::debug_span!("dispatch_push", %user_id)),
+            );
         }
 
         Ok(())

@@ -80,6 +80,8 @@ Command-line options take precedence over environment variables.
 | `--worker-interval-secs` | Frequency of push queue polling | `OBSCURA_NOTIFICATIONS_WORKER_INTERVAL_SECS` | `1` |
 | `--worker-poll-limit` | Max users processed per worker poll | `OBSCURA_NOTIFICATIONS_WORKER_POLL_LIMIT` | `50` |
 | `--worker-concurrency` | Max concurrent push delivery tasks | `OBSCURA_NOTIFICATIONS_WORKER_CONCURRENCY` | `100` |
+| `--push-queue-key` | Redis key for the push notification queue | `OBSCURA_NOTIFICATIONS_PUSH_QUEUE_KEY` | `jobs:push_notifications` |
+| `--channel-prefix` | Redis PubSub prefix for user pokes | `OBSCURA_NOTIFICATIONS_CHANNEL_PREFIX` | `user:` |
 
 ### PubSub Configuration (Distributed Notifications)
 

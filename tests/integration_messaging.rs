@@ -1,12 +1,12 @@
 mod common;
 
-use obscura_server::proto::obscura::v1::{EncryptedMessage, WebSocketFrame, web_socket_frame::Payload, AckMessage};
-use prost::Message as ProstMessage;
-use uuid::Uuid;
 use common::TestApp;
 use futures::SinkExt;
+use obscura_server::proto::obscura::v1::{AckMessage, EncryptedMessage, WebSocketFrame, web_socket_frame::Payload};
+use prost::Message as ProstMessage;
 use std::time::Duration;
 use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
+use uuid::Uuid;
 
 #[tokio::test]
 async fn test_messaging_flow() {
@@ -23,7 +23,7 @@ async fn test_messaging_flow() {
     let env = ws.receive_envelope().await.expect("Did not receive message");
     let received_msg = env.message.expect("Envelope missing message");
     assert_eq!(received_msg.content, content);
-    
+
     ws.send_ack(env.id).await;
 }
 
@@ -109,11 +109,15 @@ async fn test_send_message_recipient_not_found() {
     let mut buf = Vec::new();
     enc_msg.encode(&mut buf).unwrap();
 
-    let resp = app.client
+    let resp = app
+        .client
         .post(format!("{}/v1/messages/{}", app.server_url, bad_id))
         .header("Authorization", format!("Bearer {}", user_a.token))
         .header("Content-Type", "application/octet-stream")
-        .body(buf).send().await.unwrap();
+        .body(buf)
+        .send()
+        .await
+        .unwrap();
 
     assert_eq!(resp.status(), 404);
 }
@@ -125,11 +129,15 @@ async fn test_send_message_malformed_protobuf() {
     let user = app.register_user(&format!("malformed_{}", run_id)).await;
     let recipient = app.register_user(&format!("rec_malformed_{}", run_id)).await;
 
-    let resp = app.client
+    let resp = app
+        .client
         .post(format!("{}/v1/messages/{}", app.server_url, recipient.user_id))
         .header("Authorization", format!("Bearer {}", user.token))
         .header("Content-Type", "application/octet-stream")
-        .body(vec![0, 1, 2]).send().await.unwrap();
+        .body(vec![0, 1, 2])
+        .send()
+        .await
+        .unwrap();
 
     assert_eq!(resp.status(), 400);
 }

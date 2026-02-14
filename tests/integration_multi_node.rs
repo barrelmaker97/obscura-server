@@ -1,17 +1,18 @@
 mod common;
-use uuid::Uuid;
-use std::time::Duration;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
+use futures::SinkExt;
 use serde_json::json;
+use std::time::Duration;
+use uuid::Uuid;
 use xeddsa::CalculateKeyPair;
 use xeddsa::xed25519::PrivateKey;
-use futures::SinkExt;
 
 #[tokio::test]
 async fn test_multi_node_notification() {
-    let app_a = common::TestApp::spawn().await;
-    let app_b = common::TestApp::spawn().await;
+    let config = common::get_test_config();
+    let app_a = common::TestApp::spawn_with_config(config.clone()).await;
+    let app_b = common::TestApp::spawn_with_config(config).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
     let alice_name = format!("alice_{}", run_id);
@@ -32,58 +33,67 @@ async fn test_multi_node_notification() {
 
 #[tokio::test]
 async fn test_multi_node_push_cancellation() {
-    let app_a = common::TestApp::spawn().await;
-    let app_b = common::TestApp::spawn().await;
+    let config = common::get_test_config();
+    let app_a = common::TestApp::spawn_with_config(config.clone()).await;
+    let app_b = common::TestApp::spawn_with_config(config.clone()).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
     let user = app_a.register_user(&format!("multi_cancel_{}", run_id)).await;
 
     // 1. Manually schedule a push on the shared Redis queue
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-    let pubsub = obscura_server::adapters::redis::RedisClient::new(
-        &app_a.config.pubsub,
-        1024,
-        shutdown_rx.clone()
-    ).await.unwrap();
+    let pubsub = obscura_server::adapters::redis::RedisClient::new(&app_a.config.pubsub, 1024, shutdown_rx.clone())
+        .await
+        .unwrap();
 
     let mut conn = pubsub.publisher();
-    let run_at = time::OffsetDateTime::now_utc().unix_timestamp() + 30; 
-    
+    let run_at = time::OffsetDateTime::now_utc().unix_timestamp() + 30;
+    let queue_key = config.notifications.push_queue_key.clone();
+
     redis::cmd("ZADD")
-        .arg("jobs:push_notifications")
+        .arg(&queue_key)
         .arg("NX")
         .arg(run_at as f64)
         .arg(user.user_id.to_string())
         .query_async::<i64>(&mut conn)
-        .await.unwrap();
+        .await
+        .unwrap();
 
     // 2. Connect user to Node B
     let _ws = app_b.connect_ws(&user.token).await;
 
     // 3. Verify Node B cancelled the push scheduled by Node A
-    let success = app_b.wait_until(|| {
-        let pubsub = pubsub.clone();
-        let user_id = user.user_id;
-        async move {
-            let mut conn = pubsub.publisher();
-            let score: Option<f64> = redis::cmd("ZSCORE")
-                .arg("jobs:push_notifications")
-                .arg(user_id.to_string())
-                .query_async(&mut conn)
-                .await.unwrap();
-            score.is_none()
-        }
-    }, Duration::from_secs(5)).await;
+    let success = app_b
+        .wait_until(
+            || {
+                let pubsub = pubsub.clone();
+                let user_id = user.user_id;
+                let queue_key = queue_key.clone();
+                async move {
+                    let mut conn = pubsub.publisher();
+                    let score: Option<f64> = redis::cmd("ZSCORE")
+                        .arg(&queue_key)
+                        .arg(user_id.to_string())
+                        .query_async(&mut conn)
+                        .await
+                        .unwrap();
+                    score.is_none()
+                }
+            },
+            Duration::from_secs(5),
+        )
+        .await;
 
     assert!(success, "Node B failed to cancel push scheduled by Node A");
-    
+
     let _ = shutdown_tx.send(true);
 }
 
 #[tokio::test]
 async fn test_multi_node_disconnect_notification() {
-    let app_a = common::TestApp::spawn().await;
-    let app_b = common::TestApp::spawn().await;
+    let config = common::get_test_config();
+    let app_a = common::TestApp::spawn_with_config(config.clone()).await;
+    let app_b = common::TestApp::spawn_with_config(config).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
     let alice_name = format!("alice_takeover_{}", run_id);
@@ -141,9 +151,10 @@ async fn test_multi_node_disconnect_notification() {
 
 #[tokio::test]
 async fn test_distributed_fan_out_disconnect() {
-    let app_a = common::TestApp::spawn().await;
-    let app_b = common::TestApp::spawn().await;
-    let app_c = common::TestApp::spawn().await;
+    let config = common::get_test_config();
+    let app_a = common::TestApp::spawn_with_config(config.clone()).await;
+    let app_b = common::TestApp::spawn_with_config(config.clone()).await;
+    let app_c = common::TestApp::spawn_with_config(config).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
     let user_alice = app_a.register_user(&format!("alice_fanout_{}", run_id)).await;
@@ -157,7 +168,12 @@ async fn test_distributed_fan_out_disconnect() {
     let new_ik = common::generate_signing_key();
     let (new_spk_pub, new_spk_sig) = common::generate_signed_pre_key(&new_ik);
     let (_, ik_pub_ed) = PrivateKey(new_ik).calculate_key_pair(0);
-    let mut new_ik_pub_wire = curve25519_dalek::edwards::CompressedEdwardsY(ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes().to_vec();
+    let mut new_ik_pub_wire = curve25519_dalek::edwards::CompressedEdwardsY(ik_pub_ed)
+        .decompress()
+        .unwrap()
+        .to_montgomery()
+        .to_bytes()
+        .to_vec();
     new_ik_pub_wire.insert(0, 0x05);
 
     let takeover_payload = json!({
@@ -167,7 +183,8 @@ async fn test_distributed_fan_out_disconnect() {
         "oneTimePreKeys": []
     });
 
-    let resp = app_c.client
+    let resp = app_c
+        .client
         .post(format!("{}/v1/keys", app_c.server_url))
         .header("Authorization", format!("Bearer {}", user_alice.token))
         .json(&takeover_payload)

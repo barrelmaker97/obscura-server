@@ -306,6 +306,14 @@ pub struct NotificationConfig {
     /// Maximum number of concurrent push notification requests across the cluster
     #[arg(long, env = "OBSCURA_NOTIFICATIONS_WORKER_CONCURRENCY", default_value_t = NotificationConfig::default().worker_concurrency)]
     pub worker_concurrency: usize,
+
+    /// Redis key for the push notification job queue
+    #[arg(long, env = "OBSCURA_NOTIFICATIONS_PUSH_QUEUE_KEY", default_value_t = NotificationConfig::default().push_queue_key)]
+    pub push_queue_key: String,
+
+    /// Redis `PubSub` channel prefix for user notifications
+    #[arg(long, env = "OBSCURA_NOTIFICATIONS_CHANNEL_PREFIX", default_value_t = NotificationConfig::default().channel_prefix)]
+    pub channel_prefix: String,
 }
 
 impl Default for NotificationConfig {
@@ -318,6 +326,8 @@ impl Default for NotificationConfig {
             worker_interval_secs: 1,
             worker_poll_limit: 50,
             worker_concurrency: 100,
+            push_queue_key: "jobs:push_notifications".to_string(),
+            channel_prefix: "user:".to_string(),
         }
     }
 }
