@@ -3,12 +3,12 @@ mod common;
 use async_trait::async_trait;
 use common::TestApp;
 use dashmap::DashMap;
-use obscura_server::services::notification::provider::{PushError, PushProvider};
+use obscura_server::services::notification::provider::{PushProvider, PushError};
 use obscura_server::services::notification::{DistributedNotificationService, NotificationService};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
-use tracing::Instrument;
 use uuid::Uuid;
+use tracing::Instrument;
 
 /// Shared global state for all test providers to report to.
 /// This allows parallel tests to work even if Worker A picks up User B's job.
@@ -38,11 +38,13 @@ async fn test_scheduled_push_delivery() {
     let config = common::get_test_config();
     let pool = common::get_test_pool().await;
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-
-    let pubsub = obscura_server::adapters::redis::RedisClient::new(&config.pubsub, 1024, shutdown_rx.clone())
-        .await
-        .expect("Redis must be running");
-
+    
+    let pubsub = obscura_server::adapters::redis::RedisClient::new(
+        &config.pubsub,
+        1024,
+        shutdown_rx.clone()
+    ).await.expect("Redis must be running");
+    
     let user_id = Uuid::new_v4();
 
     // Register a token manually in DB for this user
@@ -53,15 +55,13 @@ async fn test_scheduled_push_delivery() {
         sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
             .bind(user_id)
             .bind(format!("user_{}", user_id))
-            .execute(&mut *conn)
-            .await
-            .unwrap();
-
+            .execute(&mut *conn).await.unwrap();
+            
         token_repo.upsert_token(&mut conn, user_id, &format!("token:{}", user_id)).await.unwrap();
     }
 
     let mut test_config = config.clone();
-    test_config.notifications.push_delay_secs = 1;
+    test_config.notifications.push_delay_secs = 1; 
 
     let notifier: Arc<dyn NotificationService> = Arc::new(
         DistributedNotificationService::new(
@@ -70,10 +70,8 @@ async fn test_scheduled_push_delivery() {
             shutdown_rx.clone(),
             Some(Arc::new(SharedMockPushProvider) as Arc<dyn PushProvider>),
             token_repo,
-            pool.clone(),
-        )
-        .await
-        .unwrap(),
+            pool.clone()
+        ).await.unwrap()
     );
 
     // 1. Notify MessageReceived
@@ -92,60 +90,74 @@ async fn test_scheduled_push_delivery() {
 
     assert!(delivered, "Push notification was not delivered for unique user {}", user_id);
     assert_eq!(*notification_counts().get(&user_id).unwrap(), 1);
-
+    
     let _ = shutdown_tx.send(true);
 }
 
 #[tokio::test]
 async fn test_push_cancellation_on_ack() {
     common::setup_tracing();
-    let config = common::get_test_config();
-    let pool = common::get_test_pool().await;
+    let mut config = common::get_test_config();
+    config.notifications.push_delay_secs = 15; // Long delay so worker doesn't steal it
+
+    let app = TestApp::spawn_with_config(config).await;
+    
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let pubsub = obscura_server::adapters::redis::RedisClient::new(
+        &app.config.pubsub,
+        1024,
+        shutdown_rx.clone()
+    ).await.unwrap();
 
-    let pubsub = obscura_server::adapters::redis::RedisClient::new(&config.pubsub, 1024, shutdown_rx.clone())
-        .await
-        .expect("Redis must be running");
+    let username = format!("u_{}", &Uuid::new_v4().to_string()[..8]);
+    let user = app.register_user(&username).await;
 
-    let user_id = Uuid::new_v4();
-    let token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
-    {
-        let mut conn = pool.acquire().await.unwrap();
-        sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
-            .bind(user_id)
-            .bind(format!("user_{}", user_id))
-            .execute(&mut *conn)
-            .await
-            .unwrap();
-        token_repo.upsert_token(&mut conn, user_id, &format!("token:{}", user_id)).await.unwrap();
-    }
+    // 1. Schedule a push manually
+    let mut conn = pubsub.publisher();
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    let run_at = now + 20; 
+    
+    redis::cmd("ZADD")
+        .arg("jobs:push_notifications")
+        .arg(run_at as f64)
+        .arg(user.user_id.to_string())
+        .query_async::<i64>(&mut conn)
+        .await.unwrap();
 
-    let mut test_config = config.clone();
-    test_config.notifications.push_delay_secs = 5;
+    // 2. Connect via WebSocket
+    // Note: The Gateway connection ITSELF calls cancel_pending_notifications.
+    // To truly test the ACK path, we would need to add it AFTER connecting.
+    let mut ws = app.connect_ws(&user.token).await;
+    
+    // Gateway cancelled it on connect. Let's add it BACK.
+    redis::cmd("ZADD")
+        .arg("jobs:push_notifications")
+        .arg(run_at as f64)
+        .arg(user.user_id.to_string())
+        .query_async::<i64>(&mut conn)
+        .await.unwrap();
 
-    let notifier: Arc<dyn NotificationService> = Arc::new(
-        DistributedNotificationService::new(
-            pubsub.clone(),
-            &test_config,
-            shutdown_rx.clone(),
-            Some(Arc::new(SharedMockPushProvider) as Arc<dyn PushProvider>),
-            token_repo,
-            pool.clone(),
-        )
-        .await
-        .unwrap(),
-    );
+    // 3. Send an ACK
+    let msg_id = Uuid::new_v4();
+    ws.send_ack(msg_id.to_string()).await;
 
-    // 1. Notify MessageReceived
-    notifier.notify(user_id, obscura_server::services::notification::UserEvent::MessageReceived).await;
+    // 4. Wait and verify it's removed from Redis by AckBatcher
+    let success = app.wait_until(|| {
+        let pubsub = pubsub.clone();
+        let user_id = user.user_id;
+        async move {
+            let mut conn = pubsub.publisher();
+            let score: Option<f64> = redis::cmd("ZSCORE")
+                .arg("jobs:push_notifications")
+                .arg(user_id.to_string())
+                .query_async(&mut conn)
+                .await.unwrap();
+            score.is_none()
+        }
+    }, Duration::from_secs(5)).await;
 
-    // 2. Immediately cancel
-    notifier.cancel_pending_notifications(user_id).await;
-
-    // 3. Wait and ensure NO push is delivered
-    tokio::time::sleep(Duration::from_secs(3)).await;
-    assert_eq!(notification_counts().get(&user_id).map(|c| *c).unwrap_or(0), 0, "Push was sent despite cancellation");
-
+    assert!(success, "Push job was not removed from Redis by AckBatcher on ACK");
+    
     let _ = shutdown_tx.send(true);
 }
 
@@ -156,10 +168,13 @@ async fn test_push_cancellation_on_websocket_connect() {
     config.notifications.push_delay_secs = 10;
 
     let app = TestApp::spawn_with_config(config).await;
-
+    
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-    let pubsub =
-        obscura_server::adapters::redis::RedisClient::new(&app.config.pubsub, 1024, shutdown_rx.clone()).await.unwrap();
+    let pubsub = obscura_server::adapters::redis::RedisClient::new(
+        &app.config.pubsub,
+        1024,
+        shutdown_rx.clone()
+    ).await.unwrap();
 
     let username = format!("u_{}", &Uuid::new_v4().to_string()[..8]);
     let user = app.register_user(&username).await;
@@ -167,39 +182,32 @@ async fn test_push_cancellation_on_websocket_connect() {
     let mut conn = pubsub.publisher();
     let now = time::OffsetDateTime::now_utc().unix_timestamp();
     let run_at = now + 20; // 20 seconds in future
-
+    
     redis::cmd("ZADD")
         .arg("jobs:push_notifications")
         .arg(run_at as f64)
         .arg(user.user_id.to_string())
         .query_async::<i64>(&mut conn)
-        .await
-        .unwrap();
+        .await.unwrap();
 
     let _ws = app.connect_ws(&user.token).await;
 
-    let success = app
-        .wait_until(
-            || {
-                let pubsub = pubsub.clone();
-                let user_id = user.user_id;
-                async move {
-                    let mut conn = pubsub.publisher();
-                    let score: Option<f64> = redis::cmd("ZSCORE")
-                        .arg("jobs:push_notifications")
-                        .arg(user_id.to_string())
-                        .query_async(&mut conn)
-                        .await
-                        .unwrap();
-                    score.is_none()
-                }
-            },
-            Duration::from_secs(5),
-        )
-        .await;
+    let success = app.wait_until(|| {
+        let pubsub = pubsub.clone();
+        let user_id = user.user_id;
+        async move {
+            let mut conn = pubsub.publisher();
+            let score: Option<f64> = redis::cmd("ZSCORE")
+                .arg("jobs:push_notifications")
+                .arg(user_id.to_string())
+                .query_async(&mut conn)
+                .await.unwrap();
+            score.is_none()
+        }
+    }, Duration::from_secs(5)).await;
 
     assert!(success, "Push job for user {} was not removed from Redis on WS connect", user.user_id);
-
+    
     let _ = shutdown_tx.send(true);
 }
 
@@ -209,11 +217,13 @@ async fn test_delivery_exactly_once_under_competition() {
     let config = common::get_test_config();
     let pool = common::get_test_pool().await;
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-
-    let pubsub = obscura_server::adapters::redis::RedisClient::new(&config.pubsub, 1024, shutdown_rx.clone())
-        .await
-        .expect("Redis must be running");
-
+    
+    let pubsub = obscura_server::adapters::redis::RedisClient::new(
+        &config.pubsub,
+        1024,
+        shutdown_rx.clone()
+    ).await.expect("Redis must be running");
+    
     let user_id = Uuid::new_v4();
     let token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
     {
@@ -221,18 +231,16 @@ async fn test_delivery_exactly_once_under_competition() {
         sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
             .bind(user_id)
             .bind(format!("user_{}", user_id))
-            .execute(&mut *conn)
-            .await
-            .unwrap();
+            .execute(&mut *conn).await.unwrap();
         token_repo.upsert_token(&mut conn, user_id, &format!("token:{}", user_id)).await.unwrap();
     }
 
     let mut test_config = config.clone();
     test_config.notifications.push_delay_secs = 0; // Immediate for this test
 
-    let scheduler = std::sync::Arc::new(obscura_server::services::notification::scheduler::NotificationScheduler::new(
-        pubsub.clone(),
-    ));
+    let scheduler = std::sync::Arc::new(
+        obscura_server::services::notification::scheduler::NotificationScheduler::new(pubsub.clone())
+    );
 
     // Spawn 10 competing workers
     for i in 0..10 {
@@ -240,15 +248,12 @@ async fn test_delivery_exactly_once_under_competition() {
             pool.clone(),
             scheduler.clone(),
             Arc::new(SharedMockPushProvider),
-            token_repo.clone(),
+            token_repo.clone()
         );
         let rx = shutdown_rx.clone();
-        tokio::spawn(
-            async move {
-                worker.run(rx).await;
-            }
-            .instrument(tracing::info_span!("competing_worker", id = i)),
-        );
+        tokio::spawn(async move {
+            worker.run(rx).await;
+        }.instrument(tracing::info_span!("competing_worker", id = i)));
     }
 
     // Give workers a moment to start
@@ -269,7 +274,7 @@ async fn test_delivery_exactly_once_under_competition() {
     // ASSERT: Exactly one worker should have succeeded
     let count = notification_counts().get(&user_id).map(|c| *c).unwrap_or(0);
     assert_eq!(count, 1, "Notification delivered {} times, expected exactly 1", count);
-
+    
     let _ = shutdown_tx.send(true);
 }
 
@@ -279,11 +284,13 @@ async fn test_push_coalescing() {
     let config = common::get_test_config();
     let pool = common::get_test_pool().await;
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-
-    let pubsub = obscura_server::adapters::redis::RedisClient::new(&config.pubsub, 1024, shutdown_rx.clone())
-        .await
-        .expect("Redis must be running");
-
+    
+    let pubsub = obscura_server::adapters::redis::RedisClient::new(
+        &config.pubsub,
+        1024,
+        shutdown_rx.clone()
+    ).await.expect("Redis must be running");
+    
     let user_id = Uuid::new_v4();
     let token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
     {
@@ -291,9 +298,7 @@ async fn test_push_coalescing() {
         sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
             .bind(user_id)
             .bind(format!("user_{}", user_id))
-            .execute(&mut *conn)
-            .await
-            .unwrap();
+            .execute(&mut *conn).await.unwrap();
         token_repo.upsert_token(&mut conn, user_id, &format!("token:{}", user_id)).await.unwrap();
     }
 
@@ -307,10 +312,8 @@ async fn test_push_coalescing() {
             shutdown_rx.clone(),
             Some(Arc::new(SharedMockPushProvider) as Arc<dyn PushProvider>),
             token_repo,
-            pool.clone(),
-        )
-        .await
-        .unwrap(),
+            pool.clone()
+        ).await.unwrap()
     );
 
     // 1. Notify multiple times rapidly
@@ -324,6 +327,6 @@ async fn test_push_coalescing() {
     // 3. ASSERT: Coalesced into exactly one delivery
     let count = notification_counts().get(&user_id).map(|c| *c).unwrap_or(0);
     assert_eq!(count, 1, "Expected 1 coalesced notification, got {}", count);
-
+    
     let _ = shutdown_tx.send(true);
 }

@@ -137,11 +137,6 @@ impl MessageService {
         self.config.batch_limit
     }
 
-    #[must_use]
-    pub fn notifier(&self) -> Arc<dyn NotificationService> {
-        Arc::clone(&self.notifier)
-    }
-
     /// Periodically cleans up expired messages and enforces inbox limits.
     pub async fn run_cleanup_loop(&self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
         let mut interval = tokio::time::interval(Duration::from_secs(self.config.cleanup_interval_secs));

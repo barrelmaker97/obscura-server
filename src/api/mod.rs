@@ -8,6 +8,7 @@ use crate::services::gateway::GatewayService;
 use crate::services::health_service::HealthService;
 use crate::services::key_service::KeyService;
 use crate::services::message_service::MessageService;
+use crate::services::notification::NotificationService;
 use crate::services::rate_limit_service::RateLimitService;
 use axum::body::Body;
 use axum::http::Request;
@@ -43,6 +44,7 @@ pub struct AppState {
     pub auth_service: AuthService,
     pub message_service: MessageService,
     pub gateway_service: GatewayService,
+    pub notification_service: Arc<dyn NotificationService>,
     pub rate_limit_service: RateLimitService,
     pub shutdown_rx: tokio::sync::watch::Receiver<bool>,
 }
@@ -61,6 +63,7 @@ pub struct ServiceContainer {
     pub auth_service: AuthService,
     pub message_service: MessageService,
     pub gateway_service: GatewayService,
+    pub notification_service: Arc<dyn NotificationService>,
     pub rate_limit_service: RateLimitService,
 }
 
@@ -102,6 +105,7 @@ pub fn app_router(
         auth_service: services.auth_service,
         message_service: services.message_service,
         gateway_service: services.gateway_service,
+        notification_service: services.notification_service,
         rate_limit_service: services.rate_limit_service,
         shutdown_rx,
     };

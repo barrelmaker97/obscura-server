@@ -225,6 +225,7 @@ async fn main() -> anyhow::Result<()> {
             auth_service,
             message_service,
             gateway_service,
+            notification_service: notifier.clone(),
             rate_limit_service,
         };
 
