@@ -24,7 +24,6 @@ use worker::NotificationWorker;
 struct Metrics {
     sends_total: Counter<u64>,
     received_total: Counter<u64>,
-    #[allow(dead_code)]
     unrouted_total: Counter<u64>,
     active_channels: UpDownCounter<i64>,
     gc_duration_seconds: Histogram<f64>,
@@ -124,7 +123,7 @@ impl DistributedNotificationService {
         let scheduler = Arc::new(NotificationScheduler::new(Arc::clone(&pubsub)));
 
         let provider = provider.unwrap_or_else(|| {
-            Arc::new(crate::adapters::push::fcm::FcmPushProvider::default())
+            Arc::new(crate::adapters::push::fcm::FcmPushProvider)
         });
         
         let push_delay_secs = config.notifications.push_delay_secs;
@@ -157,9 +156,12 @@ impl DistributedNotificationService {
                                         && let Some(payload_byte) = msg.payload.first()
                                         && let Ok(event) = UserEvent::try_from(*payload_byte)
                                     {
-                                        dispatcher_metrics.received_total.add(1, &[KeyValue::new("event", format!("{event:?}"))]);
+                                        let event_label = format!("{event:?}");
+                                        dispatcher_metrics.received_total.add(1, &[KeyValue::new("event", event_label.clone())]);
                                         if let Some(tx) = dispatcher_channels.get(&user_id) {
                                             let _ = tx.send(event);
+                                        } else {
+                                            dispatcher_metrics.unrouted_total.add(1, &[KeyValue::new("event", event_label)]);
                                         }
                                     }
                                 }
