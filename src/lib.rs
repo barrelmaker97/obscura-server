@@ -20,5 +20,5 @@ pub mod domain;
 pub mod error;
 pub mod proto;
 pub mod services;
-pub mod storage;
+pub mod adapters;
 pub mod telemetry;

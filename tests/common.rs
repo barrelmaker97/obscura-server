@@ -17,9 +17,14 @@ use obscura_server::{
         notification::{DistributedNotificationService, NotificationService},
         rate_limit_service::RateLimitService,
     },
-    storage::{
-        self, attachment_repo::AttachmentRepository, key_repo::KeyRepository, message_repo::MessageRepository,
-        refresh_token_repo::RefreshTokenRepository, user_repo::UserRepository,
+    adapters::{
+        self,
+        database::attachment_repo::AttachmentRepository,
+        database::key_repo::KeyRepository,
+        database::message_repo::MessageRepository,
+        database::push_token_repo::PushTokenRepository,
+        database::refresh_token_repo::RefreshTokenRepository,
+        database::user_repo::UserRepository,
     },
 };
 use prost::Message as ProstMessage;
@@ -70,7 +75,7 @@ pub async fn get_test_pool() -> PgPool {
     let database_url = std::env::var("OBSCURA_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://user:password@localhost/signal_server".to_string());
 
-    let pool = storage::init_pool(&database_url).await.expect("Failed to connect to DB. Is Postgres running?");
+    let pool = adapters::database::init_pool(&database_url).await.expect("Failed to connect to DB. Is Postgres running?");
 
     sqlx::migrate!().run(&pool).await.expect("Failed to run migrations");
 
@@ -228,7 +233,7 @@ impl TestApp {
 
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
-        let pubsub = storage::redis::RedisClient::new(
+        let pubsub = adapters::redis::RedisClient::new(
             &config.pubsub,
             config.notifications.global_channel_capacity,
             shutdown_rx.clone(),
@@ -236,8 +241,16 @@ impl TestApp {
         .await
         .expect("Failed to create RedisClient for tests. Is Redis running?");
 
+        // Initialize Repositories
+        let key_repo = KeyRepository::new();
+        let message_repo = MessageRepository::new();
+        let user_repo = UserRepository::new();
+        let refresh_repo = RefreshTokenRepository::new();
+        let attachment_repo = AttachmentRepository::new();
+        let push_token_repo = PushTokenRepository::new();
+
         let notifier: Arc<dyn NotificationService> = Arc::new(
-            DistributedNotificationService::new(pubsub.clone(), &config, shutdown_rx.clone(), None)
+            DistributedNotificationService::new(pubsub.clone(), &config, shutdown_rx.clone(), None, push_token_repo.clone())
                 .await
                 .expect("Failed to create DistributedNotificationService for tests."),
         );
@@ -258,13 +271,6 @@ impl TestApp {
         let s3_config_builder =
             aws_sdk_s3::config::Builder::from(&sdk_config).force_path_style(config.storage.force_path_style);
         let s3_client = aws_sdk_s3::Client::from_conf(s3_config_builder.build());
-
-        // Initialize Repositories
-        let key_repo = KeyRepository::new();
-        let message_repo = MessageRepository::new();
-        let user_repo = UserRepository::new();
-        let refresh_repo = RefreshTokenRepository::new();
-        let attachment_repo = AttachmentRepository::new();
 
         let crypto_service = obscura_server::services::crypto_service::CryptoService::new();
 

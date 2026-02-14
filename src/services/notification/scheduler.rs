@@ -1,4 +1,4 @@
-use crate::storage::redis::RedisClient;
+use crate::adapters::redis::RedisClient;
 use std::sync::Arc;
 use uuid::Uuid;
 

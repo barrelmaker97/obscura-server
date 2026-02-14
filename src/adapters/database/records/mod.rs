@@ -1,4 +1,3 @@
-#![allow(unreachable_pub)]
 pub mod attachment;
 pub mod keys;
 pub mod message;

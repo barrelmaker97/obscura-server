@@ -22,8 +22,12 @@ struct SharedMockPushProvider;
 
 #[async_trait]
 impl PushProvider for SharedMockPushProvider {
-    async fn send_push(&self, user_id: Uuid) -> anyhow::Result<()> {
-        *notification_counts().entry(user_id).or_insert(0) += 1;
+    async fn send_push(&self, token: &str) -> anyhow::Result<()> {
+        if let Some(user_id_str) = token.strip_prefix("token:") {
+            if let Ok(user_id) = Uuid::parse_str(user_id_str) {
+                *notification_counts().entry(user_id).or_insert(0) += 1;
+            }
+        }
         Ok(())
     }
 }
@@ -34,7 +38,7 @@ async fn test_scheduled_push_delivery() {
     let config = common::get_test_config();
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     
-    let pubsub = obscura_server::storage::redis::RedisClient::new(
+    let pubsub = obscura_server::adapters::redis::RedisClient::new(
         &config.pubsub,
         1024,
         shutdown_rx.clone()
@@ -50,7 +54,8 @@ async fn test_scheduled_push_delivery() {
             pubsub.clone(),
             &test_config,
             shutdown_rx.clone(),
-            Some(Arc::new(SharedMockPushProvider) as Arc<dyn PushProvider>)
+            Some(Arc::new(SharedMockPushProvider) as Arc<dyn PushProvider>),
+            obscura_server::adapters::database::push_token_repo::PushTokenRepository::new()
         ).await.unwrap()
     );
 
@@ -80,7 +85,7 @@ async fn test_push_cancellation_on_ack() {
     let config = common::get_test_config();
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     
-    let pubsub = obscura_server::storage::redis::RedisClient::new(
+    let pubsub = obscura_server::adapters::redis::RedisClient::new(
         &config.pubsub,
         1024,
         shutdown_rx.clone()
@@ -96,7 +101,8 @@ async fn test_push_cancellation_on_ack() {
             pubsub.clone(),
             &test_config,
             shutdown_rx.clone(),
-            Some(Arc::new(SharedMockPushProvider) as Arc<dyn PushProvider>)
+            Some(Arc::new(SharedMockPushProvider) as Arc<dyn PushProvider>),
+            obscura_server::adapters::database::push_token_repo::PushTokenRepository::new()
         ).await.unwrap()
     );
 
@@ -126,7 +132,7 @@ async fn test_push_cancellation_on_websocket_connect() {
     let app = TestApp::spawn_with_config(config).await;
     
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-    let pubsub = obscura_server::storage::redis::RedisClient::new(
+    let pubsub = obscura_server::adapters::redis::RedisClient::new(
         &app.config.pubsub,
         1024,
         shutdown_rx.clone()
@@ -173,7 +179,7 @@ async fn test_delivery_exactly_once_under_competition() {
     let config = common::get_test_config();
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     
-    let pubsub = obscura_server::storage::redis::RedisClient::new(
+    let pubsub = obscura_server::adapters::redis::RedisClient::new(
         &config.pubsub,
         1024,
         shutdown_rx.clone()
@@ -191,7 +197,8 @@ async fn test_delivery_exactly_once_under_competition() {
     for i in 0..10 {
         let worker = obscura_server::services::notification::worker::NotificationWorker::new(
             scheduler.clone(),
-            Arc::new(SharedMockPushProvider)
+            Arc::new(SharedMockPushProvider),
+            obscura_server::adapters::database::push_token_repo::PushTokenRepository::new()
         );
         let rx = shutdown_rx.clone();
         tokio::spawn(async move {
@@ -227,7 +234,7 @@ async fn test_push_coalescing() {
     let config = common::get_test_config();
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     
-    let pubsub = obscura_server::storage::redis::RedisClient::new(
+    let pubsub = obscura_server::adapters::redis::RedisClient::new(
         &config.pubsub,
         1024,
         shutdown_rx.clone()
@@ -242,7 +249,8 @@ async fn test_push_coalescing() {
             pubsub.clone(),
             &test_config,
             shutdown_rx.clone(),
-            Some(Arc::new(SharedMockPushProvider) as Arc<dyn PushProvider>)
+            Some(Arc::new(SharedMockPushProvider) as Arc<dyn PushProvider>),
+            obscura_server::adapters::database::push_token_repo::PushTokenRepository::new()
         ).await.unwrap()
     );
 

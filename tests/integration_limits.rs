@@ -1,4 +1,4 @@
-use obscura_server::storage::message_repo::MessageRepository;
+use obscura_server::adapters::database::message_repo::MessageRepository;
 use reqwest::StatusCode;
 use uuid::Uuid;
 

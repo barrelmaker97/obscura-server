@@ -10,12 +10,13 @@ use obscura_server::services::key_service::KeyService;
 use obscura_server::services::message_service::MessageService;
 use obscura_server::services::notification::{DistributedNotificationService, NotificationService};
 use obscura_server::services::rate_limit_service::RateLimitService;
-use obscura_server::storage::attachment_repo::AttachmentRepository;
-use obscura_server::storage::key_repo::KeyRepository;
-use obscura_server::storage::message_repo::MessageRepository;
-use obscura_server::storage::refresh_token_repo::RefreshTokenRepository;
-use obscura_server::storage::user_repo::UserRepository;
-use obscura_server::{storage, telemetry};
+use obscura_server::adapters::database::attachment_repo::AttachmentRepository;
+use obscura_server::adapters::database::key_repo::KeyRepository;
+use obscura_server::adapters::database::message_repo::MessageRepository;
+use obscura_server::adapters::database::push_token_repo::PushTokenRepository;
+use obscura_server::adapters::database::refresh_token_repo::RefreshTokenRepository;
+use obscura_server::adapters::database::user_repo::UserRepository;
+use obscura_server::{adapters, telemetry};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::watch;
@@ -54,7 +55,7 @@ async fn main() -> anyhow::Result<()> {
         }));
 
         // Initialize pool
-        let pool = storage::init_pool(&config.database_url).await?;
+        let pool = adapters::database::init_pool(&config.database_url).await?;
 
         // Run migrations
         {
@@ -75,7 +76,7 @@ async fn main() -> anyhow::Result<()> {
         // PubSub Setup (using Redis)
         let pubsub = {
             let _span = tracing::info_span!("pubsub_setup").entered();
-            storage::redis::RedisClient::new(
+            adapters::redis::RedisClient::new(
                 &config.pubsub,
                 config.notifications.global_channel_capacity,
                 shutdown_rx.clone(),
@@ -83,8 +84,21 @@ async fn main() -> anyhow::Result<()> {
             .await?
         };
 
+        // Initialize Repositories
+        let (key_repo, message_repo, user_repo, refresh_repo, attachment_repo, push_token_repo) = {
+            let _span = tracing::info_span!("repository_initialization").entered();
+            (
+                KeyRepository::new(),
+                MessageRepository::new(),
+                UserRepository::new(),
+                RefreshTokenRepository::new(),
+                AttachmentRepository::new(),
+                PushTokenRepository::new(),
+            )
+        };
+
         let notifier: Arc<dyn NotificationService> =
-            Arc::new(DistributedNotificationService::new(pubsub.clone(), &config, shutdown_rx.clone(), None).await?);
+            Arc::new(DistributedNotificationService::new(pubsub.clone(), &config, shutdown_rx.clone(), None, push_token_repo.clone()).await?);
 
         // Storage Setup
         let s3_client = {
@@ -105,18 +119,6 @@ async fn main() -> anyhow::Result<()> {
             let s3_config_builder =
                 aws_sdk_s3::config::Builder::from(&sdk_config).force_path_style(config.storage.force_path_style);
             aws_sdk_s3::Client::from_conf(s3_config_builder.build())
-        };
-
-        // Initialize Repositories
-        let (key_repo, message_repo, user_repo, refresh_repo, attachment_repo) = {
-            let _span = tracing::info_span!("repository_initialization").entered();
-            (
-                KeyRepository::new(),
-                MessageRepository::new(),
-                UserRepository::new(),
-                RefreshTokenRepository::new(),
-                AttachmentRepository::new(),
-            )
         };
 
         // Initialize Services

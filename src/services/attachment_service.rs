@@ -1,7 +1,7 @@
 use crate::config::StorageConfig;
 use crate::error::{AppError, Result};
-use crate::storage::DbPool;
-use crate::storage::attachment_repo::AttachmentRepository;
+use crate::adapters::database::DbPool;
+use crate::adapters::database::attachment_repo::AttachmentRepository;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::primitives::ByteStream;
 use axum::body::{Body, Bytes};

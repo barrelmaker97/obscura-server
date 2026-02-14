@@ -2,8 +2,8 @@ use crate::config::MessagingConfig;
 use crate::domain::message::Message;
 use crate::error::{AppError, Result};
 use crate::services::notification::{NotificationService, UserEvent};
-use crate::storage::DbPool;
-use crate::storage::message_repo::MessageRepository;
+use crate::adapters::database::DbPool;
+use crate::adapters::database::message_repo::MessageRepository;
 use opentelemetry::{
     KeyValue, global,
     metrics::{Counter, Histogram},

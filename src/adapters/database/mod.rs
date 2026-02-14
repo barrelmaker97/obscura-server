@@ -1,14 +1,13 @@
-#![allow(clippy::needless_raw_string_hashes)]
-use sqlx::postgres::PgPoolOptions;
-use sqlx::{Pool, Postgres};
-
 pub mod attachment_repo;
 pub mod key_repo;
 pub mod message_repo;
-pub(crate) mod records;
-pub mod redis;
 pub mod refresh_token_repo;
 pub mod user_repo;
+pub mod push_token_repo;
+pub mod records;
+
+use sqlx::postgres::PgPoolOptions;
+use sqlx::{Pool, Postgres};
 
 pub type DbPool = Pool<Postgres>;
 

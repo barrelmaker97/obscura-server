@@ -2,9 +2,9 @@ use crate::config::AuthConfig;
 use crate::domain::auth::{Claims, Jwt};
 use crate::domain::auth_session::AuthSession;
 use crate::error::{AppError, Result};
-use crate::storage::DbPool;
-use crate::storage::refresh_token_repo::RefreshTokenRepository;
-use crate::storage::user_repo::UserRepository;
+use crate::adapters::database::DbPool;
+use crate::adapters::database::refresh_token_repo::RefreshTokenRepository;
+use crate::adapters::database::user_repo::UserRepository;
 use argon2::{
     Argon2,
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
@@ -244,7 +244,7 @@ impl AuthService {
 mod tests {
     use super::*;
     use crate::config::AuthConfig;
-    use crate::storage::refresh_token_repo::RefreshTokenRepository;
+    use crate::adapters::database::refresh_token_repo::RefreshTokenRepository;
 
     fn setup_service() -> AuthService {
         let config = AuthConfig {

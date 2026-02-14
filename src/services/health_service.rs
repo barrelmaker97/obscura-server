@@ -1,6 +1,6 @@
 use crate::config::HealthConfig;
-use crate::storage::DbPool;
-use crate::storage::redis::RedisClient;
+use crate::adapters::database::DbPool;
+use crate::adapters::redis::RedisClient;
 use aws_sdk_s3::Client;
 use opentelemetry::{KeyValue, global, metrics::Gauge};
 use std::sync::Arc;
