@@ -92,6 +92,9 @@ pub trait NotificationService: Send + Sync + std::fmt::Debug {
 
     // Cancels any pending slow-path notifications (e.g. push).
     async fn cancel_pending_notifications(&self, user_id: Uuid);
+
+    // Registers a push token for a user.
+    async fn register_push_token(&self, user_id: Uuid, token: String) -> crate::error::Result<()>;
 }
 
 const CHANNEL_PREFIX: &str = "user:";
@@ -99,8 +102,10 @@ const CHANNEL_PATTERN: &str = "user:*";
 
 #[derive(Debug)]
 pub struct DistributedNotificationService {
+    pool: DbPool,
     pubsub: Arc<RedisClient>,
     scheduler: Arc<NotificationScheduler>,
+    token_repo: PushTokenRepository,
     channels: Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
     user_channel_capacity: usize,
     push_delay_secs: u64,
@@ -180,10 +185,19 @@ impl DistributedNotificationService {
         );
 
         // 3. Background Push Worker task
-        let push_worker = NotificationWorker::new(pool, Arc::clone(&scheduler), provider, token_repo);
+        let push_worker = NotificationWorker::new(pool.clone(), Arc::clone(&scheduler), provider, token_repo.clone());
         tokio::spawn(push_worker.run(shutdown).instrument(tracing::info_span!("push_worker")));
 
-        Ok(Self { pubsub, scheduler, channels, user_channel_capacity: config.notifications.user_channel_capacity, push_delay_secs, metrics })
+        Ok(Self { 
+            pool, 
+            pubsub, 
+            scheduler, 
+            token_repo,
+            channels, 
+            user_channel_capacity: config.notifications.user_channel_capacity, 
+            push_delay_secs, 
+            metrics 
+        })
     }
 
     async fn run_gc(
@@ -266,5 +280,11 @@ impl NotificationService for DistributedNotificationService {
         if let Err(e) = self.scheduler.cancel_push(user_id).await {
             tracing::error!(error = %e, "Failed to cancel pending push notification");
         }
+    }
+
+    #[tracing::instrument(skip(self), fields(user_id = %user_id))]
+    async fn register_push_token(&self, user_id: Uuid, token: String) -> crate::error::Result<()> {
+        let mut conn = self.pool.acquire().await?;
+        self.token_repo.upsert_token(&mut conn, user_id, &token).await
     }
 }

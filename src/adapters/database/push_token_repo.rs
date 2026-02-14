@@ -38,10 +38,6 @@ impl PushTokenRepository {
     /// Returns a database error if the query fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
     pub async fn find_tokens_for_user(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Vec<String>> {
-        // Yield to satisfy clippy's unused_async while this is a stub.
-        // In the future, this will be a real DB call.
-        tokio::task::yield_now().await;
-
         let tokens = sqlx::query_scalar::<_, String>(
             "SELECT token FROM push_tokens WHERE user_id = $1"
         )
@@ -57,16 +53,16 @@ impl PushTokenRepository {
     ///
     /// # Errors
     /// Returns a database error if the query fails.
-    #[tracing::instrument(level = "debug", skip(self, _conn))]
-    pub async fn find_tokens_for_users(&self, _conn: &mut PgConnection, user_ids: &[Uuid]) -> Result<Vec<(Uuid, String)>> {
-        tokio::task::yield_now().await;
-
-        // STUB: For testing, return a dummy token for every requested user
-        let mut result = Vec::new();
-        for id in user_ids {
-            result.push((*id, format!("token:{id}")));
-        }
-        Ok(result)
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub async fn find_tokens_for_users(&self, conn: &mut PgConnection, user_ids: &[Uuid]) -> Result<Vec<(Uuid, String)>> {
+        let rows = sqlx::query_as::<_, (Uuid, String)>(
+            "SELECT user_id, token FROM push_tokens WHERE user_id = ANY($1)"
+        )
+        .bind(user_ids)
+        .fetch_all(conn)
+        .await?;
+        
+        Ok(rows)
     }
 
     /// Deletes a specific push token (e.g. if invalidated by FCM).

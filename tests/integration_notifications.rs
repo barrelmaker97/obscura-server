@@ -47,8 +47,21 @@ async fn test_scheduled_push_delivery() {
     
     let user_id = Uuid::new_v4();
 
+    // Register a token manually in DB for this user
+    let token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
+    {
+        let mut conn = pool.acquire().await.unwrap();
+        // We need a real user first due to FK
+        sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
+            .bind(user_id)
+            .bind(format!("user_{}", user_id))
+            .execute(&mut *conn).await.unwrap();
+            
+        token_repo.upsert_token(&mut conn, user_id, &format!("token:{}", user_id)).await.unwrap();
+    }
+
     let mut test_config = config.clone();
-    test_config.notifications.push_delay_secs = 2; // 2 seconds
+    test_config.notifications.push_delay_secs = 1; 
 
     let notifier: Arc<dyn NotificationService> = Arc::new(
         DistributedNotificationService::new(
@@ -56,7 +69,7 @@ async fn test_scheduled_push_delivery() {
             &test_config,
             shutdown_rx.clone(),
             Some(Arc::new(SharedMockPushProvider) as Arc<dyn PushProvider>),
-            obscura_server::adapters::database::push_token_repo::PushTokenRepository::new(),
+            token_repo,
             pool.clone()
         ).await.unwrap()
     );
@@ -95,6 +108,15 @@ async fn test_push_cancellation_on_ack() {
     ).await.expect("Redis must be running");
     
     let user_id = Uuid::new_v4();
+    let token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
+    {
+        let mut conn = pool.acquire().await.unwrap();
+        sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
+            .bind(user_id)
+            .bind(format!("user_{}", user_id))
+            .execute(&mut *conn).await.unwrap();
+        token_repo.upsert_token(&mut conn, user_id, &format!("token:{}", user_id)).await.unwrap();
+    }
 
     let mut test_config = config.clone();
     test_config.notifications.push_delay_secs = 5;
@@ -105,7 +127,7 @@ async fn test_push_cancellation_on_ack() {
             &test_config,
             shutdown_rx.clone(),
             Some(Arc::new(SharedMockPushProvider) as Arc<dyn PushProvider>),
-            obscura_server::adapters::database::push_token_repo::PushTokenRepository::new(),
+            token_repo,
             pool.clone()
         ).await.unwrap()
     );
@@ -187,6 +209,16 @@ async fn test_delivery_exactly_once_under_competition() {
     ).await.expect("Redis must be running");
     
     let user_id = Uuid::new_v4();
+    let token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
+    {
+        let mut conn = pool.acquire().await.unwrap();
+        sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
+            .bind(user_id)
+            .bind(format!("user_{}", user_id))
+            .execute(&mut *conn).await.unwrap();
+        token_repo.upsert_token(&mut conn, user_id, &format!("token:{}", user_id)).await.unwrap();
+    }
+
     let mut test_config = config.clone();
     test_config.notifications.push_delay_secs = 0; // Immediate for this test
 
@@ -200,7 +232,7 @@ async fn test_delivery_exactly_once_under_competition() {
             pool.clone(),
             scheduler.clone(),
             Arc::new(SharedMockPushProvider),
-            obscura_server::adapters::database::push_token_repo::PushTokenRepository::new()
+            token_repo.clone()
         );
         let rx = shutdown_rx.clone();
         tokio::spawn(async move {
@@ -244,6 +276,16 @@ async fn test_push_coalescing() {
     ).await.expect("Redis must be running");
     
     let user_id = Uuid::new_v4();
+    let token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
+    {
+        let mut conn = pool.acquire().await.unwrap();
+        sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
+            .bind(user_id)
+            .bind(format!("user_{}", user_id))
+            .execute(&mut *conn).await.unwrap();
+        token_repo.upsert_token(&mut conn, user_id, &format!("token:{}", user_id)).await.unwrap();
+    }
+
     let mut test_config = config.clone();
     test_config.notifications.push_delay_secs = 2; // Long enough to send multiple
 
@@ -253,7 +295,7 @@ async fn test_push_coalescing() {
             &test_config,
             shutdown_rx.clone(),
             Some(Arc::new(SharedMockPushProvider) as Arc<dyn PushProvider>),
-            obscura_server::adapters::database::push_token_repo::PushTokenRepository::new(),
+            token_repo,
             pool.clone()
         ).await.unwrap()
     );
