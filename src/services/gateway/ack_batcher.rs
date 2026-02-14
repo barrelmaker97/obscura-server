@@ -30,7 +30,16 @@ impl AckBatcher {
         let batcher_metrics = metrics.clone();
         let task = tokio::spawn(
             async move {
-                Self::run_background(user_id, rx, message_service, notifier, batcher_metrics, batch_size, flush_interval_ms).await;
+                Self::run_background(
+                    user_id,
+                    rx,
+                    message_service,
+                    notifier,
+                    batcher_metrics,
+                    batch_size,
+                    flush_interval_ms,
+                )
+                .await;
             }
             .instrument(tracing::info_span!("ack_batcher", user_id = %user_id)),
         );

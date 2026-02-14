@@ -1,6 +1,6 @@
+use crate::adapters::database::records::UserRecord;
 use crate::domain::user::User;
 use crate::error::{AppError, Result};
-use crate::adapters::database::records::UserRecord;
 use sqlx::PgConnection;
 
 #[derive(Clone, Debug, Default)]

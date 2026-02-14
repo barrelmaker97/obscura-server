@@ -24,7 +24,7 @@ impl NotificationScheduler {
     #[allow(clippy::cast_precision_loss)]
     pub async fn schedule_push(&self, user_id: Uuid, delay_secs: u64) -> anyhow::Result<()> {
         let run_at = time::OffsetDateTime::now_utc().unix_timestamp() + i64::try_from(delay_secs).unwrap_or(0);
-        
+
         let mut conn = self.redis.publisher();
         // ZADD key NX score member
         let _: i64 = redis::cmd("ZADD")
@@ -53,12 +53,12 @@ impl NotificationScheduler {
     #[allow(clippy::cast_precision_loss)]
     pub async fn pull_due_jobs(&self, limit: isize) -> anyhow::Result<Vec<Uuid>> {
         let now = time::OffsetDateTime::now_utc().unix_timestamp() as f64;
-        
+
         // 1. Read candidates
         let candidates = self.redis.zrange_byscore_limit(PUSH_QUEUE_KEY, now, limit).await?;
-        
+
         let mut claimed = Vec::new();
-        
+
         // 2. Claim candidates one by one
         for member in candidates {
             // ZREM returns 1 if the item was removed (we claimed it), 0 if someone else did.
@@ -72,7 +72,7 @@ impl NotificationScheduler {
                 Err(e) => tracing::error!(error = %e, "Failed to claim job from Redis"),
             }
         }
-        
+
         Ok(claimed)
     }
 }

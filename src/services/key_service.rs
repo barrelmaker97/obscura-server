@@ -1,11 +1,11 @@
+use crate::adapters::database::DbPool;
+use crate::adapters::database::key_repo::KeyRepository;
 use crate::config::MessagingConfig;
 use crate::domain::crypto::PublicKey;
 use crate::domain::keys::{OneTimePreKey, PreKeyBundle, SignedPreKey};
 use crate::error::{AppError, Result};
 use crate::proto::obscura::v1::PreKeyStatus;
 use crate::services::crypto_service::CryptoService;
-use crate::adapters::database::DbPool;
-use crate::adapters::database::key_repo::KeyRepository;
 use opentelemetry::{global, metrics::Counter};
 use sqlx::PgConnection;
 use uuid::Uuid;

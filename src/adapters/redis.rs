@@ -196,12 +196,7 @@ impl RedisClient {
     ///
     /// # Errors
     /// Returns an error if the operation fails.
-    pub async fn zrange_byscore_limit(
-        &self,
-        key: &str,
-        max_score: f64,
-        limit: isize,
-    ) -> anyhow::Result<Vec<String>> {
+    pub async fn zrange_byscore_limit(&self, key: &str, max_score: f64, limit: isize) -> anyhow::Result<Vec<String>> {
         let mut conn = self.publisher();
         let members: Vec<String> = redis::cmd("ZRANGEBYSCORE")
             .arg(key)

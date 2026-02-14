@@ -1,4 +1,4 @@
-use crate::services::notification::provider::{PushProvider, PushError};
+use crate::services::notification::provider::{PushError, PushProvider};
 use async_trait::async_trait;
 
 #[derive(Debug, Default)]

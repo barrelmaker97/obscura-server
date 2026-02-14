@@ -14,7 +14,7 @@ pub enum PushError {
 #[async_trait]
 pub trait PushProvider: Send + Sync + std::fmt::Debug {
     /// Sends a push notification to a specific device token.
-    /// 
+    ///
     /// # Errors
     /// Returns `PushError::Unregistered` if the token is invalid and should be deleted.
     async fn send_push(&self, token: &str) -> Result<(), PushError>;

@@ -1,3 +1,4 @@
+use crate::adapters::database::DbPool;
 use crate::api::rate_limit::log_rate_limit_events;
 use crate::config::Config;
 use crate::services::account_service::AccountService;
@@ -8,7 +9,6 @@ use crate::services::health_service::HealthService;
 use crate::services::key_service::KeyService;
 use crate::services::message_service::MessageService;
 use crate::services::rate_limit_service::RateLimitService;
-use crate::adapters::database::DbPool;
 use axum::body::Body;
 use axum::http::Request;
 use axum::{

@@ -15,7 +15,8 @@ async fn test_register_push_token() {
         "token": token
     });
 
-    let resp = app.client
+    let resp = app
+        .client
         .put(format!("{}/v1/push/token", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
         .json(&payload)
@@ -36,7 +37,8 @@ async fn test_register_push_token() {
 
     // Update token
     let new_token = "updated_fcm_token_456";
-    let resp = app.client
+    let resp = app
+        .client
         .put(format!("{}/v1/push/token", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
         .json(&json!({ "token": new_token }))
@@ -59,7 +61,8 @@ async fn test_register_push_token() {
 async fn test_register_push_token_unauthorized() {
     let app = TestApp::spawn().await;
 
-    let resp = app.client
+    let resp = app
+        .client
         .put(format!("{}/v1/push/token", app.server_url))
         .json(&json!({ "token": "some_token" }))
         .send()

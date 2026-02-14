@@ -1,7 +1,7 @@
-use crate::config::Config;
-use crate::adapters::redis::RedisClient;
-use crate::adapters::database::push_token_repo::PushTokenRepository;
 use crate::adapters::database::DbPool;
+use crate::adapters::database::push_token_repo::PushTokenRepository;
+use crate::adapters::redis::RedisClient;
+use crate::config::Config;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use opentelemetry::{
@@ -17,8 +17,8 @@ pub mod provider;
 pub mod scheduler;
 pub mod worker;
 
-use scheduler::NotificationScheduler;
 use provider::PushProvider;
+use scheduler::NotificationScheduler;
 use worker::NotificationWorker;
 
 #[derive(Clone, Debug)]
@@ -129,10 +129,8 @@ impl DistributedNotificationService {
         let metrics = Metrics::new();
         let scheduler = Arc::new(NotificationScheduler::new(Arc::clone(&pubsub)));
 
-        let provider = provider.unwrap_or_else(|| {
-            Arc::new(crate::adapters::push::fcm::FcmPushProvider)
-        });
-        
+        let provider = provider.unwrap_or_else(|| Arc::new(crate::adapters::push::fcm::FcmPushProvider));
+
         let push_delay_secs = config.notifications.push_delay_secs;
         tokio::spawn(
             Self::run_gc(
@@ -188,15 +186,15 @@ impl DistributedNotificationService {
         let push_worker = NotificationWorker::new(pool.clone(), Arc::clone(&scheduler), provider, token_repo.clone());
         tokio::spawn(push_worker.run(shutdown).instrument(tracing::info_span!("push_worker")));
 
-        Ok(Self { 
-            pool, 
-            pubsub, 
-            scheduler, 
+        Ok(Self {
+            pool,
+            pubsub,
+            scheduler,
             token_repo,
-            channels, 
-            user_channel_capacity: config.notifications.user_channel_capacity, 
-            push_delay_secs, 
-            metrics 
+            channels,
+            user_channel_capacity: config.notifications.user_channel_capacity,
+            push_delay_secs,
+            metrics,
         })
     }
 

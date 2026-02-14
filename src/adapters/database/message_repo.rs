@@ -1,6 +1,6 @@
+use crate::adapters::database::records::MessageRecord;
 use crate::domain::message::Message;
 use crate::error::{AppError, Result};
-use crate::adapters::database::records::MessageRecord;
 use sqlx::PgConnection;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;

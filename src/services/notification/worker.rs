@@ -1,7 +1,7 @@
-use crate::services::notification::scheduler::NotificationScheduler;
-use crate::services::notification::provider::{PushProvider, PushError};
-use crate::adapters::database::push_token_repo::PushTokenRepository;
 use crate::adapters::database::DbPool;
+use crate::adapters::database::push_token_repo::PushTokenRepository;
+use crate::services::notification::provider::{PushError, PushProvider};
+use crate::services::notification::scheduler::NotificationScheduler;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::Instrument;
@@ -17,7 +17,7 @@ pub struct NotificationWorker {
 impl NotificationWorker {
     pub fn new(
         pool: DbPool,
-        scheduler: Arc<NotificationScheduler>, 
+        scheduler: Arc<NotificationScheduler>,
         provider: Arc<dyn PushProvider>,
         token_repo: PushTokenRepository,
     ) -> Self {
@@ -59,28 +59,31 @@ impl NotificationWorker {
             let provider = Arc::clone(&self.provider);
             let token_repo = self.token_repo.clone();
             let pool = self.pool.clone();
-            
-            tokio::spawn(async move {
-                match provider.send_push(&token).await {
-                    Ok(()) => {
-                        tracing::debug!(token = %token, "Push notification sent successfully");
-                    }
-                    Err(PushError::Unregistered) => {
-                        tracing::info!(token = %token, "Token unregistered, deleting from database");
-                        if let Ok(mut conn) = pool.acquire().await
-                            && let Err(e) = token_repo.delete_token(&mut conn, &token).await
-                        {
-                            tracing::error!(error = %e, token = %token, "Failed to delete unregistered token");
+
+            tokio::spawn(
+                async move {
+                    match provider.send_push(&token).await {
+                        Ok(()) => {
+                            tracing::debug!(token = %token, "Push notification sent successfully");
+                        }
+                        Err(PushError::Unregistered) => {
+                            tracing::info!(token = %token, "Token unregistered, deleting from database");
+                            if let Ok(mut conn) = pool.acquire().await
+                                && let Err(e) = token_repo.delete_token(&mut conn, &token).await
+                            {
+                                tracing::error!(error = %e, token = %token, "Failed to delete unregistered token");
+                            }
+                        }
+                        Err(PushError::QuotaExceeded) => {
+                            tracing::warn!("Push quota exceeded, should implement backoff");
+                        }
+                        Err(PushError::Other(e)) => {
+                            tracing::error!(error = %e, token = %token, "Failed to send push notification");
                         }
                     }
-                    Err(PushError::QuotaExceeded) => {
-                        tracing::warn!("Push quota exceeded, should implement backoff");
-                    }
-                    Err(PushError::Other(e)) => {
-                        tracing::error!(error = %e, token = %token, "Failed to send push notification");
-                    }
                 }
-            }.instrument(tracing::debug_span!("dispatch_push", %user_id)));
+                .instrument(tracing::debug_span!("dispatch_push", %user_id)),
+            );
         }
 
         Ok(())
