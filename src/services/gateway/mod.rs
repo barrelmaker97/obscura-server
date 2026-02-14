@@ -8,7 +8,7 @@ use crate::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
 use crate::services::gateway::session::Session;
 use crate::services::key_service::KeyService;
 use crate::services::message_service::MessageService;
-use crate::services::notification_service::NotificationService;
+use crate::services::notification::NotificationService;
 use axum::extract::ws::{Message as WsMessage, WebSocket};
 use futures::SinkExt;
 use opentelemetry::{

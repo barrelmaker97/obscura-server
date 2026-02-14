@@ -11,10 +11,19 @@ use tokio::sync::broadcast;
 use tracing::Instrument;
 use uuid::Uuid;
 
+pub mod provider;
+pub mod scheduler;
+pub mod worker;
+
+use scheduler::NotificationScheduler;
+use provider::{PushProvider, StubPushProvider};
+use worker::NotificationWorker;
+
 #[derive(Clone, Debug)]
 struct Metrics {
     sends_total: Counter<u64>,
     received_total: Counter<u64>,
+    #[allow(dead_code)]
     unrouted_total: Counter<u64>,
     active_channels: UpDownCounter<i64>,
     gc_duration_seconds: Histogram<f64>,
@@ -79,6 +88,9 @@ pub trait NotificationService: Send + Sync + std::fmt::Debug {
 
     // Sends a notification to the user.
     async fn notify(&self, user_id: Uuid, event: UserEvent);
+
+    // Cancels any pending slow-path notifications (e.g. push).
+    async fn cancel_pending_notifications(&self, user_id: Uuid);
 }
 
 const CHANNEL_PREFIX: &str = "user:";
@@ -87,8 +99,10 @@ const CHANNEL_PATTERN: &str = "user:*";
 #[derive(Debug)]
 pub struct DistributedNotificationService {
     pubsub: Arc<RedisClient>,
+    scheduler: Arc<NotificationScheduler>,
     channels: Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
     user_channel_capacity: usize,
+    push_delay_secs: u64,
     metrics: Metrics,
 }
 
@@ -101,11 +115,14 @@ impl DistributedNotificationService {
         pubsub: Arc<RedisClient>,
         config: &Config,
         shutdown: tokio::sync::watch::Receiver<bool>,
+        provider: Option<Arc<dyn PushProvider>>,
     ) -> anyhow::Result<Self> {
         let channels = Arc::new(DashMap::new());
         let metrics = Metrics::new();
+        let scheduler = Arc::new(NotificationScheduler::new(Arc::clone(&pubsub)));
 
-        // Background GC task
+        let provider = provider.unwrap_or_else(|| Arc::new(StubPushProvider));
+        let push_delay_secs = config.notifications.push_delay_secs;
         tokio::spawn(
             Self::run_gc(
                 Arc::clone(&channels),
@@ -116,39 +133,33 @@ impl DistributedNotificationService {
             .instrument(tracing::info_span!("notification_gc")),
         );
 
-        // Background dispatcher task: subscribes to RedisClient and routes to local channels
+        // 2. Background Dispatcher task (PubSub -> Local Channels)
         let mut pubsub_rx = pubsub.subscribe(CHANNEL_PATTERN).await?;
         let dispatcher_channels = Arc::clone(&channels);
         let dispatcher_metrics = metrics.clone();
+        let mut dispatcher_shutdown = shutdown.clone();
 
         tokio::spawn(
             async move {
-                let mut shutdown = shutdown;
                 loop {
                     tokio::select! {
-                        _ = shutdown.changed() => break,
+                        _ = dispatcher_shutdown.changed() => break,
                         msg = pubsub_rx.recv() => {
                             match msg {
                                 Ok(msg) => {
                                     if let Some(user_id_str) = msg.channel.strip_prefix(CHANNEL_PREFIX)
                                         && let Ok(user_id) = Uuid::parse_str(user_id_str)
-                                        && let Some(payload_byte) = msg.payload.first() {
-                                            if let Ok(event) = UserEvent::try_from(*payload_byte) {
-                                                let span = tracing::debug_span!("process_notification", %user_id, ?event);
-                                                let _enter = span.enter();
-                                                dispatcher_metrics.received_total.add(1, &[KeyValue::new("event", format!("{event:?}"))]);
-                                                if let Some(tx) = dispatcher_channels.get(&user_id) {
-                                                    let _ = tx.send(event);
-                                                } else {
-                                                    dispatcher_metrics.unrouted_total.add(1, &[KeyValue::new("event", format!("{event:?}"))]);
-                                                }
-                                            } else {
-                                                tracing::error!(payload = ?msg.payload, "Received invalid UserEvent payload");
-                                            }
+                                        && let Some(payload_byte) = msg.payload.first()
+                                        && let Ok(event) = UserEvent::try_from(*payload_byte)
+                                    {
+                                        dispatcher_metrics.received_total.add(1, &[KeyValue::new("event", format!("{event:?}"))]);
+                                        if let Some(tx) = dispatcher_channels.get(&user_id) {
+                                            let _ = tx.send(event);
                                         }
+                                    }
                                 }
                                 Err(broadcast::error::RecvError::Lagged(n)) => {
-                                    tracing::warn!(missed = n, "PubSub notification dispatcher lagged; missed {} notifications", n);
+                                    tracing::warn!(missed = n, "PubSub notification dispatcher lagged");
                                 }
                                 Err(broadcast::error::RecvError::Closed) => break,
                             }
@@ -159,7 +170,11 @@ impl DistributedNotificationService {
             .instrument(tracing::info_span!("notification_dispatcher")),
         );
 
-        Ok(Self { pubsub, channels, user_channel_capacity: config.notifications.user_channel_capacity, metrics })
+        // 3. Background Push Worker task
+        let push_worker = NotificationWorker::new(Arc::clone(&scheduler), provider);
+        tokio::spawn(push_worker.run(shutdown).instrument(tracing::info_span!("push_worker")));
+
+        Ok(Self { pubsub, scheduler, channels, user_channel_capacity: config.notifications.user_channel_capacity, push_delay_secs, metrics })
     }
 
     async fn run_gc(
@@ -175,9 +190,6 @@ impl DistributedNotificationService {
                     let start = std::time::Instant::now();
                     let mut reclaimed_this_cycle = 0;
 
-                    let span = tracing::debug_span!("gc_iteration");
-                    let _enter = span.enter();
-
                     channels.retain(|_, sender| {
                         let active = sender.receiver_count() > 0;
                         if !active {
@@ -191,7 +203,6 @@ impl DistributedNotificationService {
                     metrics.gc_duration_seconds.record(duration, &[]);
                     if reclaimed_this_cycle > 0 {
                         metrics.gc_reclaimed_total.add(reclaimed_this_cycle, &[]);
-                        tracing::debug!(reclaimed = reclaimed_this_cycle, duration_secs = %duration, "GC reclaimed stale channels");
                     }
                 }
                 _ = shutdown.changed() => break,
@@ -220,15 +231,31 @@ impl NotificationService for DistributedNotificationService {
 
     #[tracing::instrument(skip(self), fields(user_id = %user_id, event = ?event))]
     async fn notify(&self, user_id: Uuid, event: UserEvent) {
+        // Fast Path: WebSocket/PubSub
         let channel_name = format!("{CHANNEL_PREFIX}{user_id}");
         let payload = [event as u8];
 
-        match self.pubsub.publish(&channel_name, &payload).await {
-            Ok(()) => self.metrics.sends_total.add(1, &[KeyValue::new("status", "sent")]),
-            Err(e) => {
-                tracing::error!(error = %e, "Failed to publish to PubSub");
-                self.metrics.sends_total.add(1, &[KeyValue::new("status", "error")]);
+        if let Err(e) = self.pubsub.publish(&channel_name, &payload).await {
+            tracing::error!(error = %e, "Failed to publish to PubSub");
+            self.metrics.sends_total.add(1, &[KeyValue::new("status", "error")]);
+        } else {
+            self.metrics.sends_total.add(1, &[KeyValue::new("status", "sent")]);
+        }
+
+        // Slow Path: Scheduled Push Fallback
+        // Only trigger push for new messages for now.
+        if event == UserEvent::MessageReceived {
+            // Give the user some time to ACK via WebSocket before the push fires.
+            if let Err(e) = self.scheduler.schedule_push(user_id, self.push_delay_secs).await {
+                tracing::error!(error = %e, "Failed to schedule push notification");
             }
+        }
+    }
+
+    #[tracing::instrument(skip(self), fields(user_id = %user_id))]
+    async fn cancel_pending_notifications(&self, user_id: Uuid) {
+        if let Err(e) = self.scheduler.cancel_push(user_id).await {
+            tracing::error!(error = %e, "Failed to cancel pending push notification");
         }
     }
 }

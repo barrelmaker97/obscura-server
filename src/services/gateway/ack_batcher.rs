@@ -1,5 +1,7 @@
 use crate::services::gateway::Metrics;
 use crate::services::message_service::MessageService;
+use crate::services::notification::NotificationService;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::Instrument;
@@ -17,6 +19,7 @@ impl AckBatcher {
     pub fn new(
         user_id: Uuid,
         message_service: MessageService,
+        notifier: Arc<dyn NotificationService>,
         metrics: Metrics,
         buffer_size: usize,
         batch_size: usize,
@@ -27,7 +30,7 @@ impl AckBatcher {
         let batcher_metrics = metrics.clone();
         let task = tokio::spawn(
             async move {
-                Self::run_background(rx, message_service, batcher_metrics, batch_size, flush_interval_ms).await;
+                Self::run_background(user_id, rx, message_service, notifier, batcher_metrics, batch_size, flush_interval_ms).await;
             }
             .instrument(tracing::info_span!("ack_batcher", user_id = %user_id)),
         );
@@ -47,8 +50,10 @@ impl AckBatcher {
     }
 
     async fn run_background(
+        user_id: Uuid,
         mut rx: mpsc::Receiver<Uuid>,
         message_service: MessageService,
+        notifier: Arc<dyn NotificationService>,
         metrics: Metrics,
         batch_size: usize,
         flush_interval_ms: u64,
@@ -78,6 +83,10 @@ impl AckBatcher {
                 metrics.ack_batch_size.record(batch.len() as u64, &[]);
                 if let Err(e) = message_service.delete_batch(&batch).await {
                     tracing::error!(error = %e, "Failed to delete message batch");
+                } else {
+                    // Once we've successfully ACKed some messages, we can cancel
+                    // any pending push notifications for this user.
+                    notifier.cancel_pending_notifications(user_id).await;
                 }
             }
         }

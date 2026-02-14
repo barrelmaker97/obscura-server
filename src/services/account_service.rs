@@ -4,7 +4,7 @@ use crate::domain::keys::{OneTimePreKey, SignedPreKey};
 use crate::error::Result;
 use crate::services::auth_service::AuthService;
 use crate::services::key_service::{KeyService, KeyUploadParams};
-use crate::services::notification_service::{NotificationService, UserEvent};
+use crate::services::notification::{NotificationService, UserEvent};
 use crate::storage::DbPool;
 use crate::storage::message_repo::MessageRepository;
 use crate::storage::user_repo::UserRepository;

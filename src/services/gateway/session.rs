@@ -2,7 +2,7 @@ use crate::config::WsConfig;
 use crate::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
 use crate::services::gateway::{Metrics, ack_batcher::AckBatcher, message_pump::MessagePump};
 use crate::services::message_service::MessageService;
-use crate::services::notification_service::{NotificationService, UserEvent};
+use crate::services::notification::{NotificationService, UserEvent};
 use axum::extract::ws::{Message as WsMessage, WebSocket};
 use futures::{SinkExt, StreamExt};
 use prost::Message;
@@ -32,6 +32,7 @@ impl Session {
             ws.session_id = %Uuid::new_v4()
         )
     )]
+    #[allow(clippy::too_many_lines)]
     pub(crate) async fn run(self) {
         // Destructuring allows independent mutable access to fields while the socket
         // is split into sink and stream halves.
@@ -39,6 +40,9 @@ impl Session {
 
         metrics.active_connections.add(1, &[]);
         tracing::info!("WebSocket connected");
+
+        // Immediately cancel any pending push notifications since the user is now connected.
+        notifier.cancel_pending_notifications(user_id).await;
 
         let mut notification_rx = notifier.subscribe(user_id).await;
         let (mut ws_sink, mut ws_stream) = socket.split();
@@ -50,6 +54,7 @@ impl Session {
         let ack_batcher = AckBatcher::new(
             user_id,
             message_service.clone(),
+            Arc::clone(&notifier),
             metrics.clone(),
             config.ack_buffer_size,
             config.ack_batch_size,

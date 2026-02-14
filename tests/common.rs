@@ -14,7 +14,7 @@ use obscura_server::{
         health_service::HealthService,
         key_service::KeyService,
         message_service::MessageService,
-        notification_service::{DistributedNotificationService, NotificationService},
+        notification::{DistributedNotificationService, NotificationService},
         rate_limit_service::RateLimitService,
     },
     storage::{
@@ -237,7 +237,7 @@ impl TestApp {
         .expect("Failed to create RedisClient for tests. Is Redis running?");
 
         let notifier: Arc<dyn NotificationService> = Arc::new(
-            DistributedNotificationService::new(pubsub.clone(), &config, shutdown_rx.clone())
+            DistributedNotificationService::new(pubsub.clone(), &config, shutdown_rx.clone(), None)
                 .await
                 .expect("Failed to create DistributedNotificationService for tests."),
         );

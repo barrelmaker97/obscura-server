@@ -172,6 +172,49 @@ impl RedisClient {
         Ok(())
     }
 
+    /// Adds a member to a sorted set with a score.
+    ///
+    /// # Errors
+    /// Returns an error if the ZADD fails.
+    pub async fn zadd(&self, key: &str, member: &str, score: f64) -> anyhow::Result<()> {
+        let mut conn = self.publisher();
+        let _: i64 = conn.zadd(key, score, member).await?;
+        Ok(())
+    }
+
+    /// Removes a member from a sorted set.
+    ///
+    /// # Errors
+    /// Returns an error if the ZREM fails.
+    pub async fn zrem(&self, key: &str, member: &str) -> anyhow::Result<i64> {
+        let mut conn = self.publisher();
+        let removed: i64 = conn.zrem(key, member).await?;
+        Ok(removed)
+    }
+
+    /// Fetches items from a sorted set that are due (score <= `max_score`).
+    ///
+    /// # Errors
+    /// Returns an error if the operation fails.
+    pub async fn zrange_byscore_limit(
+        &self,
+        key: &str,
+        max_score: f64,
+        limit: isize,
+    ) -> anyhow::Result<Vec<String>> {
+        let mut conn = self.publisher();
+        let members: Vec<String> = redis::cmd("ZRANGEBYSCORE")
+            .arg(key)
+            .arg("-inf")
+            .arg(max_score)
+            .arg("LIMIT")
+            .arg(0)
+            .arg(limit)
+            .query_async(&mut conn)
+            .await?;
+        Ok(members)
+    }
+
     /// Pings the Redis server to check connectivity.
     ///
     /// # Errors

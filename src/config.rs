@@ -290,11 +290,15 @@ pub struct NotificationConfig {
     /// Capacity of the per-user notification channel
     #[arg(long, env = "OBSCURA_NOTIFICATIONS_USER_CHANNEL_CAPACITY", default_value_t = NotificationConfig::default().user_channel_capacity)]
     pub user_channel_capacity: usize,
+
+    /// Delay in seconds before a push notification is sent as a fallback
+    #[arg(long, env = "OBSCURA_NOTIFICATIONS_PUSH_DELAY_SECS", default_value_t = NotificationConfig::default().push_delay_secs)]
+    pub push_delay_secs: u64,
 }
 
 impl Default for NotificationConfig {
     fn default() -> Self {
-        Self { gc_interval_secs: 60, global_channel_capacity: 1024, user_channel_capacity: 64 }
+        Self { gc_interval_secs: 60, global_channel_capacity: 1024, user_channel_capacity: 64, push_delay_secs: 5 }
     }
 }
 
