@@ -183,7 +183,15 @@ impl DistributedNotificationService {
         );
 
         // 3. Background Push Worker task
-        let push_worker = NotificationWorker::new(pool.clone(), Arc::clone(&scheduler), provider, token_repo.clone());
+        let push_worker = NotificationWorker::new(
+            pool.clone(), 
+            Arc::clone(&scheduler), 
+            provider, 
+            token_repo.clone(),
+            config.notifications.worker_poll_limit,
+            config.notifications.worker_interval_secs,
+            config.notifications.worker_concurrency,
+        );
         tokio::spawn(push_worker.run(shutdown).instrument(tracing::info_span!("push_worker")));
 
         Ok(Self {

@@ -294,11 +294,31 @@ pub struct NotificationConfig {
     /// Delay in seconds before a push notification is sent as a fallback
     #[arg(long, env = "OBSCURA_NOTIFICATIONS_PUSH_DELAY_SECS", default_value_t = NotificationConfig::default().push_delay_secs)]
     pub push_delay_secs: u64,
+
+    /// Interval in seconds for the notification worker to poll for due jobs
+    #[arg(long, env = "OBSCURA_NOTIFICATIONS_WORKER_INTERVAL_SECS", default_value_t = NotificationConfig::default().worker_interval_secs)]
+    pub worker_interval_secs: u64,
+
+    /// Maximum number of users to process in a single worker poll
+    #[arg(long, env = "OBSCURA_NOTIFICATIONS_WORKER_POLL_LIMIT", default_value_t = NotificationConfig::default().worker_poll_limit)]
+    pub worker_poll_limit: isize,
+
+    /// Maximum number of concurrent push notification requests across the cluster
+    #[arg(long, env = "OBSCURA_NOTIFICATIONS_WORKER_CONCURRENCY", default_value_t = NotificationConfig::default().worker_concurrency)]
+    pub worker_concurrency: usize,
 }
 
 impl Default for NotificationConfig {
     fn default() -> Self {
-        Self { gc_interval_secs: 60, global_channel_capacity: 1024, user_channel_capacity: 64, push_delay_secs: 5 }
+        Self {
+            gc_interval_secs: 60,
+            global_channel_capacity: 1024,
+            user_channel_capacity: 64,
+            push_delay_secs: 5,
+            worker_interval_secs: 1,
+            worker_poll_limit: 50,
+            worker_concurrency: 100,
+        }
     }
 }
 
