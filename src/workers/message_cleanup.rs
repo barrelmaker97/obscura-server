@@ -43,48 +43,60 @@ impl MessageCleanupWorker {
         while !*shutdown.borrow() {
             tokio::select! {
                 _ = interval.tick() => {
-                    async {
-                        tracing::debug!("Running message cleanup (expiry + limits)...");
-
-                        // Delete messages exceeding TTL
-                        let res_expiry = if let Ok(mut conn) = self.pool.acquire().await {
-                             self.repo.delete_expired(&mut conn).await
-                        } else {
-                             Err(AppError::Internal)
-                        };
-
-                        match res_expiry {
-                            Ok(count) => {
-                                if count > 0 {
-                                    tracing::info!(count = %count, "Deleted expired messages");
-                                }
-                            }
-                            Err(e) => tracing::error!(error = ?e, "Cleanup loop error (expiry)"),
-                        }
-
-                        // Enforce global inbox size limits (prune oldest messages)
-                        let res_overflow = if let Ok(mut conn) = self.pool.acquire().await {
-                            self.repo.delete_global_overflow(&mut conn, self.config.max_inbox_size).await
-                        } else {
-                            Err(AppError::Internal)
-                        };
-
-                        match res_overflow {
-                            Ok(count) => {
-                                if count > 0 {
-                                    tracing::info!(count = %count, "Pruned overflow messages");
-                                    self.metrics.inbox_overflow.add(count, &[]);
-                                }
-                            }
-                            Err(e) => tracing::error!(error = ?e, "Cleanup loop error (overflow)"),
-                        }
+                    if let Err(e) = self.perform_cleanup()
+                        .instrument(tracing::info_span!("message_cleanup_iteration"))
+                        .await
+                    {
+                        tracing::error!(error = ?e, "Message cleanup iteration failed");
                     }
-                    .instrument(tracing::info_span!("message_cleanup_iteration"))
-                    .await;
                 }
                 _ = shutdown.changed() => {}
             }
         }
         tracing::info!("Message cleanup loop shutting down...");
+    }
+
+    /// Periodically cleans up expired messages and enforces inbox limits.
+    ///
+    /// # Errors
+    /// Returns an error if the database connection or query fails.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn perform_cleanup(&self) -> Result<(), AppError> {
+        tracing::debug!("Running message cleanup (expiry + limits)...");
+
+        // Delete messages exceeding TTL
+        let res_expiry = if let Ok(mut conn) = self.pool.acquire().await {
+             self.repo.delete_expired(&mut conn).await
+        } else {
+             Err(AppError::Internal)
+        };
+
+        match res_expiry {
+            Ok(count) => {
+                if count > 0 {
+                    tracing::info!(count = %count, "Deleted expired messages");
+                }
+            }
+            Err(e) => tracing::error!(error = ?e, "Cleanup error (expiry)"),
+        }
+
+        // Enforce global inbox size limits (prune oldest messages)
+        let res_overflow = if let Ok(mut conn) = self.pool.acquire().await {
+            self.repo.delete_global_overflow(&mut conn, self.config.max_inbox_size).await
+        } else {
+            Err(AppError::Internal)
+        };
+
+        match res_overflow {
+            Ok(count) => {
+                if count > 0 {
+                    tracing::info!(count = %count, "Pruned overflow messages");
+                    self.metrics.inbox_overflow.add(count, &[]);
+                }
+            }
+            Err(e) => tracing::error!(error = ?e, "Cleanup error (overflow)"),
+        }
+
+        Ok(())
     }
 }

@@ -16,7 +16,7 @@ impl PushTokenRepository {
     /// # Errors
     /// Returns a database error if the upsert fails.
     #[tracing::instrument(level = "debug", skip(self, conn, token), err)]
-    pub(crate) async fn upsert_token(&self, conn: &mut PgConnection, user_id: Uuid, token: &str) -> Result<()> {
+    pub async fn upsert_token(&self, conn: &mut PgConnection, user_id: Uuid, token: &str) -> Result<()> {
         sqlx::query(
             r#"
             INSERT INTO push_tokens (user_id, token, updated_at)

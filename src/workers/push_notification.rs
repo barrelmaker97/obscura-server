@@ -91,8 +91,12 @@ impl PushNotificationWorker {
         tracing::info!("Notification worker shutting down...");
     }
 
+    /// Processes a batch of due push notification jobs.
+    ///
+    /// # Errors
+    /// Returns an error if the scheduler or database operation fails.
     #[tracing::instrument(skip(self), name = "process_due_jobs", err)]
-    async fn process_due_jobs(&self) -> anyhow::Result<()> {
+    pub async fn process_due_jobs(&self) -> anyhow::Result<()> {
         let user_ids = self.scheduler.pull_due_jobs(self.poll_limit).await?;
 
         if user_ids.is_empty() {
