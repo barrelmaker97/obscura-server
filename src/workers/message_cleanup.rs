@@ -66,9 +66,9 @@ impl MessageCleanupWorker {
 
         // Delete messages exceeding TTL
         let res_expiry = if let Ok(mut conn) = self.pool.acquire().await {
-             self.repo.delete_expired(&mut conn).await
+            self.repo.delete_expired(&mut conn).await
         } else {
-             Err(AppError::Internal)
+            Err(AppError::Internal)
         };
 
         match res_expiry {

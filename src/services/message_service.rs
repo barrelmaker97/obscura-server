@@ -131,4 +131,3 @@ impl MessageService {
         self.config.batch_limit
     }
 }
-

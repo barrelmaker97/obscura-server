@@ -10,7 +10,6 @@ pub mod scheduler;
 pub use distributed::DistributedNotificationService;
 pub use scheduler::NotificationScheduler;
 
-
 #[async_trait]
 pub trait NotificationService: Send + Sync + std::fmt::Debug {
     // Returns a receiver that will get a value when a notification arrives.

@@ -215,4 +215,3 @@ impl AttachmentService {
         Ok((u64::try_from(content_length).unwrap_or(0), output.body))
     }
 }
-

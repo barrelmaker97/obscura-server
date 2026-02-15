@@ -214,12 +214,8 @@ async fn main() -> anyhow::Result<()> {
             message_worker.run(message_rx).await;
         });
 
-        let attachment_worker = AttachmentCleanupWorker::new(
-            pool.clone(),
-            attachment_repo,
-            s3_client.clone(),
-            config.storage.clone(),
-        );
+        let attachment_worker =
+            AttachmentCleanupWorker::new(pool.clone(), attachment_repo, s3_client.clone(), config.storage.clone());
         let attachment_rx = shutdown_rx.clone();
         let attachment_task = tokio::spawn(async move {
             attachment_worker.run(attachment_rx).await;

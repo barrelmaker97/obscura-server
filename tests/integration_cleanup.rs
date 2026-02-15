@@ -1,6 +1,6 @@
 use obscura_server::adapters::database::message_repo::MessageRepository;
-use obscura_server::workers::MessageCleanupWorker;
 use obscura_server::config::MessagingConfig;
+use obscura_server::workers::MessageCleanupWorker;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 

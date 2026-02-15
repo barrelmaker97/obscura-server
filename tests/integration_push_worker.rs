@@ -23,10 +23,10 @@ async fn test_push_worker_invalidates_unregistered_tokens() {
     common::setup_tracing();
     let config = common::get_test_config();
     let pool = common::get_test_pool().await;
-    
+
     let user_id = Uuid::new_v4();
     let token = "invalid_token_123";
-    
+
     // 1. Setup DB state
     {
         sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
@@ -43,7 +43,9 @@ async fn test_push_worker_invalidates_unregistered_tokens() {
 
     // 2. Schedule a push
     let scheduler = Arc::new(NotificationScheduler::new(
-        obscura_server::adapters::redis::RedisClient::new(&config.pubsub, 1024, tokio::sync::watch::channel(false).1).await.unwrap(),
+        obscura_server::adapters::redis::RedisClient::new(&config.pubsub, 1024, tokio::sync::watch::channel(false).1)
+            .await
+            .unwrap(),
         config.notifications.push_queue_key.clone(),
     ));
     scheduler.schedule_push(user_id, 0).await.expect("Failed to schedule push");

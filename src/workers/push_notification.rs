@@ -2,10 +2,7 @@ use crate::adapters::database::DbPool;
 use crate::adapters::database::push_token_repo::PushTokenRepository;
 use crate::services::notification::provider::{PushError, PushProvider};
 use crate::services::notification::scheduler::NotificationScheduler;
-use opentelemetry::{
-    KeyValue, global,
-    metrics::Counter,
-};
+use opentelemetry::{KeyValue, global, metrics::Counter};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;

@@ -40,12 +40,7 @@ pub struct AttachmentCleanupWorker {
 
 impl AttachmentCleanupWorker {
     #[must_use]
-    pub fn new(
-        pool: DbPool,
-        repo: AttachmentRepository,
-        s3_client: Client,
-        config: StorageConfig,
-    ) -> Self {
+    pub fn new(pool: DbPool, repo: AttachmentRepository, s3_client: Client, config: StorageConfig) -> Self {
         Self { pool, repo, s3_client, config, metrics: Metrics::new() }
     }
 
