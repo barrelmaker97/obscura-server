@@ -8,7 +8,7 @@ use tower_governor::key_extractor::KeyExtractor;
 use tracing::warn;
 
 #[derive(Clone, Debug)]
-pub(crate) struct Metrics {
+pub struct Metrics {
     pub(crate) decisions_total: Counter<u64>,
 }
 
@@ -81,8 +81,8 @@ impl KeyExtractor for IpKeyExtractor {
 
 #[derive(Clone, Debug)]
 pub struct RateLimitService {
-    pub(crate) extractor: IpKeyExtractor,
-    pub(crate) metrics: Metrics,
+    pub extractor: IpKeyExtractor,
+    pub metrics: Metrics,
 }
 
 impl RateLimitService {

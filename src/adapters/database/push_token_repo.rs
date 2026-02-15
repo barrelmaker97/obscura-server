@@ -16,7 +16,7 @@ impl PushTokenRepository {
     /// # Errors
     /// Returns a database error if the upsert fails.
     #[tracing::instrument(level = "debug", skip(self, conn, token))]
-    pub(crate) async fn upsert_token(&self, conn: &mut PgConnection, user_id: Uuid, token: &str) -> Result<()> {
+    pub async fn upsert_token(&self, conn: &mut PgConnection, user_id: Uuid, token: &str) -> Result<()> {
         sqlx::query(
             r#"
             INSERT INTO push_tokens (user_id, token, updated_at)
@@ -37,8 +37,7 @@ impl PushTokenRepository {
     /// # Errors
     /// Returns a database error if the query fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    #[allow(dead_code)]
-    pub(crate) async fn find_tokens_for_user(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Vec<String>> {
+    pub async fn find_tokens_for_user(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Vec<String>> {
         let tokens = sqlx::query_scalar::<_, String>("SELECT token FROM push_tokens WHERE user_id = $1")
             .bind(user_id)
             .fetch_all(conn)
@@ -53,7 +52,7 @@ impl PushTokenRepository {
     /// # Errors
     /// Returns a database error if the query fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub(crate) async fn find_tokens_for_users(
+    pub async fn find_tokens_for_users(
         &self,
         conn: &mut PgConnection,
         user_ids: &[Uuid],
@@ -72,7 +71,7 @@ impl PushTokenRepository {
     /// # Errors
     /// Returns a database error if the deletion fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub(crate) async fn delete_token(&self, conn: &mut PgConnection, token: &str) -> Result<()> {
+    pub async fn delete_token(&self, conn: &mut PgConnection, token: &str) -> Result<()> {
         sqlx::query("DELETE FROM push_tokens WHERE token = $1").bind(token).execute(conn).await?;
         Ok(())
     }
@@ -82,8 +81,7 @@ impl PushTokenRepository {
     /// # Errors
     /// Returns a database error if the deletion fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    #[allow(dead_code)]
-    pub(crate) async fn delete_stale_tokens(&self, conn: &mut PgConnection, older_than_days: i64) -> Result<u64> {
+    pub async fn delete_stale_tokens(&self, conn: &mut PgConnection, older_than_days: i64) -> Result<u64> {
         let result = sqlx::query("DELETE FROM push_tokens WHERE updated_at < NOW() - make_interval(days => $1)")
             .bind(older_than_days)
             .execute(conn)

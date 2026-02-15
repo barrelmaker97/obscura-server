@@ -4,10 +4,10 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RefreshToken {
-    pub(crate) token_hash: String,
-    pub(crate) user_id: Uuid,
-    pub(crate) expires_at: OffsetDateTime,
-    pub(crate) created_at: OffsetDateTime,
+    pub token_hash: String,
+    pub user_id: Uuid,
+    pub expires_at: OffsetDateTime,
+    pub created_at: OffsetDateTime,
 }
 
 impl RefreshToken {
@@ -19,8 +19,8 @@ impl RefreshToken {
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Claims {
-    pub(crate) sub: Uuid,
-    pub(crate) exp: usize,
+    pub sub: Uuid,
+    pub exp: usize,
 }
 
 impl Claims {
