@@ -1,21 +1,5 @@
 use serde::{Deserialize, Serialize};
-use time::OffsetDateTime;
 use uuid::Uuid;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RefreshToken {
-    pub(crate) token_hash: String,
-    pub(crate) user_id: Uuid,
-    pub(crate) expires_at: OffsetDateTime,
-    pub(crate) created_at: OffsetDateTime,
-}
-
-impl RefreshToken {
-    #[must_use]
-    pub fn is_expired_at(&self, now: OffsetDateTime) -> bool {
-        self.expires_at < now
-    }
-}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Claims {
@@ -56,8 +40,3 @@ impl std::fmt::Display for Jwt {
         write!(f, "***")
     }
 }
-
-#[derive(Debug)]
-pub struct Password;
-#[derive(Debug)]
-pub struct OpaqueToken;

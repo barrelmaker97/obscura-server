@@ -12,10 +12,3 @@ pub struct Message {
     pub(crate) created_at: Option<OffsetDateTime>,
     pub(crate) expires_at: OffsetDateTime,
 }
-
-impl Message {
-    #[must_use]
-    pub fn is_expired_at(&self, now: OffsetDateTime) -> bool {
-        self.expires_at < now
-    }
-}
