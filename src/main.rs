@@ -104,7 +104,7 @@ async fn main() -> anyhow::Result<()> {
         let notifier: Arc<dyn NotificationService> = Arc::new(
             DistributedNotificationService::new(
                 pubsub.clone(),
-                &config,
+                &config.notifications,
                 shutdown_rx.clone(),
                 None,
                 push_token_service.clone(),

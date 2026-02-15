@@ -4,4 +4,5 @@ pub mod auth_session;
 pub mod crypto;
 pub mod keys;
 pub mod message;
+pub mod notification;
 pub mod user;

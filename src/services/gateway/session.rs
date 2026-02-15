@@ -1,8 +1,9 @@
 use crate::config::WsConfig;
+use crate::domain::notification::UserEvent;
 use crate::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
 use crate::services::gateway::{Metrics, ack_batcher::AckBatcher, message_pump::MessagePump};
 use crate::services::message_service::MessageService;
-use crate::services::notification::{NotificationService, UserEvent};
+use crate::services::notification::NotificationService;
 use axum::extract::ws::{Message as WsMessage, WebSocket};
 use futures::{SinkExt, StreamExt};
 use prost::Message;

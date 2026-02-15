@@ -4,10 +4,11 @@ use crate::adapters::database::user_repo::UserRepository;
 use crate::domain::auth_session::AuthSession;
 use crate::domain::crypto::PublicKey;
 use crate::domain::keys::{OneTimePreKey, SignedPreKey};
+use crate::domain::notification::UserEvent;
 use crate::error::Result;
 use crate::services::auth_service::AuthService;
 use crate::services::key_service::{KeyService, KeyUploadParams};
-use crate::services::notification::{NotificationService, UserEvent};
+use crate::services::notification::NotificationService;
 use opentelemetry::{global, metrics::Counter};
 use std::sync::Arc;
 

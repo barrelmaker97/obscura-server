@@ -48,7 +48,7 @@ async fn test_scheduled_push_delivery() {
     let notifier: Arc<dyn NotificationService> = Arc::new(
         DistributedNotificationService::new(
             pubsub.clone(),
-            &test_config,
+            &test_config.notifications,
             shutdown_rx.clone(),
             Some(Arc::new(SharedMockPushProvider) as Arc<dyn PushProvider>),
             token_service,
@@ -58,7 +58,7 @@ async fn test_scheduled_push_delivery() {
     );
 
     // 1. Notify MessageReceived
-    notifier.notify(user_id, obscura_server::services::notification::UserEvent::MessageReceived).await;
+    notifier.notify(user_id, obscura_server::domain::notification::UserEvent::MessageReceived).await;
 
     // 2. Wait for push
     let start = std::time::Instant::now();
@@ -270,7 +270,7 @@ async fn test_push_coalescing() {
     let notifier: Arc<dyn NotificationService> = Arc::new(
         DistributedNotificationService::new(
             pubsub.clone(),
-            &test_config,
+            &test_config.notifications,
             shutdown_rx.clone(),
             Some(Arc::new(SharedMockPushProvider) as Arc<dyn PushProvider>),
             token_service,
@@ -280,7 +280,7 @@ async fn test_push_coalescing() {
     );
 
     for _ in 0..5 {
-        notifier.notify(user_id, obscura_server::services::notification::UserEvent::MessageReceived).await;
+        notifier.notify(user_id, obscura_server::domain::notification::UserEvent::MessageReceived).await;
     }
 
     tokio::time::sleep(Duration::from_secs(5)).await;

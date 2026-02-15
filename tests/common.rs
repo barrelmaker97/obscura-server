@@ -272,7 +272,7 @@ impl TestApp {
         let notifier: Arc<dyn NotificationService> = Arc::new(
             DistributedNotificationService::new(
                 pubsub.clone(),
-                &config,
+                &config.notifications,
                 shutdown_rx.clone(),
                 Some(Arc::new(SharedMockPushProvider)),
                 push_token_service.clone(),

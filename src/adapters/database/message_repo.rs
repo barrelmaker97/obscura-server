@@ -127,7 +127,7 @@ impl MessageRepository {
     /// # Errors
     /// Returns `sqlx::Error` if the deletion fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub async fn delete_expired(&self, conn: &mut PgConnection) -> Result<u64> {
+    pub(crate) async fn delete_expired(&self, conn: &mut PgConnection) -> Result<u64> {
         let result = sqlx::query("DELETE FROM messages WHERE expires_at < NOW()").execute(conn).await?;
         Ok(result.rows_affected())
     }
@@ -137,7 +137,7 @@ impl MessageRepository {
     /// # Errors
     /// Returns `sqlx::Error` if the deletion fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub async fn delete_global_overflow(&self, conn: &mut PgConnection, limit: i64) -> Result<u64> {
+    pub(crate) async fn delete_global_overflow(&self, conn: &mut PgConnection, limit: i64) -> Result<u64> {
         // Deletes messages that exceed the 'limit' per recipient
         let result = sqlx::query(
             r#"
