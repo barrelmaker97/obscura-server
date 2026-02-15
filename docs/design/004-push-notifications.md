@@ -32,7 +32,7 @@ We strictly enforce a **Single Device** policy.
 
 ## 4. API Endpoints
 
-### `PUT /v1/push/token`
+### `PUT /v1/push-tokens`
 -   **Auth**: Required.
 -   **Body**: `{ "token": "fcm_token_string" }`
 -   **Behavior**: Upserts into `push_tokens`.

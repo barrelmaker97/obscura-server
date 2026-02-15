@@ -32,7 +32,7 @@ pub mod health;
 pub mod keys;
 pub mod messages;
 pub mod middleware;
-pub mod notifications;
+pub mod push_tokens;
 pub mod rate_limit;
 pub mod schemas;
 
@@ -130,7 +130,7 @@ pub fn app_router(
         .route("/gateway", get(gateway::websocket_handler))
         .route("/attachments", post(attachments::upload_attachment))
         .route("/attachments/{id}", get(attachments::download_attachment))
-        .route("/push/token", put(notifications::register_token))
+        .route("/push-tokens", put(push_tokens::register_token))
         .layer(GovernorLayer::new(standard_conf));
 
     Router::new()

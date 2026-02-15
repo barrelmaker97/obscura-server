@@ -4,4 +4,4 @@ pub mod common;
 pub mod crypto;
 pub mod health;
 pub mod keys;
-pub mod notifications;
+pub mod push_tokens;

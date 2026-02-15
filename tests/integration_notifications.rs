@@ -386,7 +386,7 @@ async fn test_register_push_token() {
 
     let resp = app
         .client
-        .put(format!("{}/v1/push/token", app.server_url))
+        .put(format!("{}/v1/push-tokens", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
         .json(&payload)
         .send()
@@ -406,7 +406,7 @@ async fn test_register_push_token() {
     let new_token = "updated_fcm_token_456";
     let resp = app
         .client
-        .put(format!("{}/v1/push/token", app.server_url))
+        .put(format!("{}/v1/push-tokens", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
         .json(&json!({ "token": new_token }))
         .send()
@@ -430,7 +430,7 @@ async fn test_register_push_token_unauthorized() {
 
     let resp = app
         .client
-        .put(format!("{}/v1/push/token", app.server_url))
+        .put(format!("{}/v1/push-tokens", app.server_url))
         .json(&json!({ "token": "some_token" }))
         .send()
         .await
