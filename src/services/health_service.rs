@@ -8,8 +8,8 @@ use std::time::Duration;
 use tokio::time::timeout;
 
 #[derive(Clone, Debug)]
-pub struct Metrics {
-    pub status: Gauge<i64>,
+pub(crate) struct Metrics {
+    pub(crate) status: Gauge<i64>,
 }
 
 impl Metrics {
@@ -38,7 +38,7 @@ pub struct HealthService {
     pubsub: Arc<RedisClient>,
     storage_bucket: String,
     config: HealthConfig,
-    metrics: Metrics,
+    pub(crate) metrics: Metrics,
 }
 
 impl HealthService {

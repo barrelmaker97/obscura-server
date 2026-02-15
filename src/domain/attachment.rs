@@ -3,8 +3,8 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Attachment {
-    pub id: Uuid,
-    pub expires_at: OffsetDateTime,
+    pub(crate) id: Uuid,
+    pub(crate) expires_at: OffsetDateTime,
 }
 
 impl Attachment {

@@ -64,7 +64,7 @@ pub struct GatewayService {
     key_service: KeyService,
     notifier: Arc<dyn NotificationService>,
     config: WsConfig,
-    metrics: Metrics,
+    pub(crate) metrics: Metrics,
 }
 
 impl GatewayService {

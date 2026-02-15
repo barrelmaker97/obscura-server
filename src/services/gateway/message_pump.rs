@@ -102,7 +102,7 @@ impl MessagePump {
                 id: msg.id.to_string(),
                 source_user_id: msg.sender_id.to_string(),
                 timestamp,
-                message: Some(EncryptedMessage { r#type: msg.message_type, content: msg.content }),
+                message: Some(EncryptedMessage { r#type: msg.r#type, content: msg.content }),
             };
 
             let frame = WebSocketFrame { payload: Some(Payload::Envelope(envelope)) };

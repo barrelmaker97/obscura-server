@@ -3,8 +3,10 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct User {
-    pub id: Uuid,
-    pub username: String,
-    pub password_hash: String,
-    pub created_at: Option<OffsetDateTime>,
+    pub(crate) id: Uuid,
+    #[allow(dead_code)]
+    pub(crate) username: String,
+    pub(crate) password_hash: String,
+    #[allow(dead_code)]
+    pub(crate) created_at: Option<OffsetDateTime>,
 }

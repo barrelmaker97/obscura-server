@@ -20,7 +20,7 @@ impl From<MessageRecord> for Message {
             id: record.id,
             sender_id: record.sender_id,
             recipient_id: record.recipient_id,
-            message_type: record.r#type,
+            r#type: record.r#type,
             content: record.content,
             created_at: record.created_at,
             expires_at: record.expires_at,
