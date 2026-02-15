@@ -15,7 +15,7 @@ impl PushTokenRepository {
     ///
     /// # Errors
     /// Returns a database error if the upsert fails.
-    #[tracing::instrument(level = "debug", skip(self, conn, token))]
+    #[tracing::instrument(level = "debug", skip(self, conn, token), err)]
     pub(crate) async fn upsert_token(&self, conn: &mut PgConnection, user_id: Uuid, token: &str) -> Result<()> {
         sqlx::query(
             r#"
@@ -37,7 +37,7 @@ impl PushTokenRepository {
     ///
     /// # Errors
     /// Returns a database error if the query fails.
-    #[tracing::instrument(level = "debug", skip(self, conn))]
+    #[tracing::instrument(level = "debug", skip(self, conn), err)]
     pub(crate) async fn find_tokens_for_users(
         &self,
         conn: &mut PgConnection,
@@ -56,7 +56,7 @@ impl PushTokenRepository {
     ///
     /// # Errors
     /// Returns a database error if the deletion fails.
-    #[tracing::instrument(level = "debug", skip(self, conn))]
+    #[tracing::instrument(level = "debug", skip(self, conn), err)]
     pub(crate) async fn delete_token(&self, conn: &mut PgConnection, token: &str) -> Result<()> {
         sqlx::query("DELETE FROM push_tokens WHERE token = $1").bind(token).execute(conn).await?;
         Ok(())

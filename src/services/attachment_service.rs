@@ -14,16 +14,15 @@ use opentelemetry::{
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-use std::time::Duration as StdDuration;
 use time::{Duration, OffsetDateTime};
 use tokio::sync::mpsc;
 use tracing::Instrument;
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
-struct Metrics {
-    uploaded_bytes: Counter<u64>,
-    upload_size_bytes: Histogram<u64>,
+pub(crate) struct Metrics {
+    pub(crate) uploaded_bytes: Counter<u64>,
+    pub(crate) upload_size_bytes: Histogram<u64>,
 }
 
 impl Metrics {
@@ -215,82 +214,5 @@ impl AttachmentService {
         tracing::debug!("Attachment download successful");
         Ok((u64::try_from(content_length).unwrap_or(0), output.body))
     }
-
-    pub async fn run_cleanup_loop(&self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
-        let interval = StdDuration::from_secs(self.config.cleanup_interval_secs);
-        let mut next_tick = tokio::time::Instant::now() + interval;
-
-        while !*shutdown.borrow() {
-            tokio::select! {
-                () = tokio::time::sleep_until(next_tick) => {
-                    async {
-                        tracing::debug!("Running attachment cleanup...");
-
-                        if let Err(e) = self.cleanup_batch().await {
-                            tracing::error!(error = %e, "Attachment cleanup cycle failed");
-                        }
-                    }
-                    .instrument(tracing::info_span!("attachment_cleanup_iteration"))
-                    .await;
-                    next_tick = tokio::time::Instant::now() + interval;
-                }
-                _ = shutdown.changed() => {}
-            }
-        }
-        tracing::info!("Attachment cleanup loop shutting down...");
-    }
-
-    #[tracing::instrument(
-        err,
-        skip(self),
-        fields(batch_count = tracing::field::Empty)
-    )]
-    async fn cleanup_batch(&self) -> Result<()> {
-        loop {
-            // Fetch expired attachments
-            let mut conn = self.pool.acquire().await?;
-            let ids = self
-                .repo
-                .fetch_expired(&mut conn, i64::try_from(self.config.cleanup_batch_size).unwrap_or(i64::MAX))
-                .await?;
-
-            if ids.is_empty() {
-                break;
-            }
-
-            tracing::Span::current().record("batch.count", ids.len());
-            tracing::info!(count = %ids.len(), "Found expired attachments to delete");
-
-            let count = ids.len();
-            for id in ids {
-                let key = id.to_string();
-                let res = async {
-                    // Delete object from S3 first to avoid orphaned files
-                    let res = self.s3_client.delete_object().bucket(&self.config.bucket).key(&key).send().await;
-
-                    match res {
-                        Ok(_) => {}
-                        Err(aws_sdk_s3::error::SdkError::ServiceError(e)) => {
-                            tracing::warn!(error = ?e, key = %key, "S3 delete error");
-                            return Ok(()); // Skip DB delete if S3 failed to ensure we don't lose the reference
-                        }
-                        Err(e) => {
-                            tracing::error!(error = ?e, key = %key, "S3 network/transport error");
-                            return Ok(());
-                        }
-                    }
-
-                    // Only delete from DB if S3 deletion was successful
-                    let mut conn = self.pool.acquire().await?;
-                    self.repo.delete(&mut conn, id).await
-                }
-                .instrument(tracing::info_span!("delete_attachment", "attachment.id" = %id))
-                .await;
-
-                res?;
-            }
-            tracing::info!(deleted_count = %count, "Attachment cleanup batch completed successfully");
-        }
-        Ok(())
-    }
 }
+

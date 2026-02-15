@@ -2,10 +2,7 @@ use crate::adapters::redis::RedisClient;
 use crate::config::NotificationConfig;
 use crate::domain::notification::UserEvent;
 use crate::services::notification::NotificationService;
-use crate::services::notification::provider::PushProvider;
 use crate::services::notification::scheduler::NotificationScheduler;
-use crate::services::notification::worker::NotificationWorker;
-use crate::services::push_token_service::PushTokenService;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use opentelemetry::{
@@ -79,14 +76,10 @@ impl DistributedNotificationService {
         pubsub: Arc<RedisClient>,
         config: &NotificationConfig,
         shutdown: tokio::sync::watch::Receiver<bool>,
-        provider: Option<Arc<dyn PushProvider>>,
-        token_service: PushTokenService,
     ) -> anyhow::Result<Self> {
         let channels = Arc::new(DashMap::new());
         let metrics = Metrics::new();
         let scheduler = Arc::new(NotificationScheduler::new(Arc::clone(&pubsub), config.push_queue_key.clone()));
-
-        let provider = provider.unwrap_or_else(|| Arc::new(crate::adapters::push::fcm::FcmPushProvider));
 
         let channel_prefix = config.channel_prefix.clone();
         let channel_pattern = format!("{channel_prefix}*");
@@ -137,17 +130,6 @@ impl DistributedNotificationService {
             }
             .instrument(tracing::info_span!("notification_dispatcher")),
         );
-
-        // 3. Background Push Worker task
-        let push_worker = NotificationWorker::new(
-            Arc::clone(&scheduler),
-            provider,
-            token_service,
-            config.worker_poll_limit,
-            config.worker_interval_secs,
-            config.worker_concurrency,
-        );
-        tokio::spawn(push_worker.run(shutdown).instrument(tracing::info_span!("push_worker")));
 
         Ok(Self {
             pubsub,

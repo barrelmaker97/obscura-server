@@ -28,6 +28,7 @@ use obscura_server::{
         push_token_service::PushTokenService,
         rate_limit_service::RateLimitService,
     },
+    workers::PushNotificationWorker,
 };
 use prost::Message as ProstMessage;
 use rand::RngCore;
@@ -266,20 +267,31 @@ impl TestApp {
         let attachment_repo = AttachmentRepository::new();
         let push_token_repo = PushTokenRepository::new();
 
-        let push_token_service = PushTokenService::new(pool.clone(), push_token_repo);
+        let push_token_service = PushTokenService::new(pool.clone(), push_token_repo.clone());
+
+        let notification_scheduler = Arc::new(obscura_server::services::notification::NotificationScheduler::new(
+            pubsub.clone(),
+            config.notifications.push_queue_key.clone(),
+        ));
 
         // ALWAYS USE SHARED MOCK PROVIDER IN TESTS
         let notifier: Arc<dyn NotificationService> = Arc::new(
-            DistributedNotificationService::new(
-                pubsub.clone(),
-                &config.notifications,
-                shutdown_rx.clone(),
-                Some(Arc::new(SharedMockPushProvider)),
-                push_token_service.clone(),
-            )
-            .await
-            .expect("Failed to create DistributedNotificationService for tests."),
+            DistributedNotificationService::new(pubsub.clone(), &config.notifications, shutdown_rx.clone())
+                .await
+                .expect("Failed to create DistributedNotificationService for tests."),
         );
+
+        let push_worker = PushNotificationWorker::new(
+            pool.clone(),
+            notification_scheduler,
+            Arc::new(SharedMockPushProvider),
+            push_token_repo.clone(),
+            config.notifications.worker_poll_limit,
+            config.notifications.worker_interval_secs,
+            config.notifications.worker_concurrency,
+        );
+
+        tokio::spawn(push_worker.run(shutdown_rx.clone()));
 
         let region_provider = aws_config::Region::new(config.storage.region.clone());
         let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider);

@@ -22,3 +22,4 @@ pub mod error;
 pub mod proto;
 pub mod services;
 pub mod telemetry;
+pub mod workers;

@@ -3,22 +3,19 @@ use crate::adapters::database::message_repo::MessageRepository;
 use crate::config::MessagingConfig;
 use crate::domain::message::Message;
 use crate::domain::notification::UserEvent;
-use crate::error::{AppError, Result};
+use crate::error::Result;
 use crate::services::notification::NotificationService;
 use opentelemetry::{
     KeyValue, global,
     metrics::{Counter, Histogram},
 };
 use std::sync::Arc;
-use std::time::Duration;
-use tracing::Instrument;
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
-struct Metrics {
-    sent_total: Counter<u64>,
-    fetch_batch_size: Histogram<u64>,
-    inbox_overflow_total: Counter<u64>,
+pub(crate) struct Metrics {
+    pub(crate) sent_total: Counter<u64>,
+    pub(crate) fetch_batch_size: Histogram<u64>,
 }
 
 impl Metrics {
@@ -32,10 +29,6 @@ impl Metrics {
             fetch_batch_size: meter
                 .u64_histogram("messaging_fetch_batch_size")
                 .with_description("Number of messages fetched in a single batch")
-                .build(),
-            inbox_overflow_total: meter
-                .u64_counter("messaging_inbox_overflow_total")
-                .with_description("Total messages deleted due to inbox overflow")
                 .build(),
         }
     }
@@ -137,56 +130,5 @@ impl MessageService {
     pub(crate) const fn batch_limit(&self) -> i64 {
         self.config.batch_limit
     }
-
-    /// Periodically cleans up expired messages and enforces inbox limits.
-    pub async fn run_cleanup_loop(&self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
-        let mut interval = tokio::time::interval(Duration::from_secs(self.config.cleanup_interval_secs));
-
-        while !*shutdown.borrow() {
-            tokio::select! {
-                _ = interval.tick() => {
-                    async {
-                        tracing::debug!("Running message cleanup (expiry + limits)...");
-
-                        // Delete messages exceeding TTL
-                        let res_expiry = if let Ok(mut conn) = self.pool.acquire().await {
-                             self.repo.delete_expired(&mut conn).await
-                        } else {
-                             Err(AppError::Internal)
-                        };
-
-                        match res_expiry {
-                            Ok(count) => {
-                                if count > 0 {
-                                    tracing::info!(count = %count, "Deleted expired messages");
-                                }
-                            }
-                            Err(e) => tracing::error!(error = ?e, "Cleanup loop error (expiry)"),
-                        }
-
-                        // Enforce global inbox size limits (prune oldest messages)
-                        let res_overflow = if let Ok(mut conn) = self.pool.acquire().await {
-                            self.repo.delete_global_overflow(&mut conn, self.config.max_inbox_size).await
-                        } else {
-                            Err(AppError::Internal)
-                        };
-
-                        match res_overflow {
-                            Ok(count) => {
-                                if count > 0 {
-                                    tracing::info!(count = %count, "Pruned overflow messages");
-                                    self.metrics.inbox_overflow_total.add(count, &[]);
-                                }
-                            }
-                            Err(e) => tracing::error!(error = ?e, "Cleanup loop error (overflow)"),
-                        }
-                    }
-                    .instrument(tracing::info_span!("message_cleanup_iteration"))
-                    .await;
-                }
-                _ = shutdown.changed() => {}
-            }
-        }
-        tracing::info!("Message cleanup loop shutting down...");
-    }
 }
+
