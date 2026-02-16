@@ -1,3 +1,4 @@
+use crate::adapters::database::DbPool;
 use crate::api::rate_limit::log_rate_limit_events;
 use crate::config::Config;
 use crate::services::account_service::AccountService;
@@ -7,14 +8,15 @@ use crate::services::gateway::GatewayService;
 use crate::services::health_service::HealthService;
 use crate::services::key_service::KeyService;
 use crate::services::message_service::MessageService;
+use crate::services::notification::NotificationService;
+use crate::services::push_token_service::PushTokenService;
 use crate::services::rate_limit_service::RateLimitService;
-use crate::storage::DbPool;
 use axum::body::Body;
 use axum::http::Request;
 use axum::{
     Router,
     middleware::from_fn_with_state,
-    routing::{get, post},
+    routing::{delete, get, post, put},
 };
 use std::sync::Arc;
 use tower_governor::GovernorLayer;
@@ -30,6 +32,7 @@ pub mod health;
 pub mod keys;
 pub mod messages;
 pub mod middleware;
+pub mod push_tokens;
 pub mod rate_limit;
 pub mod schemas;
 
@@ -42,6 +45,8 @@ pub struct AppState {
     pub auth_service: AuthService,
     pub message_service: MessageService,
     pub gateway_service: GatewayService,
+    pub notification_service: Arc<dyn NotificationService>,
+    pub push_token_service: PushTokenService,
     pub rate_limit_service: RateLimitService,
     pub shutdown_rx: tokio::sync::watch::Receiver<bool>,
 }
@@ -60,6 +65,8 @@ pub struct ServiceContainer {
     pub auth_service: AuthService,
     pub message_service: MessageService,
     pub gateway_service: GatewayService,
+    pub notification_service: Arc<dyn NotificationService>,
+    pub push_token_service: PushTokenService,
     pub rate_limit_service: RateLimitService,
 }
 
@@ -101,6 +108,8 @@ pub fn app_router(
         auth_service: services.auth_service,
         message_service: services.message_service,
         gateway_service: services.gateway_service,
+        notification_service: services.notification_service,
+        push_token_service: services.push_token_service,
         rate_limit_service: services.rate_limit_service,
         shutdown_rx,
     };
@@ -109,7 +118,7 @@ pub fn app_router(
     let auth_routes = Router::new()
         .route("/users", post(auth::register))
         .route("/sessions", post(auth::login))
-        .route("/sessions", axum::routing::delete(auth::logout))
+        .route("/sessions", delete(auth::logout))
         .route("/sessions/refresh", post(auth::refresh))
         .layer(GovernorLayer::new(auth_conf));
 
@@ -121,6 +130,7 @@ pub fn app_router(
         .route("/gateway", get(gateway::websocket_handler))
         .route("/attachments", post(attachments::upload_attachment))
         .route("/attachments/{id}", get(attachments::download_attachment))
+        .route("/push-tokens", put(push_tokens::register_token))
         .layer(GovernorLayer::new(standard_conf));
 
     Router::new()

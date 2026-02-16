@@ -2,10 +2,13 @@ use crate::config::PubSubConfig;
 use backon::{ExponentialBuilder, Retryable};
 use dashmap::DashMap;
 use futures::StreamExt;
-use redis::AsyncCommands;
 use std::sync::Arc;
 use tokio::sync::{broadcast, watch};
 use tracing::Instrument;
+
+pub mod notification_repo;
+
+pub use notification_repo::NotificationRepository;
 
 #[derive(Debug, Clone)]
 pub struct PubSubMessage {
@@ -160,16 +163,6 @@ impl RedisClient {
         }
 
         subscriptions.remove(&pattern);
-    }
-
-    /// Helper to publish a message directly.
-    ///
-    /// # Errors
-    /// Returns an error if the publish fails.
-    pub async fn publish(&self, channel: &str, payload: &[u8]) -> anyhow::Result<()> {
-        let mut conn = self.publisher();
-        conn.publish::<_, _, i64>(channel, payload).await?;
-        Ok(())
     }
 
     /// Pings the Redis server to check connectivity.

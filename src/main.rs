@@ -1,3 +1,9 @@
+use obscura_server::adapters::database::attachment_repo::AttachmentRepository;
+use obscura_server::adapters::database::key_repo::KeyRepository;
+use obscura_server::adapters::database::message_repo::MessageRepository;
+use obscura_server::adapters::database::push_token_repo::PushTokenRepository;
+use obscura_server::adapters::database::refresh_token_repo::RefreshTokenRepository;
+use obscura_server::adapters::database::user_repo::UserRepository;
 use obscura_server::api::{self, MgmtState, ServiceContainer};
 use obscura_server::config::Config;
 use obscura_server::services::account_service::AccountService;
@@ -8,14 +14,11 @@ use obscura_server::services::gateway::GatewayService;
 use obscura_server::services::health_service::HealthService;
 use obscura_server::services::key_service::KeyService;
 use obscura_server::services::message_service::MessageService;
-use obscura_server::services::notification_service::{DistributedNotificationService, NotificationService};
+use obscura_server::services::notification::{DistributedNotificationService, NotificationService};
+use obscura_server::services::push_token_service::PushTokenService;
 use obscura_server::services::rate_limit_service::RateLimitService;
-use obscura_server::storage::attachment_repo::AttachmentRepository;
-use obscura_server::storage::key_repo::KeyRepository;
-use obscura_server::storage::message_repo::MessageRepository;
-use obscura_server::storage::refresh_token_repo::RefreshTokenRepository;
-use obscura_server::storage::user_repo::UserRepository;
-use obscura_server::{storage, telemetry};
+use obscura_server::workers::{AttachmentCleanupWorker, MessageCleanupWorker, PushNotificationWorker};
+use obscura_server::{adapters, telemetry};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::watch;
@@ -54,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
         }));
 
         // Initialize pool
-        let pool = storage::init_pool(&config.database_url).await?;
+        let pool = adapters::database::init_pool(&config.database_url).await?;
 
         // Run migrations
         {
@@ -75,7 +78,7 @@ async fn main() -> anyhow::Result<()> {
         // PubSub Setup (using Redis)
         let pubsub = {
             let _span = tracing::info_span!("pubsub_setup").entered();
-            storage::redis::RedisClient::new(
+            adapters::redis::RedisClient::new(
                 &config.pubsub,
                 config.notifications.global_channel_capacity,
                 shutdown_rx.clone(),
@@ -83,8 +86,29 @@ async fn main() -> anyhow::Result<()> {
             .await?
         };
 
-        let notifier: Arc<dyn NotificationService> =
-            Arc::new(DistributedNotificationService::new(pubsub.clone(), &config, shutdown_rx.clone()).await?);
+        // Initialize Repositories
+        let (key_repo, message_repo, user_repo, refresh_repo, attachment_repo, push_token_repo) = {
+            let _span = tracing::info_span!("repository_initialization").entered();
+            (
+                KeyRepository::new(),
+                MessageRepository::new(),
+                UserRepository::new(),
+                RefreshTokenRepository::new(),
+                AttachmentRepository::new(),
+                PushTokenRepository::new(),
+            )
+        };
+
+        // Initialize Specialized Services
+        let push_token_service = PushTokenService::new(pool.clone(), push_token_repo.clone());
+
+        let notification_repo =
+            Arc::new(adapters::redis::NotificationRepository::new(pubsub.clone(), &config.notifications));
+
+        let notifier: Arc<dyn NotificationService> = Arc::new(
+            DistributedNotificationService::new(notification_repo.clone(), &config.notifications, shutdown_rx.clone())
+                .await?,
+        );
 
         // Storage Setup
         let s3_client = {
@@ -107,19 +131,7 @@ async fn main() -> anyhow::Result<()> {
             aws_sdk_s3::Client::from_conf(s3_config_builder.build())
         };
 
-        // Initialize Repositories
-        let (key_repo, message_repo, user_repo, refresh_repo, attachment_repo) = {
-            let _span = tracing::info_span!("repository_initialization").entered();
-            (
-                KeyRepository::new(),
-                MessageRepository::new(),
-                UserRepository::new(),
-                RefreshTokenRepository::new(),
-                AttachmentRepository::new(),
-            )
-        };
-
-        // Initialize Services
+        // Initialize Core Services
         let (
             key_service,
             attachment_service,
@@ -134,11 +146,12 @@ async fn main() -> anyhow::Result<()> {
 
             let crypto_service = CryptoService::new();
 
-            let key_service = KeyService::new(pool.clone(), key_repo, crypto_service.clone(), config.messaging.clone());
+            let key_service =
+                KeyService::new(pool.clone(), key_repo.clone(), crypto_service.clone(), config.messaging.clone());
 
             let attachment_service = AttachmentService::new(
                 pool.clone(),
-                attachment_repo,
+                attachment_repo.clone(),
                 s3_client.clone(),
                 config.storage.clone(),
                 config.ttl_days,
@@ -194,16 +207,29 @@ async fn main() -> anyhow::Result<()> {
         };
 
         // Start background tasks
-        let message_cleanup = message_service.clone();
-        let message_cleanup_rx = shutdown_rx.clone();
+        let message_worker = MessageCleanupWorker::new(pool.clone(), message_repo, config.messaging.clone());
+        let message_rx = shutdown_rx.clone();
         let message_task = tokio::spawn(async move {
-            message_cleanup.run_cleanup_loop(message_cleanup_rx).await;
+            message_worker.run(message_rx).await;
         });
 
-        let cleanup_service = attachment_service.clone();
-        let attachment_cleanup_rx = shutdown_rx.clone();
+        let attachment_worker =
+            AttachmentCleanupWorker::new(pool.clone(), attachment_repo, s3_client.clone(), config.storage.clone());
+        let attachment_rx = shutdown_rx.clone();
         let attachment_task = tokio::spawn(async move {
-            cleanup_service.run_cleanup_loop(attachment_cleanup_rx).await;
+            attachment_worker.run(attachment_rx).await;
+        });
+
+        let push_worker = PushNotificationWorker::new(
+            pool.clone(),
+            notification_repo,
+            Arc::new(adapters::push::fcm::FcmPushProvider),
+            push_token_repo,
+            &config.notifications,
+        );
+        let push_worker_rx = shutdown_rx.clone();
+        let push_worker_task = tokio::spawn(async move {
+            push_worker.run(push_worker_rx).await;
         });
 
         let services = ServiceContainer {
@@ -214,6 +240,8 @@ async fn main() -> anyhow::Result<()> {
             auth_service,
             message_service,
             gateway_service,
+            notification_service: notifier.clone(),
+            push_token_service,
             rate_limit_service,
         };
 
@@ -233,13 +261,32 @@ async fn main() -> anyhow::Result<()> {
         let api_listener = tokio::net::TcpListener::bind(addr).await?;
         let mgmt_listener = tokio::net::TcpListener::bind(mgmt_addr).await?;
 
-        Ok((api_listener, mgmt_listener, app, mgmt_app, shutdown_tx, shutdown_rx, message_task, attachment_task))
+        Ok((
+            api_listener,
+            mgmt_listener,
+            app,
+            mgmt_app,
+            shutdown_tx,
+            shutdown_rx,
+            message_task,
+            attachment_task,
+            push_worker_task,
+        ))
     }
     .instrument(boot_span)
     .await;
 
-    let (api_listener, mgmt_listener, app, mgmt_app, shutdown_tx, shutdown_rx, message_task, attachment_task) =
-        boot_result?;
+    let (
+        api_listener,
+        mgmt_listener,
+        app,
+        mgmt_app,
+        shutdown_tx,
+        shutdown_rx,
+        message_task,
+        attachment_task,
+        push_worker_task,
+    ) = boot_result?;
 
     let mut api_rx = shutdown_rx.clone();
     let api_server = axum::serve(api_listener, app.into_make_service_with_connect_info::<SocketAddr>())
@@ -263,7 +310,7 @@ async fn main() -> anyhow::Result<()> {
     // Wait for tasks to finish (with timeout)
     tokio::select! {
         _ = async {
-            let _ = tokio::join!(message_task, attachment_task);
+            let _ = tokio::join!(message_task, attachment_task, push_worker_task);
         } => {
             tracing::info!("Background tasks finished.");
         }

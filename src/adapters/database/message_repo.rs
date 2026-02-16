@@ -1,6 +1,6 @@
+use crate::adapters::database::records::MessageRecord;
 use crate::domain::message::Message;
 use crate::error::{AppError, Result};
-use crate::storage::records::MessageRecord;
 use sqlx::PgConnection;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
@@ -126,7 +126,7 @@ impl MessageRepository {
     ///
     /// # Errors
     /// Returns `sqlx::Error` if the deletion fails.
-    #[tracing::instrument(level = "debug", skip(self, conn))]
+    #[tracing::instrument(level = "debug", skip(self, conn), err)]
     pub async fn delete_expired(&self, conn: &mut PgConnection) -> Result<u64> {
         let result = sqlx::query("DELETE FROM messages WHERE expires_at < NOW()").execute(conn).await?;
         Ok(result.rows_affected())
@@ -136,7 +136,7 @@ impl MessageRepository {
     ///
     /// # Errors
     /// Returns `sqlx::Error` if the deletion fails.
-    #[tracing::instrument(level = "debug", skip(self, conn))]
+    #[tracing::instrument(level = "debug", skip(self, conn), err)]
     pub async fn delete_global_overflow(&self, conn: &mut PgConnection, limit: i64) -> Result<u64> {
         // Deletes messages that exceed the 'limit' per recipient
         let result = sqlx::query(

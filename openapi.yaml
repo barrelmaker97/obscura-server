@@ -46,15 +46,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                username:
-                  type: string
-                password:
-                  type: string
-              required:
-                - username
-                - password
+              $ref: '#/components/schemas/LoginRequest'
       responses:
         '200':
           description: Authenticated.
@@ -80,11 +72,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [refreshToken]
-              properties:
-                refreshToken:
-                  type: string
+              $ref: '#/components/schemas/LogoutRequest'
       responses:
         '200':
           description: Session revoked.
@@ -139,7 +127,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PreKeyUpload'
+              $ref: '#/components/schemas/PreKeyUploadRequest'
       responses:
         '200':
           description: Keys updated or takeover successful.
@@ -172,7 +160,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PreKeyBundle'
+                $ref: '#/components/schemas/PreKeyBundleResponse'
         '404':
           description: User not found or no keys available.
           content:
@@ -274,15 +262,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                    format: uuid
-                  expiresAt:
-                    type: integer
-                    format: int64
-                    description: UNIX timestamp of when the file will be deleted.
+                $ref: '#/components/schemas/AttachmentResponse'
         '400':
           description: File too large.
           content:
@@ -317,6 +297,34 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           description: Not found or expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # --- Push Notifications ---
+  /v1/push-tokens:
+    put:
+      summary: Register or update a push notification token.
+      description: |
+        Associates an FCM or APNS token with the authenticated user device for wake-up signals.
+        Obscura uses a "Single Device" policy; updating the token replaces any existing one.
+      tags: [Push Notifications]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterPushTokenRequest'
+      responses:
+        '200':
+          description: Token registered successfully.
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '400':
+          description: Invalid token format.
           content:
             application/json:
               schema:
@@ -364,12 +372,38 @@ components:
           format: int64
           description: UNIX timestamp of access token expiration.
 
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+
+    LogoutRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+
     RefreshRequest:
       type: object
       required: [refreshToken]
       properties:
         refreshToken:
           type: string
+
+    RegisterPushTokenRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: FCM or APNS device token.
 
     RegistrationRequest:
       type: object
@@ -392,13 +426,13 @@ components:
         registrationId:
           type: integer
         signedPreKey:
-          $ref: '#/components/schemas/SignedPreKeyDto'
+          $ref: '#/components/schemas/SignedPreKey'
         oneTimePreKeys:
           type: array
           items:
-            $ref: '#/components/schemas/OneTimePreKeyDto'
+            $ref: '#/components/schemas/OneTimePreKey'
 
-    PreKeyUpload:
+    PreKeyUploadRequest:
       type: object
       required:
         - signedPreKey
@@ -412,14 +446,14 @@ components:
           type: integer
           description: Required if identityKey is provided.
         signedPreKey:
-          $ref: '#/components/schemas/SignedPreKeyDto'
+          $ref: '#/components/schemas/SignedPreKey'
           description: Signed Pre-Key. ID must be strictly greater than the current stored ID.
         oneTimePreKeys:
           type: array
           items:
-            $ref: '#/components/schemas/OneTimePreKeyDto'
+            $ref: '#/components/schemas/OneTimePreKey'
 
-    PreKeyBundle:
+    PreKeyBundleResponse:
       type: object
       properties:
         registrationId:
@@ -428,12 +462,12 @@ components:
           type: string
           format: byte
         signedPreKey:
-          $ref: '#/components/schemas/SignedPreKeyDto'
+          $ref: '#/components/schemas/SignedPreKey'
         oneTimePreKey:
-          $ref: '#/components/schemas/OneTimePreKeyDto'
+          $ref: '#/components/schemas/OneTimePreKey'
           nullable: true
 
-    SignedPreKeyDto:
+    SignedPreKey:
       type: object
       required:
         - keyId
@@ -451,7 +485,7 @@ components:
           format: byte
           description: Base64 encoded signature
 
-    OneTimePreKeyDto:
+    OneTimePreKey:
       type: object
       required:
         - keyId
@@ -463,3 +497,14 @@ components:
           type: string
           format: byte
           description: Base64 encoded public key
+
+    AttachmentResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        expiresAt:
+          type: integer
+          format: int64
+          description: UNIX timestamp of when the file will be deleted.

@@ -290,11 +290,60 @@ pub struct NotificationConfig {
     /// Capacity of the per-user notification channel
     #[arg(long, env = "OBSCURA_NOTIFICATIONS_USER_CHANNEL_CAPACITY", default_value_t = NotificationConfig::default().user_channel_capacity)]
     pub user_channel_capacity: usize,
+
+    /// Delay in seconds before a push notification is sent as a fallback
+    #[arg(long, env = "OBSCURA_NOTIFICATIONS_PUSH_DELAY_SECS", default_value_t = NotificationConfig::default().push_delay_secs)]
+    pub push_delay_secs: u64,
+
+    /// Interval in seconds for the notification worker to poll for due jobs
+    #[arg(long, env = "OBSCURA_NOTIFICATIONS_WORKER_INTERVAL_SECS", default_value_t = NotificationConfig::default().worker_interval_secs)]
+    pub worker_interval_secs: u64,
+
+    /// Maximum number of concurrent push notification requests (also used as Redis poll limit)
+    #[arg(long, env = "OBSCURA_NOTIFICATIONS_WORKER_CONCURRENCY", default_value_t = NotificationConfig::default().worker_concurrency)]
+    pub worker_concurrency: usize,
+
+    /// Redis key for the push notification job queue
+    #[arg(long, env = "OBSCURA_NOTIFICATIONS_PUSH_QUEUE_KEY", default_value_t = NotificationConfig::default().push_queue_key)]
+    pub push_queue_key: String,
+
+    /// Redis `PubSub` channel prefix for user notifications
+    #[arg(long, env = "OBSCURA_NOTIFICATIONS_CHANNEL_PREFIX", default_value_t = NotificationConfig::default().channel_prefix)]
+    pub channel_prefix: String,
+
+    /// How long a push job is leased by a worker in seconds
+    #[arg(long, env = "OBSCURA_NOTIFICATIONS_VISIBILITY_TIMEOUT_SECS", default_value_t = NotificationConfig::default().visibility_timeout_secs)]
+    pub visibility_timeout_secs: u64,
+
+    /// How often the invalid token janitor flushes to the database in seconds
+    #[arg(long, env = "OBSCURA_NOTIFICATIONS_JANITOR_INTERVAL_SECS", default_value_t = NotificationConfig::default().janitor_interval_secs)]
+    pub janitor_interval_secs: u64,
+
+    /// Maximum number of invalid tokens to delete in a single batch
+    #[arg(long, env = "OBSCURA_NOTIFICATIONS_JANITOR_BATCH_SIZE", default_value_t = NotificationConfig::default().janitor_batch_size)]
+    pub janitor_batch_size: usize,
+
+    /// Capacity of the invalid token janitor channel
+    #[arg(long, env = "OBSCURA_NOTIFICATIONS_JANITOR_CHANNEL_CAPACITY", default_value_t = NotificationConfig::default().janitor_channel_capacity)]
+    pub janitor_channel_capacity: usize,
 }
 
 impl Default for NotificationConfig {
     fn default() -> Self {
-        Self { gc_interval_secs: 60, global_channel_capacity: 1024, user_channel_capacity: 64 }
+        Self {
+            gc_interval_secs: 60,
+            global_channel_capacity: 1024,
+            user_channel_capacity: 64,
+            push_delay_secs: 10,
+            worker_interval_secs: 1,
+            worker_concurrency: 100,
+            push_queue_key: "jobs:push_notifications".to_string(),
+            channel_prefix: "user:".to_string(),
+            visibility_timeout_secs: 30,
+            janitor_interval_secs: 5,
+            janitor_batch_size: 50,
+            janitor_channel_capacity: 256,
+        }
     }
 }
 

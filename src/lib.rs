@@ -14,11 +14,12 @@
 #![warn(unused_qualifications)]
 #![deny(unused_must_use)]
 
+pub mod adapters;
 pub mod api;
 pub mod config;
 pub mod domain;
 pub mod error;
 pub mod proto;
 pub mod services;
-pub mod storage;
 pub mod telemetry;
+pub mod workers;

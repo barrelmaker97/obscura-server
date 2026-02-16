@@ -17,7 +17,7 @@ impl RefreshTokenRepository {
     ///
     /// # Errors
     /// Returns `AppError::Database` if the insert fails.
-    #[tracing::instrument(level = "debug", skip(self, conn, token_hash))]
+    #[tracing::instrument(level = "debug", skip(self, conn, token_hash), err)]
     pub(crate) async fn create(
         &self,
         conn: &mut PgConnection,
@@ -44,7 +44,7 @@ impl RefreshTokenRepository {
     ///
     /// # Errors
     /// Returns `sqlx::Error` if the operation fails.
-    #[tracing::instrument(level = "debug", skip(self, conn, old_hash, new_hash))]
+    #[tracing::instrument(level = "debug", skip(self, conn, old_hash, new_hash), err)]
     pub(crate) async fn rotate(
         &self,
         conn: &mut PgConnection,
@@ -81,7 +81,7 @@ impl RefreshTokenRepository {
     ///
     /// # Errors
     /// Returns `AppError::Database` if the deletion fails.
-    #[tracing::instrument(level = "debug", skip(self, conn, token_hash))]
+    #[tracing::instrument(level = "debug", skip(self, conn, token_hash), err)]
     pub(crate) async fn delete_owned(&self, conn: &mut PgConnection, token_hash: &str, user_id: Uuid) -> Result<()> {
         sqlx::query("DELETE FROM refresh_tokens WHERE token_hash = $1 AND user_id = $2")
             .bind(token_hash)
