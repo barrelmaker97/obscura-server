@@ -186,11 +186,10 @@ impl AppBuilder {
         let refresh_repo = RefreshTokenRepository::new();
         let attachment_repo = AttachmentRepository::new();
         let push_token_repo = PushTokenRepository::new();
-
-        // Initialize Specialized Services
-        let push_token_service = PushTokenService::new(pool.clone(), push_token_repo.clone());
         let notification_repo =
             Arc::new(adapters::redis::NotificationRepository::new(Arc::clone(&pubsub), &config.notifications));
+
+        // TODO remove hidden background tasks from this, move to worker
         let notifier =
             NotificationService::new(Arc::clone(&notification_repo), &config.notifications, shutdown_rx.clone())
                 .await?;
@@ -220,7 +219,7 @@ impl AppBuilder {
             notifier.clone(),
             config.websocket.clone(),
         );
-
+        let push_token_service = PushTokenService::new(pool.clone(), push_token_repo.clone());
         let attachment_service = AttachmentService::new(
             pool.clone(),
             attachment_repo.clone(),
