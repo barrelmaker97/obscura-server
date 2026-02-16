@@ -1,4 +1,4 @@
-use crate::adapters::database::DbPool;
+use crate::ServiceContainer;
 use crate::api::rate_limit::log_rate_limit_events;
 use crate::config::Config;
 use crate::services::account_service::AccountService;
@@ -54,20 +54,6 @@ pub struct AppState {
 #[derive(Clone, Debug)]
 pub struct MgmtState {
     pub health_service: HealthService,
-}
-
-#[derive(Debug)]
-pub struct ServiceContainer {
-    pub pool: DbPool,
-    pub key_service: KeyService,
-    pub attachment_service: AttachmentService,
-    pub account_service: AccountService,
-    pub auth_service: AuthService,
-    pub message_service: MessageService,
-    pub gateway_service: GatewayService,
-    pub notification_service: NotificationService,
-    pub push_token_service: PushTokenService,
-    pub rate_limit_service: RateLimitService,
 }
 
 /// Configures and returns the primary application router.

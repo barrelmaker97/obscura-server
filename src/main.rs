@@ -16,7 +16,7 @@
 
 use obscura_server::api::MgmtState;
 use obscura_server::config::Config;
-use obscura_server::{AppBuilder, AppComponents, adapters, telemetry};
+use obscura_server::{AppBuilder, adapters, telemetry};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::watch;
@@ -58,11 +58,9 @@ async fn main() -> anyhow::Result<()> {
             .build()
             .await?;
 
-        let AppComponents { services, health_service, workers } = components;
-
         // Phase 3: Runtime Setup (Listeners and Routers)
-        let app = obscura_server::api::app_router(config.clone(), services, shutdown_rx.clone());
-        let mgmt_app = obscura_server::api::mgmt_router(MgmtState { health_service });
+        let app = obscura_server::api::app_router(config.clone(), components.services, shutdown_rx.clone());
+        let mgmt_app = obscura_server::api::mgmt_router(MgmtState { health_service: components.health_service });
 
         let api_addr: SocketAddr = format!("{}:{}", config.server.host, config.server.port).parse()?;
         let mgmt_addr: SocketAddr = format!("{}:{}", config.server.host, config.server.mgmt_port).parse()?;
@@ -84,7 +82,7 @@ async fn main() -> anyhow::Result<()> {
                 obscura_server::WorkerManager,
             ),
             anyhow::Error,
-        >((api_listener, mgmt_listener, app, mgmt_app, shutdown_tx, shutdown_rx, workers))
+        >((api_listener, mgmt_listener, app, mgmt_app, shutdown_tx, shutdown_rx, components.workers))
     }
     .instrument(boot_span)
     .await?;

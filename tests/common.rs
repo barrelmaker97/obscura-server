@@ -269,14 +269,14 @@ impl TestApp {
             .await
             .expect("Failed to build application for tests");
 
-        let obscura_server::AppComponents { services, health_service, workers } = components;
-
         // Spawn workers explicitly in tests if needed (some tests might want to control this)
-        let _worker_tasks = workers.spawn_all(shutdown_rx.clone());
+        let _worker_tasks = components.workers.spawn_all(shutdown_rx.clone());
 
-        let notifier = services.notification_service.clone();
-        let app = app_router(config.clone(), services, shutdown_rx.clone());
-        let mgmt_app = obscura_server::api::mgmt_router(obscura_server::api::MgmtState { health_service });
+        let notifier = components.services.notification_service.clone();
+        let app = app_router(config.clone(), components.services, shutdown_rx.clone());
+        let mgmt_app = obscura_server::api::mgmt_router(obscura_server::api::MgmtState {
+            health_service: components.health_service,
+        });
 
         let server_url = format!("http://{}", addr);
         let mgmt_url = format!("http://{}", mgmt_addr);

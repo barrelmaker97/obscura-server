@@ -31,7 +31,6 @@ use crate::adapters::database::push_token_repo::PushTokenRepository;
 use crate::adapters::database::refresh_token_repo::RefreshTokenRepository;
 use crate::adapters::database::user_repo::UserRepository;
 use crate::adapters::push::PushProvider;
-use crate::api::ServiceContainer;
 use crate::config::{Config, StorageConfig};
 use crate::services::account_service::AccountService;
 use crate::services::attachment_service::AttachmentService;
@@ -48,8 +47,29 @@ use crate::workers::{AttachmentCleanupWorker, MessageCleanupWorker, PushNotifica
 use std::sync::Arc;
 use tokio::sync::watch;
 
+#[derive(Clone, Debug)]
+pub struct Resources {
+    pub pool: adapters::database::DbPool,
+    pub pubsub: Arc<adapters::redis::RedisClient>,
+    pub s3_client: aws_sdk_s3::Client,
+}
+
+#[derive(Debug)]
+pub struct ServiceContainer {
+    pub key_service: KeyService,
+    pub attachment_service: AttachmentService,
+    pub account_service: AccountService,
+    pub auth_service: AuthService,
+    pub message_service: MessageService,
+    pub gateway_service: GatewayService,
+    pub notification_service: NotificationService,
+    pub push_token_service: PushTokenService,
+    pub rate_limit_service: RateLimitService,
+}
+
 #[derive(Debug)]
 pub struct AppComponents {
+    pub resources: Resources,
     pub services: ServiceContainer,
     pub health_service: HealthService,
     pub workers: WorkerManager,
@@ -157,6 +177,8 @@ impl AppBuilder {
 
         let config = &self.config;
 
+        let resources = Resources { pool: pool.clone(), pubsub: pubsub.clone(), s3_client: s3_client.clone() };
+
         // Initialize Repositories
         let key_repo = KeyRepository::new();
         let message_repo = MessageRepository::new();
@@ -216,7 +238,6 @@ impl AppBuilder {
         );
 
         let services = ServiceContainer {
-            pool: pool.clone(),
             key_service,
             attachment_service,
             account_service,
@@ -245,7 +266,7 @@ impl AppBuilder {
             ),
         };
 
-        Ok(AppComponents { services, health_service, workers })
+        Ok(AppComponents { resources, services, health_service, workers })
     }
 }
 
