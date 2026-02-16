@@ -316,6 +316,9 @@ async fn test_push_coalescing() {
     let _ = shutdown_tx.send(true);
 }
 
+static IN_FLIGHT_COUNT: AtomicUsize = AtomicUsize::new(0);
+static PEAK_IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
+
 #[derive(Debug, Default)]
 struct ConcurrencyMockProvider;
 
@@ -324,7 +327,6 @@ impl PushProvider for ConcurrencyMockProvider {
     async fn send_push(&self, _token: &str) -> Result<(), PushError> {
         let current = IN_FLIGHT_COUNT.fetch_add(1, Ordering::SeqCst) + 1;
 
-        static PEAK_IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
         loop {
             let prev = PEAK_IN_FLIGHT.load(Ordering::SeqCst);
             if current <= prev
@@ -341,12 +343,12 @@ impl PushProvider for ConcurrencyMockProvider {
     }
 }
 
-static IN_FLIGHT_COUNT: AtomicUsize = AtomicUsize::new(0);
-
 #[tokio::test]
 async fn test_notification_worker_concurrency_limit() {
     common::setup_tracing();
-    let config = common::get_test_config();
+    PEAK_IN_FLIGHT.store(0, Ordering::SeqCst);
+    
+    let mut config = common::get_test_config();
     let pool = common::get_test_pool().await;
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
@@ -359,6 +361,8 @@ async fn test_notification_worker_concurrency_limit() {
 
     let poll_limit = 20;
     let concurrency = 2;
+    config.notifications.worker_poll_limit = poll_limit;
+    config.notifications.worker_concurrency = concurrency;
 
     let notification_repo = Arc::new(NotificationRepository::new(
         pubsub.clone(),
@@ -393,6 +397,10 @@ async fn test_notification_worker_concurrency_limit() {
     }
 
     tokio::time::sleep(Duration::from_secs(5)).await;
+
+    let peak = PEAK_IN_FLIGHT.load(Ordering::SeqCst);
+    assert!(peak > 0);
+    assert!(peak <= concurrency as usize, "Peak concurrency {} exceeded limit {}", peak, concurrency);
 
     let _ = shutdown_tx.send(true);
 }

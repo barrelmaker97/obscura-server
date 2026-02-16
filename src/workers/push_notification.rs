@@ -93,7 +93,13 @@ impl PushNotificationWorker {
     /// Returns an error if the scheduler or database operation fails.
     #[tracing::instrument(skip(self), name = "process_due_jobs", err)]
     pub async fn process_due_jobs(&self) -> anyhow::Result<()> {
-        let user_ids = self.repo.claim_due_jobs(self.poll_limit).await?;
+        let available = self.semaphore.available_permits();
+        if available == 0 {
+            return Ok(());
+        }
+
+        let limit = (available as isize).min(self.poll_limit);
+        let user_ids = self.repo.claim_due_jobs(limit).await?;
 
         if user_ids.is_empty() {
             return Ok(());

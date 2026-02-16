@@ -211,3 +211,52 @@ impl NotificationService for DistributedNotificationService {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::sync::{broadcast, watch};
+
+    #[tokio::test]
+    async fn test_run_gc_reclaims_stale_channels() {
+        crate::telemetry::init_test_telemetry();
+        
+        let channels = Arc::new(DashMap::new());
+        let metrics = Metrics::new();
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        
+        // 1. Setup channels
+        let user_id_active = Uuid::new_v4();
+        let user_id_stale = Uuid::new_v4();
+        
+        let (tx_active, _rx_active) = broadcast::channel(10);
+        let (tx_stale, _rx_stale) = broadcast::channel(10);
+        
+        channels.insert(user_id_active, tx_active);
+        channels.insert(user_id_stale, tx_stale);
+        
+        // 2. Make one stale by dropping its last receiver
+        // (Wait, rx_stale is still in scope, let's drop it explicitly)
+        drop(_rx_stale);
+        
+        // Check initial state
+        assert_eq!(channels.len(), 2);
+        
+        // 3. Start GC with a very short interval
+        let gc_channels = Arc::clone(&channels);
+        tokio::spawn(async move {
+            DistributedNotificationService::run_gc(gc_channels, metrics, 1, shutdown_rx).await;
+        });
+        
+        // 4. Wait for one GC cycle
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        
+        // 5. Verify results
+        assert_eq!(channels.len(), 1, "GC should have reclaimed exactly 1 channel");
+        assert!(channels.contains_key(&user_id_active), "Active channel should remain");
+        assert!(!channels.contains_key(&user_id_stale), "Stale channel should be gone");
+        
+        let _ = shutdown_tx.send(true);
+    }
+}

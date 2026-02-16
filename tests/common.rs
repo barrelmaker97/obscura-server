@@ -227,6 +227,7 @@ pub struct TestApp {
     pub ws_url: String,
     pub client: Client,
     pub s3_client: aws_sdk_s3::Client,
+    pub notifier: Arc<dyn NotificationService>,
     pub shutdown_tx: tokio::sync::watch::Sender<bool>,
 }
 
@@ -396,7 +397,17 @@ impl TestApp {
                 .unwrap();
         });
 
-        TestApp { pool, config, server_url, mgmt_url, ws_url, client: Client::new(), s3_client, shutdown_tx }
+        TestApp {
+            pool,
+            config,
+            server_url,
+            mgmt_url,
+            ws_url,
+            client: Client::new(),
+            s3_client,
+            notifier,
+            shutdown_tx,
+        }
     }
 
     pub async fn register_user(&self, username: &str) -> TestUser {
