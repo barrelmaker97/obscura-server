@@ -89,108 +89,168 @@ impl WorkerManager {
     }
 }
 
-/// Initializes all repositories and services.
-///
-/// # Errors
-/// Returns an error if any service fails to initialize (e.g. `PubSub` connection).
-#[tracing::instrument(skip(pool, pubsub, s3_client, push_provider, config, shutdown_rx))]
-pub async fn init_application(
-    pool: adapters::database::DbPool,
-    pubsub: Arc<adapters::redis::RedisClient>,
-    s3_client: aws_sdk_s3::Client,
-    push_provider: Arc<dyn PushProvider>,
-    config: &Config,
-    shutdown_rx: watch::Receiver<bool>,
-) -> anyhow::Result<AppComponents> {
-    // Initialize Repositories
-    let key_repo = KeyRepository::new();
-    let message_repo = MessageRepository::new();
-    let user_repo = UserRepository::new();
-    let refresh_repo = RefreshTokenRepository::new();
-    let attachment_repo = AttachmentRepository::new();
-    let push_token_repo = PushTokenRepository::new();
+/// Builder for constructing and wiring the application object graph.
+#[derive(Debug)]
+pub struct AppBuilder {
+    config: Config,
+    pool: Option<adapters::database::DbPool>,
+    pubsub: Option<Arc<adapters::redis::RedisClient>>,
+    s3_client: Option<aws_sdk_s3::Client>,
+    push_provider: Option<Arc<dyn PushProvider>>,
+    shutdown_rx: Option<watch::Receiver<bool>>,
+}
 
-    // Initialize Specialized Services
-    let push_token_service = PushTokenService::new(pool.clone(), push_token_repo.clone());
-    let notification_repo =
-        Arc::new(adapters::redis::NotificationRepository::new(Arc::clone(&pubsub), &config.notifications));
-    let notifier: Arc<dyn NotificationService> = Arc::new(
-        DistributedNotificationService::new(Arc::clone(&notification_repo), &config.notifications, shutdown_rx.clone())
+impl AppBuilder {
+    /// Creates a new builder with the provided configuration.
+    #[must_use]
+    pub fn new(config: Config) -> Self {
+        Self { config, pool: None, pubsub: None, s3_client: None, push_provider: None, shutdown_rx: None }
+    }
+
+    /// Sets the database connection pool.
+    #[must_use]
+    pub fn with_database(mut self, pool: adapters::database::DbPool) -> Self {
+        self.pool = Some(pool);
+        self
+    }
+
+    /// Sets the `PubSub` (Redis) client.
+    #[must_use]
+    pub fn with_pubsub(mut self, pubsub: Arc<adapters::redis::RedisClient>) -> Self {
+        self.pubsub = Some(pubsub);
+        self
+    }
+
+    /// Sets the S3 storage client.
+    #[must_use]
+    pub fn with_s3(mut self, client: aws_sdk_s3::Client) -> Self {
+        self.s3_client = Some(client);
+        self
+    }
+
+    /// Sets the push notification provider.
+    #[must_use]
+    pub fn with_push_provider(mut self, provider: Arc<dyn PushProvider>) -> Self {
+        self.push_provider = Some(provider);
+        self
+    }
+
+    /// Sets the shutdown receiver for coordinating graceful exit.
+    #[must_use]
+    pub fn with_shutdown_rx(mut self, rx: watch::Receiver<bool>) -> Self {
+        self.shutdown_rx = Some(rx);
+        self
+    }
+
+    /// Builds the application components by wiring all services and repositories.
+    ///
+    /// # Errors
+    /// Returns an error if mandatory dependencies (pool, pubsub, etc.) are missing,
+    /// or if any service fails to initialize.
+    #[tracing::instrument(skip(self))]
+    pub async fn build(self) -> anyhow::Result<AppComponents> {
+        let pool = self.pool.ok_or_else(|| anyhow::anyhow!("Database pool is required"))?;
+        let pubsub = self.pubsub.ok_or_else(|| anyhow::anyhow!("PubSub client is required"))?;
+        let s3_client = self.s3_client.ok_or_else(|| anyhow::anyhow!("S3 client is required"))?;
+        let push_provider = self.push_provider.ok_or_else(|| anyhow::anyhow!("Push provider is required"))?;
+        let shutdown_rx = self.shutdown_rx.ok_or_else(|| anyhow::anyhow!("Shutdown receiver is required"))?;
+
+        let config = &self.config;
+
+        // Initialize Repositories
+        let key_repo = KeyRepository::new();
+        let message_repo = MessageRepository::new();
+        let user_repo = UserRepository::new();
+        let refresh_repo = RefreshTokenRepository::new();
+        let attachment_repo = AttachmentRepository::new();
+        let push_token_repo = PushTokenRepository::new();
+
+        // Initialize Specialized Services
+        let push_token_service = PushTokenService::new(pool.clone(), push_token_repo.clone());
+        let notification_repo =
+            Arc::new(adapters::redis::NotificationRepository::new(Arc::clone(&pubsub), &config.notifications));
+        let notifier: Arc<dyn NotificationService> = Arc::new(
+            DistributedNotificationService::new(
+                Arc::clone(&notification_repo),
+                &config.notifications,
+                shutdown_rx.clone(),
+            )
             .await?,
-    );
+        );
 
-    // Initialize Core Services
-    let crypto_service = CryptoService::new();
-    let key_service = KeyService::new(pool.clone(), key_repo, crypto_service, config.messaging.clone());
-    let auth_service = AuthService::new(config.auth.clone(), pool.clone(), user_repo.clone(), refresh_repo);
-    let message_service = MessageService::new(
-        pool.clone(),
-        message_repo.clone(),
-        Arc::clone(&notifier),
-        config.messaging.clone(),
-        config.ttl_days,
-    );
-    let account_service = AccountService::new(
-        pool.clone(),
-        user_repo,
-        message_repo.clone(),
-        auth_service.clone(),
-        key_service.clone(),
-        Arc::clone(&notifier),
-    );
-    let gateway_service = GatewayService::new(
-        message_service.clone(),
-        key_service.clone(),
-        Arc::clone(&notifier),
-        config.websocket.clone(),
-    );
-    let attachment_service = AttachmentService::new(
-        pool.clone(),
-        attachment_repo.clone(),
-        s3_client.clone(),
-        config.storage.clone(),
-        config.ttl_days,
-    );
-    let rate_limit_service = RateLimitService::new(config.server.trusted_proxies.clone());
-    let health_service = HealthService::new(
-        pool.clone(),
-        s3_client.clone(),
-        Arc::clone(&pubsub),
-        config.storage.bucket.clone(),
-        config.health.clone(),
-    );
-
-    let services = ServiceContainer {
-        pool: pool.clone(),
-        key_service,
-        attachment_service,
-        account_service,
-        auth_service,
-        message_service,
-        gateway_service,
-        notification_service: notifier,
-        push_token_service,
-        rate_limit_service,
-    };
-
-    let workers = WorkerManager {
-        message_worker: MessageCleanupWorker::new(pool.clone(), message_repo, config.messaging.clone()),
-        attachment_worker: AttachmentCleanupWorker::new(
+        // Initialize Core Services
+        let crypto_service = CryptoService::new();
+        let key_service = KeyService::new(pool.clone(), key_repo, crypto_service, config.messaging.clone());
+        let auth_service = AuthService::new(config.auth.clone(), pool.clone(), user_repo.clone(), refresh_repo);
+        let message_service = MessageService::new(
             pool.clone(),
-            attachment_repo,
-            s3_client,
+            message_repo.clone(),
+            Arc::clone(&notifier),
+            config.messaging.clone(),
+            config.ttl_days,
+        );
+        let account_service = AccountService::new(
+            pool.clone(),
+            user_repo,
+            message_repo.clone(),
+            auth_service.clone(),
+            key_service.clone(),
+            Arc::clone(&notifier),
+        );
+        let gateway_service = GatewayService::new(
+            message_service.clone(),
+            key_service.clone(),
+            Arc::clone(&notifier),
+            config.websocket.clone(),
+        );
+        let attachment_service = AttachmentService::new(
+            pool.clone(),
+            attachment_repo.clone(),
+            s3_client.clone(),
             config.storage.clone(),
-        ),
-        push_worker: PushNotificationWorker::new(
-            pool,
-            notification_repo,
-            push_provider,
-            push_token_repo,
-            &config.notifications,
-        ),
-    };
+            config.ttl_days,
+        );
+        let rate_limit_service = RateLimitService::new(config.server.trusted_proxies.clone());
+        let health_service = HealthService::new(
+            pool.clone(),
+            s3_client.clone(),
+            Arc::clone(&pubsub),
+            config.storage.bucket.clone(),
+            config.health.clone(),
+        );
 
-    Ok(AppComponents { services, health_service, workers })
+        let services = ServiceContainer {
+            pool: pool.clone(),
+            key_service,
+            attachment_service,
+            account_service,
+            auth_service,
+            message_service,
+            gateway_service,
+            notification_service: notifier,
+            push_token_service,
+            rate_limit_service,
+        };
+
+        let workers = WorkerManager {
+            message_worker: MessageCleanupWorker::new(pool.clone(), message_repo, config.messaging.clone()),
+            attachment_worker: AttachmentCleanupWorker::new(
+                pool.clone(),
+                attachment_repo,
+                s3_client,
+                config.storage.clone(),
+            ),
+            push_worker: PushNotificationWorker::new(
+                pool,
+                notification_repo,
+                push_provider,
+                push_token_repo,
+                &config.notifications,
+            ),
+        };
+
+        Ok(AppComponents { services, health_service, workers })
+    }
 }
 
 /// Runs database migrations.

@@ -258,16 +258,15 @@ impl TestApp {
         let s3_client = obscura_server::init_s3_client(&config.storage).await;
 
         let push_provider = Arc::new(SharedMockPushProvider);
-        let components = obscura_server::init_application(
-            pool.clone(),
-            pubsub.clone(),
-            s3_client.clone(),
-            push_provider,
-            &config,
-            shutdown_rx.clone(),
-        )
-        .await
-        .expect("Failed to initialize application for tests");
+        let components = obscura_server::AppBuilder::new(config.clone())
+            .with_database(pool.clone())
+            .with_pubsub(pubsub.clone())
+            .with_s3(s3_client.clone())
+            .with_push_provider(push_provider)
+            .with_shutdown_rx(shutdown_rx.clone())
+            .build()
+            .await
+            .expect("Failed to build application for tests");
 
         let obscura_server::AppComponents { services, health_service, workers } = components;
 

@@ -16,7 +16,7 @@
 
 use obscura_server::api::MgmtState;
 use obscura_server::config::Config;
-use obscura_server::{AppComponents, adapters, telemetry};
+use obscura_server::{AppBuilder, AppComponents, adapters, telemetry};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::watch;
@@ -49,9 +49,14 @@ async fn main() -> anyhow::Result<()> {
 
         // Phase 2: Component Wiring (Pure logic, no side effects)
         let push_provider = Arc::new(adapters::push::fcm::FcmPushProvider);
-        let components =
-            obscura_server::init_application(pool, pubsub, s3_client, push_provider, &config, shutdown_rx.clone())
-                .await?;
+        let components = AppBuilder::new(config.clone())
+            .with_database(pool)
+            .with_pubsub(pubsub)
+            .with_s3(s3_client)
+            .with_push_provider(push_provider)
+            .with_shutdown_rx(shutdown_rx.clone())
+            .build()
+            .await?;
 
         let AppComponents { services, health_service, workers } = components;
 
