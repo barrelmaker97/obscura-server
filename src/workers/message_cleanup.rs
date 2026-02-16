@@ -60,7 +60,11 @@ impl MessageCleanupWorker {
     ///
     /// # Errors
     /// Returns an error if the database connection or query fails.
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(
+        skip(self),
+        err,
+        fields(expired_deleted = tracing::field::Empty, overflow_deleted = tracing::field::Empty)
+    )]
     pub async fn perform_cleanup(&self) -> Result<(), AppError> {
         tracing::debug!("Running message cleanup (expiry + limits)...");
 
@@ -75,6 +79,7 @@ impl MessageCleanupWorker {
             Ok(count) => {
                 if count > 0 {
                     tracing::info!(count = %count, "Deleted expired messages");
+                    tracing::Span::current().record("expired_deleted", count);
                 }
             }
             Err(e) => tracing::error!(error = ?e, "Cleanup error (expiry)"),
@@ -92,6 +97,7 @@ impl MessageCleanupWorker {
                 if count > 0 {
                     tracing::info!(count = %count, "Pruned overflow messages");
                     self.metrics.inbox_overflow.add(count, &[]);
+                    tracing::Span::current().record("overflow_deleted", count);
                 }
             }
             Err(e) => tracing::error!(error = ?e, "Cleanup error (overflow)"),

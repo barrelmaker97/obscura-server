@@ -102,7 +102,7 @@ impl AttachmentService {
     )]
     pub(crate) async fn upload(&self, content_len: Option<usize>, body: Body) -> Result<(Uuid, i64)> {
         if let Some(len) = content_len {
-            tracing::Span::current().record("attachment.size", len);
+            tracing::Span::current().record("attachment_size", len);
             if len > self.config.attachment_max_size_bytes {
                 return Err(AppError::BadRequest("Attachment too large".into()));
             }
@@ -110,7 +110,7 @@ impl AttachmentService {
 
         let id = Uuid::new_v4();
         let key = id.to_string();
-        tracing::Span::current().record("attachment.id", tracing::field::display(id));
+        tracing::Span::current().record("attachment_id", tracing::field::display(id));
 
         // Bridge Axum Body -> SyncBody with size limit enforcement to satisfy S3 SDK's requirements
         let limit = self.config.attachment_max_size_bytes;
@@ -209,7 +209,7 @@ impl AttachmentService {
         })?;
 
         let content_length = output.content_length.unwrap_or(0);
-        tracing::Span::current().record("attachment.size", content_length);
+        tracing::Span::current().record("attachment_size", content_length);
 
         tracing::debug!("Attachment download successful");
         Ok((u64::try_from(content_length).unwrap_or(0), output.body))

@@ -45,14 +45,13 @@ impl AttachmentCleanupWorker {
     }
 
     pub async fn run(self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
-        let interval = StdDuration::from_secs(self.config.cleanup_interval_secs);
-        let mut next_tick = tokio::time::Instant::now() + interval;
+        let mut interval = tokio::time::interval(StdDuration::from_secs(self.config.cleanup_interval_secs));
 
         while !*shutdown.borrow() {
             tokio::select! {
-                () = tokio::time::sleep_until(next_tick) => {
+                _ = interval.tick() => {
                     async {
-                        tracing::debug!("Running attachment cleanup...");
+                        tracing::debug!("Running attachment cleanup cycle...");
 
                         match self.cleanup_batch().await {
                             Ok(count) => {
@@ -68,7 +67,6 @@ impl AttachmentCleanupWorker {
                     }
                     .instrument(tracing::info_span!("attachment_cleanup_iteration"))
                     .await;
-                    next_tick = tokio::time::Instant::now() + interval;
                 }
                 _ = shutdown.changed() => {}
             }
@@ -79,7 +77,7 @@ impl AttachmentCleanupWorker {
     #[tracing::instrument(
         err,
         skip(self),
-        fields(batch_count = tracing::field::Empty)
+        fields(total_deleted = tracing::field::Empty)
     )]
     async fn cleanup_batch(&self) -> Result<u64> {
         let mut total_deleted = 0;
@@ -95,7 +93,6 @@ impl AttachmentCleanupWorker {
                 break;
             }
 
-            tracing::Span::current().record("batch.count", ids.len());
             tracing::info!(count = %ids.len(), "Found expired attachments to delete");
 
             let count = ids.len();
@@ -122,7 +119,7 @@ impl AttachmentCleanupWorker {
                     self.repo.delete(&mut conn, id).await?;
                     Ok(true)
                 }
-                .instrument(tracing::info_span!("delete_attachment", "attachment.id" = %id))
+                .instrument(tracing::debug_span!("delete_attachment", attachment_id = %id))
                 .await;
 
                 if matches!(res, Ok(true)) {
@@ -131,6 +128,11 @@ impl AttachmentCleanupWorker {
             }
             tracing::info!(deleted_count = %count, "Attachment cleanup batch completed successfully");
         }
+
+        if total_deleted > 0 {
+            tracing::Span::current().record("total_deleted", total_deleted);
+        }
+
         Ok(total_deleted)
     }
 }
