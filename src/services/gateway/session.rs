@@ -3,11 +3,10 @@ use crate::domain::notification::UserEvent;
 use crate::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
 use crate::services::gateway::{Metrics, ack_batcher::AckBatcher, message_pump::MessagePump};
 use crate::services::message_service::MessageService;
-use crate::services::notification::NotificationService;
+use crate::services::notification_service::NotificationService;
 use axum::extract::ws::{Message as WsMessage, WebSocket};
 use futures::{SinkExt, StreamExt};
 use prost::Message;
-use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
 
@@ -16,7 +15,7 @@ pub struct Session {
     pub request_id: String,
     pub socket: WebSocket,
     pub message_service: MessageService,
-    pub notifier: Arc<dyn NotificationService>,
+    pub notifier: NotificationService,
     pub metrics: Metrics,
     pub config: WsConfig,
     pub shutdown_rx: tokio::sync::watch::Receiver<bool>,
@@ -55,7 +54,7 @@ impl Session {
         let ack_batcher = AckBatcher::new(
             user_id,
             message_service.clone(),
-            Arc::clone(&notifier),
+            notifier.clone(),
             metrics.clone(),
             config.ack_buffer_size,
             config.ack_batch_size,

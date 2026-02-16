@@ -1,4 +1,4 @@
-use crate::adapters::database::DbPool;
+use crate::Services;
 use crate::api::rate_limit::log_rate_limit_events;
 use crate::config::Config;
 use crate::services::account_service::AccountService;
@@ -8,7 +8,7 @@ use crate::services::gateway::GatewayService;
 use crate::services::health_service::HealthService;
 use crate::services::key_service::KeyService;
 use crate::services::message_service::MessageService;
-use crate::services::notification::NotificationService;
+use crate::services::notification_service::NotificationService;
 use crate::services::push_token_service::PushTokenService;
 use crate::services::rate_limit_service::RateLimitService;
 use axum::body::Body;
@@ -45,7 +45,7 @@ pub struct AppState {
     pub auth_service: AuthService,
     pub message_service: MessageService,
     pub gateway_service: GatewayService,
-    pub notification_service: Arc<dyn NotificationService>,
+    pub notification_service: NotificationService,
     pub push_token_service: PushTokenService,
     pub rate_limit_service: RateLimitService,
     pub shutdown_rx: tokio::sync::watch::Receiver<bool>,
@@ -56,29 +56,11 @@ pub struct MgmtState {
     pub health_service: HealthService,
 }
 
-#[derive(Debug)]
-pub struct ServiceContainer {
-    pub pool: DbPool,
-    pub key_service: KeyService,
-    pub attachment_service: AttachmentService,
-    pub account_service: AccountService,
-    pub auth_service: AuthService,
-    pub message_service: MessageService,
-    pub gateway_service: GatewayService,
-    pub notification_service: Arc<dyn NotificationService>,
-    pub push_token_service: PushTokenService,
-    pub rate_limit_service: RateLimitService,
-}
-
 /// Configures and returns the primary application router.
 ///
 /// # Panics
 /// Panics if the rate limiter configuration cannot be constructed.
-pub fn app_router(
-    config: Config,
-    services: ServiceContainer,
-    shutdown_rx: tokio::sync::watch::Receiver<bool>,
-) -> Router {
+pub fn app_router(config: Config, services: Services, shutdown_rx: tokio::sync::watch::Receiver<bool>) -> Router {
     let std_interval_ns = 1_000_000_000 / config.rate_limit.per_second.max(1);
     let standard_conf = Arc::new(
         GovernorConfigBuilder::default()

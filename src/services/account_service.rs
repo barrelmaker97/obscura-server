@@ -8,9 +8,8 @@ use crate::domain::notification::UserEvent;
 use crate::error::Result;
 use crate::services::auth_service::AuthService;
 use crate::services::key_service::{KeyService, KeyUploadParams};
-use crate::services::notification::NotificationService;
+use crate::services::notification_service::NotificationService;
 use opentelemetry::{global, metrics::Counter};
-use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 struct Metrics {
@@ -41,18 +40,19 @@ pub struct AccountService {
     message_repo: MessageRepository,
     auth_service: AuthService,
     key_service: KeyService,
-    notifier: Arc<dyn NotificationService>,
+    notifier: NotificationService,
     metrics: Metrics,
 }
 
 impl AccountService {
+    #[must_use]
     pub fn new(
         pool: DbPool,
         user_repo: UserRepository,
         message_repo: MessageRepository,
         auth_service: AuthService,
         key_service: KeyService,
-        notifier: Arc<dyn NotificationService>,
+        notifier: NotificationService,
     ) -> Self {
         Self { pool, user_repo, message_repo, auth_service, key_service, notifier, metrics: Metrics::new() }
     }
