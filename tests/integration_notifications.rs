@@ -2,7 +2,8 @@ mod common;
 
 use async_trait::async_trait;
 use common::{SharedMockPushProvider, TestApp, notification_counts};
-use obscura_server::services::notification::provider::{PushError, PushProvider};
+use obscura_server::adapters::push::{PushError, PushProvider};
+use obscura_server::adapters::redis::NotificationRepository;
 use obscura_server::services::notification::{DistributedNotificationService, NotificationService};
 use obscura_server::services::push_token_service::PushTokenService;
 use obscura_server::workers::PushNotificationWorker;
@@ -29,12 +30,12 @@ async fn test_scheduled_push_delivery() {
     let user_id = Uuid::new_v4();
 
     let token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
-    let token_service = PushTokenService::new(pool.clone(), token_repo);
+    let token_service = PushTokenService::new(pool.clone(), token_repo.clone());
     {
         let mut conn = pool.acquire().await.unwrap();
         sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
             .bind(user_id)
-            .bind(format!("user_{}", user_id))
+            .bind(format!("u_{}", &user_id.to_string()[..8]))
             .execute(&mut *conn)
             .await
             .unwrap();
@@ -46,23 +47,27 @@ async fn test_scheduled_push_delivery() {
     test_config.notifications.push_delay_secs = 1;
     test_config.notifications.worker_interval_secs = 1;
 
-    let notifier: Arc<dyn NotificationService> = Arc::new(
-        DistributedNotificationService::new(pubsub.clone(), &test_config.notifications, shutdown_rx.clone())
-            .await
-            .unwrap(),
-    );
-
-    let scheduler = Arc::new(obscura_server::services::notification::NotificationScheduler::new(
+    let notification_repo = Arc::new(NotificationRepository::new(
         pubsub.clone(),
-        test_config.notifications.push_queue_key.clone(),
+        test_config.notifications.channel_prefix.clone(),
+        test_config.notifications.push_queue_key.clone()
     ));
 
-    let push_token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
+    let notifier: Arc<dyn NotificationService> = Arc::new(
+        DistributedNotificationService::new(
+            notification_repo.clone(),
+            &test_config.notifications,
+            shutdown_rx.clone(),
+        )
+        .await
+        .unwrap(),
+    );
+
     let worker = PushNotificationWorker::new(
         pool.clone(),
-        scheduler,
+        notification_repo,
         Arc::new(SharedMockPushProvider),
-        push_token_repo,
+        token_repo,
         test_config.notifications.worker_poll_limit,
         test_config.notifications.worker_interval_secs,
         test_config.notifications.worker_concurrency,
@@ -192,12 +197,12 @@ async fn test_delivery_exactly_once_under_competition() {
 
     let user_id = Uuid::new_v4();
     let token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
-    let token_service = PushTokenService::new(pool.clone(), token_repo);
+    let token_service = PushTokenService::new(pool.clone(), token_repo.clone());
     {
         let mut conn = pool.acquire().await.unwrap();
         sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
             .bind(user_id)
-            .bind(format!("user_comp_{}", user_id))
+            .bind(format!("u_comp_{}", &user_id.to_string()[..8]))
             .execute(&mut *conn)
             .await
             .unwrap();
@@ -208,19 +213,19 @@ async fn test_delivery_exactly_once_under_competition() {
     test_config.notifications.push_delay_secs = 0;
     test_config.notifications.worker_interval_secs = 1;
 
-    let scheduler = std::sync::Arc::new(obscura_server::services::notification::scheduler::NotificationScheduler::new(
+    let notification_repo = Arc::new(NotificationRepository::new(
         pubsub.clone(),
-        test_config.notifications.push_queue_key.clone(),
+        test_config.notifications.channel_prefix.clone(),
+        test_config.notifications.push_queue_key.clone()
     ));
 
-    let push_token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
     // Spawn 10 competing workers
     for i in 0..10 {
         let worker = PushNotificationWorker::new(
             pool.clone(),
-            scheduler.clone(),
+            notification_repo.clone(),
             Arc::new(SharedMockPushProvider),
-            push_token_repo.clone(),
+            token_repo.clone(),
             test_config.notifications.worker_poll_limit,
             test_config.notifications.worker_interval_secs,
             test_config.notifications.worker_concurrency,
@@ -236,7 +241,7 @@ async fn test_delivery_exactly_once_under_competition() {
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    scheduler.schedule_push(user_id, 0).await.unwrap();
+    let _: anyhow::Result<()> = notification_repo.push_job(user_id, 0).await;
 
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(10) {
@@ -265,12 +270,12 @@ async fn test_push_coalescing() {
 
     let user_id = Uuid::new_v4();
     let token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
-    let token_service = PushTokenService::new(pool.clone(), token_repo);
+    let token_service = PushTokenService::new(pool.clone(), token_repo.clone());
     {
         let mut conn = pool.acquire().await.unwrap();
         sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
             .bind(user_id)
-            .bind(format!("user_coal_{}", user_id))
+            .bind(format!("u_coal_{}", &user_id.to_string()[..8]))
             .execute(&mut *conn)
             .await
             .unwrap();
@@ -281,23 +286,27 @@ async fn test_push_coalescing() {
     test_config.notifications.push_delay_secs = 2;
     test_config.notifications.worker_interval_secs = 1;
 
-    let notifier: Arc<dyn NotificationService> = Arc::new(
-        DistributedNotificationService::new(pubsub.clone(), &test_config.notifications, shutdown_rx.clone())
-            .await
-            .unwrap(),
-    );
-
-    let scheduler = Arc::new(obscura_server::services::notification::NotificationScheduler::new(
+    let notification_repo = Arc::new(NotificationRepository::new(
         pubsub.clone(),
-        test_config.notifications.push_queue_key.clone(),
+        test_config.notifications.channel_prefix.clone(),
+        test_config.notifications.push_queue_key.clone()
     ));
 
-    let push_token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
+    let notifier: Arc<dyn NotificationService> = Arc::new(
+        DistributedNotificationService::new(
+            notification_repo.clone(),
+            &test_config.notifications,
+            shutdown_rx.clone(),
+        )
+        .await
+        .unwrap(),
+    );
+
     let worker = PushNotificationWorker::new(
         pool.clone(),
-        scheduler,
+        notification_repo,
         Arc::new(SharedMockPushProvider),
-        push_token_repo,
+        token_repo,
         test_config.notifications.worker_poll_limit,
         test_config.notifications.worker_interval_secs,
         test_config.notifications.worker_concurrency,
@@ -355,22 +364,22 @@ async fn test_notification_worker_concurrency_limit() {
         .expect("Redis must be running");
 
     let token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
-    let token_service = PushTokenService::new(pool.clone(), token_repo);
+    let token_service = PushTokenService::new(pool.clone(), token_repo.clone());
 
     let poll_limit = 20;
     let concurrency = 2;
 
-    let scheduler = Arc::new(obscura_server::services::notification::scheduler::NotificationScheduler::new(
+    let notification_repo = Arc::new(NotificationRepository::new(
         pubsub.clone(),
-        config.notifications.push_queue_key.clone(),
+        config.notifications.channel_prefix.clone(),
+        config.notifications.push_queue_key.clone()
     ));
 
-    let push_token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
     let worker = PushNotificationWorker::new(
         pool.clone(),
-        scheduler.clone(),
+        notification_repo.clone(),
         Arc::new(ConcurrencyMockProvider),
-        push_token_repo,
+        token_repo.clone(),
         poll_limit,
         1,
         concurrency,
@@ -392,7 +401,7 @@ async fn test_notification_worker_concurrency_limit() {
 
             token_service.register_token(user_id, format!("token:{}", user_id)).await.unwrap();
         }
-        scheduler.schedule_push(user_id, 0).await.unwrap();
+        let _: anyhow::Result<()> = notification_repo.push_job(user_id, 0).await;
     }
 
     tokio::time::sleep(Duration::from_secs(5)).await;

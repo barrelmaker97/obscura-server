@@ -2,8 +2,8 @@ mod common;
 
 use async_trait::async_trait;
 use obscura_server::adapters::database::push_token_repo::PushTokenRepository;
-use obscura_server::services::notification::provider::{PushError, PushProvider};
-use obscura_server::services::notification::scheduler::NotificationScheduler;
+use obscura_server::adapters::push::{PushError, PushProvider};
+use obscura_server::adapters::redis::NotificationRepository;
 use obscura_server::workers::PushNotificationWorker;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -31,7 +31,7 @@ async fn test_push_worker_invalidates_unregistered_tokens() {
     {
         sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
             .bind(user_id)
-            .bind(format!("push_fail_user_{}", &user_id.to_string()[..8]))
+            .bind(format!("fail_{}", &user_id.to_string()[..8]))
             .execute(&pool)
             .await
             .unwrap();
@@ -42,18 +42,18 @@ async fn test_push_worker_invalidates_unregistered_tokens() {
     }
 
     // 2. Schedule a push
-    let scheduler = Arc::new(NotificationScheduler::new(
-        obscura_server::adapters::redis::RedisClient::new(&config.pubsub, 1024, tokio::sync::watch::channel(false).1)
-            .await
-            .unwrap(),
+    let pubsub = obscura_server::adapters::redis::RedisClient::new(&config.pubsub, 1024, tokio::sync::watch::channel(false).1).await.unwrap();
+    let notification_repo = Arc::new(NotificationRepository::new(
+        pubsub.clone(),
+        config.notifications.channel_prefix.clone(),
         config.notifications.push_queue_key.clone(),
     ));
-    scheduler.schedule_push(user_id, 0).await.expect("Failed to schedule push");
+    let _: anyhow::Result<()> = notification_repo.push_job(user_id, 0).await;
 
     // 3. Setup Worker with FAILING provider
     let worker = PushNotificationWorker::new(
         pool.clone(),
-        scheduler,
+        notification_repo,
         Arc::new(FailingPushProvider),
         PushTokenRepository::new(),
         10,

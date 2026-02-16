@@ -1,7 +1,7 @@
 use crate::adapters::database::DbPool;
 use crate::adapters::database::push_token_repo::PushTokenRepository;
-use crate::services::notification::provider::{PushError, PushProvider};
-use crate::services::notification::scheduler::NotificationScheduler;
+use crate::adapters::push::{PushError, PushProvider};
+use crate::adapters::redis::NotificationRepository;
 use opentelemetry::{KeyValue, global, metrics::Counter};
 use std::sync::Arc;
 use std::time::Duration;
@@ -38,9 +38,9 @@ impl Metrics {
 #[derive(Debug)]
 pub struct PushNotificationWorker {
     pool: DbPool,
-    scheduler: Arc<NotificationScheduler>,
+    repo: Arc<NotificationRepository>,
     provider: Arc<dyn PushProvider>,
-    repo: PushTokenRepository,
+    token_repo: PushTokenRepository,
     poll_limit: isize,
     interval_secs: u64,
     semaphore: Arc<Semaphore>,
@@ -50,18 +50,18 @@ pub struct PushNotificationWorker {
 impl PushNotificationWorker {
     pub fn new(
         pool: DbPool,
-        scheduler: Arc<NotificationScheduler>,
+        repo: Arc<NotificationRepository>,
         provider: Arc<dyn PushProvider>,
-        repo: PushTokenRepository,
+        token_repo: PushTokenRepository,
         poll_limit: isize,
         interval_secs: u64,
         concurrency: usize,
     ) -> Self {
         Self {
             pool,
-            scheduler,
-            provider,
             repo,
+            provider,
+            token_repo,
             poll_limit,
             interval_secs,
             semaphore: Arc::new(Semaphore::new(concurrency)),
@@ -94,7 +94,7 @@ impl PushNotificationWorker {
     /// Returns an error if the scheduler or database operation fails.
     #[tracing::instrument(skip(self), name = "process_due_jobs", err)]
     pub async fn process_due_jobs(&self) -> anyhow::Result<()> {
-        let user_ids = self.scheduler.pull_due_jobs(self.poll_limit).await?;
+        let user_ids = self.repo.claim_due_jobs(self.poll_limit).await?;
 
         if user_ids.is_empty() {
             return Ok(());
@@ -105,14 +105,14 @@ impl PushNotificationWorker {
         // 1. Batch lookup tokens for all users
         let user_token_pairs = {
             let mut conn = self.pool.acquire().await?;
-            self.repo.find_tokens_for_users(&mut conn, &user_ids).await?
+            self.token_repo.find_tokens_for_users(&mut conn, &user_ids).await?
         };
 
         // 2. Dispatch concurrently, bounded by the semaphore
         for (user_id, token) in user_token_pairs {
             let provider = Arc::clone(&self.provider);
             let pool = self.pool.clone();
-            let repo = self.repo.clone();
+            let token_repo = self.token_repo.clone();
             let metrics = self.metrics.clone();
 
             // Acquire a permit before spawning.
@@ -135,7 +135,7 @@ impl PushNotificationWorker {
                             metrics.invalidated_tokens.add(1, &[]);
                             let conn_res = pool.acquire().await;
                             if let Ok(mut conn) = conn_res
-                                && let Err(e) = repo.delete_token(&mut conn, &token).await
+                                && let Err(e) = token_repo.delete_token(&mut conn, &token).await
                             {
                                 tracing::error!(error = %e, token = %token, "Failed to delete unregistered token");
                             }

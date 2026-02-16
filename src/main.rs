@@ -102,13 +102,19 @@ async fn main() -> anyhow::Result<()> {
         // Initialize Specialized Services
         let push_token_service = PushTokenService::new(pool.clone(), push_token_repo.clone());
 
-        let notification_scheduler = Arc::new(obscura_server::services::notification::NotificationScheduler::new(
+        let notification_repo = Arc::new(adapters::redis::NotificationRepository::new(
             pubsub.clone(),
+            config.notifications.channel_prefix.clone(),
             config.notifications.push_queue_key.clone(),
         ));
 
         let notifier: Arc<dyn NotificationService> = Arc::new(
-            DistributedNotificationService::new(pubsub.clone(), &config.notifications, shutdown_rx.clone()).await?,
+            DistributedNotificationService::new(
+                notification_repo.clone(),
+                &config.notifications,
+                shutdown_rx.clone(),
+            )
+            .await?,
         );
 
         // Storage Setup
@@ -223,7 +229,7 @@ async fn main() -> anyhow::Result<()> {
 
         let push_worker = PushNotificationWorker::new(
             pool.clone(),
-            notification_scheduler,
+            notification_repo,
             Arc::new(adapters::push::fcm::FcmPushProvider),
             push_token_repo,
             config.notifications.worker_poll_limit,

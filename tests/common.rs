@@ -4,6 +4,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use dashmap::DashMap;
 use futures::{SinkExt, StreamExt};
 use obscura_server::{
+    adapters::push::{PushError, PushProvider},
     adapters::{
         self, database::attachment_repo::AttachmentRepository, database::key_repo::KeyRepository,
         database::message_repo::MessageRepository, database::push_token_repo::PushTokenRepository,
@@ -21,10 +22,7 @@ use obscura_server::{
         health_service::HealthService,
         key_service::KeyService,
         message_service::MessageService,
-        notification::{
-            DistributedNotificationService, NotificationService,
-            provider::{PushError, PushProvider},
-        },
+        notification::{DistributedNotificationService, NotificationService},
         push_token_service::PushTokenService,
         rate_limit_service::RateLimitService,
     },
@@ -269,21 +267,26 @@ impl TestApp {
 
         let push_token_service = PushTokenService::new(pool.clone(), push_token_repo.clone());
 
-        let notification_scheduler = Arc::new(obscura_server::services::notification::NotificationScheduler::new(
+        let notification_repo = Arc::new(adapters::redis::NotificationRepository::new(
             pubsub.clone(),
+            config.notifications.channel_prefix.clone(),
             config.notifications.push_queue_key.clone(),
         ));
 
         // ALWAYS USE SHARED MOCK PROVIDER IN TESTS
         let notifier: Arc<dyn NotificationService> = Arc::new(
-            DistributedNotificationService::new(pubsub.clone(), &config.notifications, shutdown_rx.clone())
-                .await
-                .expect("Failed to create DistributedNotificationService for tests."),
+            DistributedNotificationService::new(
+                notification_repo.clone(),
+                &config.notifications,
+                shutdown_rx.clone(),
+            )
+            .await
+            .expect("Failed to create DistributedNotificationService for tests."),
         );
 
         let push_worker = PushNotificationWorker::new(
             pool.clone(),
-            notification_scheduler,
+            notification_repo,
             Arc::new(SharedMockPushProvider),
             push_token_repo.clone(),
             config.notifications.worker_poll_limit,

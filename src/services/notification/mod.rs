@@ -4,11 +4,8 @@ use tokio::sync::broadcast;
 use uuid::Uuid;
 
 pub mod distributed;
-pub mod provider;
-pub mod scheduler;
 
 pub use distributed::DistributedNotificationService;
-pub use scheduler::NotificationScheduler;
 
 #[async_trait]
 pub trait NotificationService: Send + Sync + std::fmt::Debug {
