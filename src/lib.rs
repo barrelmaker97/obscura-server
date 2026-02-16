@@ -48,7 +48,48 @@ use crate::workers::{AttachmentCleanupWorker, MessageCleanupWorker, PushNotifica
 use std::sync::Arc;
 use tokio::sync::watch;
 
-/// Initializes all repositories and services, and spawns background workers.
+#[derive(Debug)]
+pub struct AppComponents {
+    pub services: ServiceContainer,
+    pub health_service: HealthService,
+    pub workers: WorkerManager,
+}
+
+#[derive(Debug)]
+pub struct WorkerManager {
+    pub message_worker: MessageCleanupWorker,
+    pub attachment_worker: AttachmentCleanupWorker,
+    pub push_worker: PushNotificationWorker,
+}
+
+impl WorkerManager {
+    #[must_use]
+    pub fn spawn_all(self, shutdown_rx: watch::Receiver<bool>) -> Vec<tokio::task::JoinHandle<()>> {
+        let mut tasks = Vec::new();
+
+        let message_worker = self.message_worker;
+        let message_rx = shutdown_rx.clone();
+        tasks.push(tokio::spawn(async move {
+            message_worker.run(message_rx).await;
+        }));
+
+        let attachment_worker = self.attachment_worker;
+        let attachment_rx = shutdown_rx.clone();
+        tasks.push(tokio::spawn(async move {
+            attachment_worker.run(attachment_rx).await;
+        }));
+
+        let push_worker = self.push_worker;
+        let push_rx = shutdown_rx;
+        tasks.push(tokio::spawn(async move {
+            push_worker.run(push_rx).await;
+        }));
+
+        tasks
+    }
+}
+
+/// Initializes all repositories and services.
 ///
 /// # Errors
 /// Returns an error if any service fails to initialize (e.g. `PubSub` connection).
@@ -60,7 +101,7 @@ pub async fn init_application(
     push_provider: Arc<dyn PushProvider>,
     config: &Config,
     shutdown_rx: watch::Receiver<bool>,
-) -> anyhow::Result<(ServiceContainer, HealthService, Vec<tokio::task::JoinHandle<()>>)> {
+) -> anyhow::Result<AppComponents> {
     // Initialize Repositories
     let key_repo = KeyRepository::new();
     let message_repo = MessageRepository::new();
@@ -120,7 +161,7 @@ pub async fn init_application(
     );
 
     let services = ServiceContainer {
-        pool,
+        pool: pool.clone(),
         key_service,
         attachment_service,
         account_service,
@@ -132,28 +173,24 @@ pub async fn init_application(
         rate_limit_service,
     };
 
-    // Spawn Workers
-    let mut tasks = Vec::new();
+    let workers = WorkerManager {
+        message_worker: MessageCleanupWorker::new(pool.clone(), message_repo, config.messaging.clone()),
+        attachment_worker: AttachmentCleanupWorker::new(
+            pool.clone(),
+            attachment_repo,
+            s3_client,
+            config.storage.clone(),
+        ),
+        push_worker: PushNotificationWorker::new(
+            pool,
+            notification_repo,
+            push_provider,
+            push_token_repo,
+            &config.notifications,
+        ),
+    };
 
-    let message_worker = MessageCleanupWorker::new(services.pool.clone(), message_repo, config.messaging.clone());
-    let message_rx = shutdown_rx.clone();
-    tasks.push(tokio::spawn(async move { message_worker.run(message_rx).await }));
-
-    let attachment_worker =
-        AttachmentCleanupWorker::new(services.pool.clone(), attachment_repo, s3_client, config.storage.clone());
-    let attachment_rx = shutdown_rx.clone();
-    tasks.push(tokio::spawn(async move { attachment_worker.run(attachment_rx).await }));
-
-    let push_worker = PushNotificationWorker::new(
-        services.pool.clone(),
-        notification_repo,
-        push_provider,
-        push_token_repo,
-        &config.notifications,
-    );
-    tasks.push(tokio::spawn(async move { push_worker.run(shutdown_rx).await }));
-
-    Ok((services, health_service, tasks))
+    Ok(AppComponents { services, health_service, workers })
 }
 
 /// Runs database migrations.

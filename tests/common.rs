@@ -258,7 +258,7 @@ impl TestApp {
         let s3_client = obscura_server::init_s3_client(&config.storage).await;
 
         let push_provider = Arc::new(SharedMockPushProvider);
-        let (services, health_service, _worker_tasks) = obscura_server::init_application(
+        let components = obscura_server::init_application(
             pool.clone(),
             pubsub.clone(),
             s3_client.clone(),
@@ -268,6 +268,11 @@ impl TestApp {
         )
         .await
         .expect("Failed to initialize application for tests");
+
+        let obscura_server::AppComponents { services, health_service, workers } = components;
+
+        // Spawn workers explicitly in tests if needed (some tests might want to control this)
+        let _worker_tasks = workers.spawn_all(shutdown_rx.clone());
 
         let notifier = services.notification_service.clone();
         let app = app_router(config.clone(), services, shutdown_rx.clone());

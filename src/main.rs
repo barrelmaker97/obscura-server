@@ -16,7 +16,7 @@
 
 use obscura_server::api::MgmtState;
 use obscura_server::config::Config;
-use obscura_server::{adapters, telemetry};
+use obscura_server::{AppComponents, adapters, telemetry};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::watch;
@@ -30,8 +30,8 @@ async fn main() -> anyhow::Result<()> {
     obscura_server::setup_panic_hook();
 
     let boot_span = tracing::info_span!("server_boot");
-    let (api_listener, mgmt_listener, app, mgmt_app, shutdown_tx, shutdown_rx, worker_tasks) = async {
-        // 1. Infrastructure Setup
+    let (api_listener, mgmt_listener, app, mgmt_app, shutdown_tx, shutdown_rx, workers) = async {
+        // Phase 1: Infrastructure Setup (Resources)
         let pool = adapters::database::init_pool(&config.database_url).await?;
         obscura_server::run_migrations(&pool).await?;
 
@@ -47,19 +47,15 @@ async fn main() -> anyhow::Result<()> {
 
         let s3_client = obscura_server::init_s3_client(&config.storage).await;
 
-        // 2. Service & Repository Wiring
+        // Phase 2: Component Wiring (Pure logic, no side effects)
         let push_provider = Arc::new(adapters::push::fcm::FcmPushProvider);
-        let (services, health_service, worker_tasks) = obscura_server::init_application(
-            pool.clone(),
-            pubsub,
-            s3_client,
-            push_provider,
-            &config,
-            shutdown_rx.clone(),
-        )
-        .await?;
+        let components =
+            obscura_server::init_application(pool, pubsub, s3_client, push_provider, &config, shutdown_rx.clone())
+                .await?;
 
-        // 3. Router & Listener Setup
+        let AppComponents { services, health_service, workers } = components;
+
+        // Phase 3: Runtime Setup (Listeners and Routers)
         let app = obscura_server::api::app_router(config.clone(), services, shutdown_rx.clone());
         let mgmt_app = obscura_server::api::mgmt_router(MgmtState { health_service });
 
@@ -80,15 +76,17 @@ async fn main() -> anyhow::Result<()> {
                 axum::Router,
                 watch::Sender<bool>,
                 watch::Receiver<bool>,
-                Vec<tokio::task::JoinHandle<()>>,
+                obscura_server::WorkerManager,
             ),
             anyhow::Error,
-        >((api_listener, mgmt_listener, app, mgmt_app, shutdown_tx, shutdown_rx, worker_tasks))
+        >((api_listener, mgmt_listener, app, mgmt_app, shutdown_tx, shutdown_rx, workers))
     }
     .instrument(boot_span)
     .await?;
 
-    // 4. Server Execution
+    // Phase 4: Start Runtime (Explicit Spawning and Listening)
+    let worker_tasks = workers.spawn_all(shutdown_rx.clone());
+
     let mut api_rx = shutdown_rx.clone();
     let api_server = axum::serve(api_listener, app.into_make_service_with_connect_info::<SocketAddr>())
         .with_graceful_shutdown(async move {
@@ -105,7 +103,7 @@ async fn main() -> anyhow::Result<()> {
         tracing::error!(error = %e, "Server error");
     }
 
-    // 5. Graceful Shutdown Orchestration
+    // Phase 5: Graceful Shutdown Orchestration
     let _ = shutdown_tx.send(true);
     tokio::select! {
         () = async {
