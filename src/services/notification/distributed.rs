@@ -138,26 +138,31 @@ impl DistributedNotificationService {
         loop {
             tokio::select! {
                 _ = interval.tick() => {
-                    tracing::debug!("Starting notification channel GC cycle");
-                    let start = std::time::Instant::now();
-                    let mut reclaimed_this_cycle = 0;
+                    async {
+                        let start = std::time::Instant::now();
+                        tracing::debug!("Starting notification channel GC cycle");
+                        let mut reclaimed_this_cycle = 0;
 
-                    channels.retain(|_, sender| {
-                        let active = sender.receiver_count() > 0;
-                        if !active {
-                            metrics.active_channels.add(-1, &[]);
-                            reclaimed_this_cycle += 1;
+                        channels.retain(|_, sender| {
+                            let active = sender.receiver_count() > 0;
+                            if !active {
+                                metrics.active_channels.add(-1, &[]);
+                                reclaimed_this_cycle += 1;
+                            }
+                            active
+                        });
+
+                        let duration = start.elapsed().as_secs_f64();
+                        metrics.gc_duration_seconds.record(duration, &[]);
+
+                        if reclaimed_this_cycle > 0 {
+                            metrics.gc_reclaimed_total.add(reclaimed_this_cycle, &[]);
+                            tracing::info!(reclaimed = reclaimed_this_cycle, "Notification channel GC reclaimed stale channels");
                         }
-                        active
-                    });
-
-                    let duration = start.elapsed().as_secs_f64();
-                    metrics.gc_duration_seconds.record(duration, &[]);
-                    if reclaimed_this_cycle > 0 {
-                        metrics.gc_reclaimed_total.add(reclaimed_this_cycle, &[]);
-                        tracing::info!(reclaimed = reclaimed_this_cycle, "Notification channel GC reclaimed stale channels");
+                        tracing::debug!(duration_secs = %duration, "Notification channel GC cycle completed");
                     }
-                    tracing::debug!(duration_secs = %duration, "Notification channel GC cycle completed");
+                    .instrument(tracing::debug_span!("gc_cycle"))
+                    .await;
                 }
                 _ = shutdown.changed() => break,
             }
@@ -230,14 +235,14 @@ mod tests {
         let user_id_stale = Uuid::new_v4();
 
         let (tx_active, _rx_active) = broadcast::channel(10);
-        let (tx_stale, _rx_stale) = broadcast::channel(10);
+        let (tx_stale, rx_stale) = broadcast::channel(10);
 
         channels.insert(user_id_active, tx_active);
         channels.insert(user_id_stale, tx_stale);
 
         // 2. Make one stale by dropping its last receiver
         // (Wait, rx_stale is still in scope, let's drop it explicitly)
-        drop(_rx_stale);
+        drop(rx_stale);
 
         // Check initial state
         assert_eq!(channels.len(), 2);

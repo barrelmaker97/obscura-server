@@ -52,13 +52,16 @@ impl PushTokenRepository {
         Ok(rows)
     }
 
-    /// Deletes a specific push token (e.g. if invalidated by FCM).
+    /// Deletes a batch of push tokens.
     ///
     /// # Errors
     /// Returns a database error if the deletion fails.
     #[tracing::instrument(level = "debug", skip(self, conn), err)]
-    pub(crate) async fn delete_token(&self, conn: &mut PgConnection, token: &str) -> Result<()> {
-        sqlx::query("DELETE FROM push_tokens WHERE token = $1").bind(token).execute(conn).await?;
+    pub async fn delete_tokens_batch(&self, conn: &mut PgConnection, tokens: &[String]) -> Result<()> {
+        if tokens.is_empty() {
+            return Ok(());
+        }
+        sqlx::query("DELETE FROM push_tokens WHERE token = ANY($1)").bind(tokens).execute(conn).await?;
         Ok(())
     }
 }

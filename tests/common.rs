@@ -11,7 +11,7 @@ use obscura_server::{
         database::refresh_token_repo::RefreshTokenRepository, database::user_repo::UserRepository,
     },
     api::{ServiceContainer, app_router},
-    config::Config,
+    config::{AuthConfig, Config, PubSubConfig, RateLimitConfig, ServerConfig, StorageConfig},
     proto::obscura::v1::{
         AckMessage, EncryptedMessage, Envelope, PreKeyStatus, WebSocketFrame, web_socket_frame::Payload,
     },
@@ -83,10 +83,10 @@ pub struct SharedMockPushProvider;
 #[async_trait]
 impl PushProvider for SharedMockPushProvider {
     async fn send_push(&self, token: &str) -> Result<(), PushError> {
-        if let Some(user_id_str) = token.strip_prefix("token:") {
-            if let Ok(user_id) = Uuid::parse_str(user_id_str) {
-                *notification_counts().entry(user_id).or_insert(0) += 1;
-            }
+        if let Some(user_id_str) = token.strip_prefix("token:")
+            && let Ok(user_id) = Uuid::parse_str(user_id_str)
+        {
+            *notification_counts().entry(user_id).or_insert(0) += 1;
         }
         Ok(())
     }
@@ -110,24 +110,36 @@ pub async fn ensure_storage_bucket(s3_client: &aws_sdk_s3::Client, bucket: &str)
 }
 
 pub fn get_test_config() -> Config {
-    let mut config = Config::default();
-    config.database_url = std::env::var("OBSCURA_DATABASE_URL")
+    let database_url = std::env::var("OBSCURA_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://user:password@localhost/signal_server".to_string());
-    config.server.port = 0;
-    config.server.mgmt_port = 0;
-    config.server.trusted_proxies = vec!["127.0.0.1/32".parse().unwrap(), "::1/128".parse().unwrap()];
-    config.auth.jwt_secret = "test_secret".to_string();
-    config.rate_limit.per_second = 10000;
-    config.rate_limit.burst = 10000;
-    config.rate_limit.auth_per_second = 10000;
-    config.rate_limit.auth_burst = 10000;
-    config.storage.bucket = "test-bucket".to_string();
-    config.storage.endpoint =
-        Some(std::env::var("OBSCURA_STORAGE_ENDPOINT").unwrap_or_else(|_| "http://localhost:9000".to_string()));
-    config.storage.access_key = Some("minioadmin".to_string());
-    config.storage.secret_key = Some("minioadmin".to_string());
-    config.storage.force_path_style = true;
-    config.pubsub.url = std::env::var("OBSCURA_PUBSUB_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string());
+
+    let mut config = Config {
+        database_url,
+        ttl_days: 30,
+        server: ServerConfig {
+            port: 0,
+            mgmt_port: 0,
+            trusted_proxies: vec!["127.0.0.1/32".parse().unwrap(), "::1/128".parse().unwrap()],
+            ..Default::default()
+        },
+        auth: AuthConfig { jwt_secret: "test_secret".to_string(), ..Default::default() },
+        rate_limit: RateLimitConfig { per_second: 10000, burst: 10000, auth_per_second: 10000, auth_burst: 10000 },
+        storage: StorageConfig {
+            bucket: "test-bucket".to_string(),
+            endpoint: Some(
+                std::env::var("OBSCURA_STORAGE_ENDPOINT").unwrap_or_else(|_| "http://localhost:9000".to_string()),
+            ),
+            access_key: Some("minioadmin".to_string()),
+            secret_key: Some("minioadmin".to_string()),
+            force_path_style: true,
+            ..Default::default()
+        },
+        pubsub: PubSubConfig {
+            url: std::env::var("OBSCURA_PUBSUB_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string()),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
 
     // Test Isolation
     let run_id = Uuid::new_v4().to_string()[..8].to_string();

@@ -59,7 +59,18 @@ async fn test_push_worker_invalidates_unregistered_tokens() {
     );
 
     // 4. Run one iteration of the worker
-    worker.process_due_jobs().await.expect("Worker iteration failed");
+    let (tx, mut rx) = tokio::sync::mpsc::channel(10);
+    worker.process_due_jobs(tx).await.expect("Worker iteration failed");
+
+    // Manually trigger the janitor behavior by forwarding the token
+    // (In a real run, the worker loop would handle this)
+    if let Some(t) = rx.recv().await {
+        let mut conn = pool.acquire().await.unwrap();
+        obscura_server::adapters::database::push_token_repo::PushTokenRepository::new()
+            .delete_tokens_batch(&mut conn, &[t])
+            .await
+            .unwrap();
+    }
 
     // 5. Verify token is DELETED from database
     // Note: Since spawn is used inside process_due_jobs, we might need a small wait

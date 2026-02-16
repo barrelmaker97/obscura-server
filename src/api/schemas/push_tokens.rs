@@ -37,7 +37,7 @@ mod tests {
         let req = RegisterPushTokenRequest { token: "   ".into() };
         let res = req.validate();
         assert!(res.is_err());
-        assert_eq!(res.unwrap_err(), "Token cannot be empty");
+        assert_eq!(res.expect_err("Token should be empty"), "Token cannot be empty");
     }
 
     #[test]
@@ -45,6 +45,6 @@ mod tests {
         let req = RegisterPushTokenRequest { token: "A".repeat(4097) };
         let res = req.validate();
         assert!(res.is_err());
-        assert_eq!(res.unwrap_err(), "Token is too long (max 4096 characters)");
+        assert_eq!(res.expect_err("Token should be too long"), "Token is too long (max 4096 characters)");
     }
 }

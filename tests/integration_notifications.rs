@@ -342,9 +342,7 @@ async fn test_notification_worker_concurrency_limit() {
     let token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
     let token_service = PushTokenService::new(pool.clone(), token_repo.clone());
 
-    let poll_limit = 20;
     let concurrency = 2;
-    config.notifications.worker_poll_limit = poll_limit;
     config.notifications.worker_concurrency = concurrency;
 
     let notification_repo = Arc::new(NotificationRepository::new(pubsub.clone(), &config.notifications));
@@ -380,7 +378,7 @@ async fn test_notification_worker_concurrency_limit() {
 
     let peak = PEAK_IN_FLIGHT.load(Ordering::SeqCst);
     assert!(peak > 0);
-    assert!(peak <= concurrency as usize, "Peak concurrency {} exceeded limit {}", peak, concurrency);
+    assert!(peak <= concurrency, "Peak concurrency {} exceeded limit {}", peak, concurrency);
 
     let _ = shutdown_tx.send(true);
 }

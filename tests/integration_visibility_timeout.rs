@@ -62,7 +62,8 @@ async fn test_push_visibility_timeout_retry() {
         &config.notifications,
     );
 
-    failing_worker.process_due_jobs().await.unwrap();
+    let (tx, _rx) = tokio::sync::mpsc::channel(10);
+    failing_worker.process_due_jobs(tx.clone()).await.unwrap();
 
     // 4. Verify job is STILL in Redis but with a future score (the lease)
     let score: f64 = {
@@ -90,7 +91,7 @@ async fn test_push_visibility_timeout_retry() {
         &config.notifications,
     );
 
-    success_worker.process_due_jobs().await.unwrap();
+    success_worker.process_due_jobs(tx).await.unwrap();
 
     // 7. Verify delivered and removed
     let mut delivered = false;

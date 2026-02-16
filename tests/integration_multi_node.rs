@@ -193,8 +193,8 @@ async fn test_distributed_fan_out_disconnect() {
         .unwrap();
     assert_eq!(resp.status(), 200);
 
-    let mut sessions = vec![("A1", &mut ws_a1), ("B1", &mut ws_b1), ("B2", &mut ws_b2)];
-    for (name, ws) in sessions.iter_mut() {
+    let mut sessions = [("A1", &mut ws_a1), ("B1", &mut ws_b1), ("B2", &mut ws_b2)];
+    for (name, ws) in &mut sessions {
         let mut disconnected = false;
         let start = std::time::Instant::now();
         while start.elapsed() < Duration::from_secs(5) {

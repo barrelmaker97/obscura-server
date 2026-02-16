@@ -34,12 +34,15 @@ impl PushTokenService {
         self.repo.find_tokens_for_users(&mut conn, user_ids).await
     }
 
-    /// Invalidate a token (e.g. when the provider reports it as unregistered).
+    /// Invalidate a batch of tokens.
     ///
     /// # Errors
     /// Returns an error if the database operation fails.
-    pub async fn invalidate_token(&self, token: &str) -> Result<()> {
+    pub async fn invalidate_tokens_batch(&self, tokens: &[String]) -> Result<()> {
+        if tokens.is_empty() {
+            return Ok(());
+        }
         let mut conn = self.pool.acquire().await?;
-        self.repo.delete_token(&mut conn, token).await
+        self.repo.delete_tokens_batch(&mut conn, tokens).await
     }
 }

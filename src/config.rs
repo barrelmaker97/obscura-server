@@ -299,11 +299,7 @@ pub struct NotificationConfig {
     #[arg(long, env = "OBSCURA_NOTIFICATIONS_WORKER_INTERVAL_SECS", default_value_t = NotificationConfig::default().worker_interval_secs)]
     pub worker_interval_secs: u64,
 
-    /// Maximum number of users to process in a single worker poll
-    #[arg(long, env = "OBSCURA_NOTIFICATIONS_WORKER_POLL_LIMIT", default_value_t = NotificationConfig::default().worker_poll_limit)]
-    pub worker_poll_limit: isize,
-
-    /// Maximum number of concurrent push notification requests across the cluster
+    /// Maximum number of concurrent push notification requests (also used as Redis poll limit)
     #[arg(long, env = "OBSCURA_NOTIFICATIONS_WORKER_CONCURRENCY", default_value_t = NotificationConfig::default().worker_concurrency)]
     pub worker_concurrency: usize,
 
@@ -318,6 +314,18 @@ pub struct NotificationConfig {
     /// How long a push job is leased by a worker in seconds
     #[arg(long, env = "OBSCURA_NOTIFICATIONS_VISIBILITY_TIMEOUT_SECS", default_value_t = NotificationConfig::default().visibility_timeout_secs)]
     pub visibility_timeout_secs: u64,
+
+    /// How often the invalid token janitor flushes to the database in seconds
+    #[arg(long, env = "OBSCURA_NOTIFICATIONS_JANITOR_INTERVAL_SECS", default_value_t = NotificationConfig::default().janitor_interval_secs)]
+    pub janitor_interval_secs: u64,
+
+    /// Maximum number of invalid tokens to delete in a single batch
+    #[arg(long, env = "OBSCURA_NOTIFICATIONS_JANITOR_BATCH_SIZE", default_value_t = NotificationConfig::default().janitor_batch_size)]
+    pub janitor_batch_size: usize,
+
+    /// Capacity of the invalid token janitor channel
+    #[arg(long, env = "OBSCURA_NOTIFICATIONS_JANITOR_CHANNEL_CAPACITY", default_value_t = NotificationConfig::default().janitor_channel_capacity)]
+    pub janitor_channel_capacity: usize,
 }
 
 impl Default for NotificationConfig {
@@ -326,13 +334,15 @@ impl Default for NotificationConfig {
             gc_interval_secs: 60,
             global_channel_capacity: 1024,
             user_channel_capacity: 64,
-            push_delay_secs: 5,
+            push_delay_secs: 10,
             worker_interval_secs: 1,
-            worker_poll_limit: 50,
             worker_concurrency: 100,
             push_queue_key: "jobs:push_notifications".to_string(),
             channel_prefix: "user:".to_string(),
             visibility_timeout_secs: 30,
+            janitor_interval_secs: 5,
+            janitor_batch_size: 50,
+            janitor_channel_capacity: 256,
         }
     }
 }

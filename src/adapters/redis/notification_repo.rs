@@ -114,10 +114,10 @@ impl NotificationRepository {
         // 3. Return the candidates
         let script = redis::Script::new(
             r#"
-            local jobs = redis.call('ZRANGEBYSCORE', ARGV[1], '-inf', ARGV[2], 'LIMIT', 0, ARGV[3])
+            local jobs = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1], 'LIMIT', 0, ARGV[2])
             if #jobs > 0 then
                 for _, job in ipairs(jobs) do
-                    redis.call('ZADD', ARGV[1], ARGV[4], job)
+                    redis.call('ZADD', KEYS[1], ARGV[3], job)
                 end
             end
             return jobs
@@ -125,7 +125,7 @@ impl NotificationRepository {
         );
 
         let candidates: Vec<String> =
-            script.arg(&self.push_queue_key).arg(now).arg(limit).arg(lease_until).invoke_async(&mut conn).await?;
+            script.key(&self.push_queue_key).arg(now).arg(limit).arg(lease_until).invoke_async(&mut conn).await?;
 
         let leased = candidates.into_iter().filter_map(|s| Uuid::parse_str(&s).ok()).collect();
 
