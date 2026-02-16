@@ -8,7 +8,7 @@ use crate::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
 use crate::services::gateway::session::Session;
 use crate::services::key_service::KeyService;
 use crate::services::message_service::MessageService;
-use crate::services::notification::NotificationService;
+use crate::services::notification_service::NotificationService;
 use axum::extract::ws::{Message as WsMessage, WebSocket};
 use futures::SinkExt;
 use opentelemetry::{
@@ -16,7 +16,6 @@ use opentelemetry::{
     metrics::{Counter, Histogram, UpDownCounter},
 };
 use prost::Message as ProstMessage;
-use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
@@ -62,7 +61,7 @@ impl Default for Metrics {
 pub struct GatewayService {
     message_service: MessageService,
     key_service: KeyService,
-    notifier: Arc<dyn NotificationService>,
+    notifier: NotificationService,
     config: WsConfig,
     metrics: Metrics,
 }
@@ -72,7 +71,7 @@ impl GatewayService {
     pub fn new(
         message_service: MessageService,
         key_service: KeyService,
-        notifier: Arc<dyn NotificationService>,
+        notifier: NotificationService,
         config: WsConfig,
     ) -> Self {
         Self { message_service, key_service, notifier, config, metrics: Metrics::new() }
@@ -123,7 +122,7 @@ impl GatewayService {
             request_id,
             socket,
             message_service: self.message_service.clone(),
-            notifier: Arc::clone(&self.notifier),
+            notifier: self.notifier.clone(),
             metrics: self.metrics.clone(),
             config: self.config.clone(),
             shutdown_rx,

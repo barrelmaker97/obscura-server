@@ -1,8 +1,6 @@
 use crate::adapters::redis::NotificationRepository;
 use crate::config::NotificationConfig;
 use crate::domain::notification::UserEvent;
-use crate::services::notification::NotificationService;
-use async_trait::async_trait;
 use dashmap::DashMap;
 use opentelemetry::{
     KeyValue, global,
@@ -55,8 +53,8 @@ impl Metrics {
     }
 }
 
-#[derive(Debug)]
-pub struct DistributedNotificationService {
+#[derive(Clone, Debug)]
+pub struct NotificationService {
     repo: Arc<NotificationRepository>,
     channels: Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
     user_channel_capacity: usize,
@@ -64,8 +62,8 @@ pub struct DistributedNotificationService {
     metrics: Metrics,
 }
 
-impl DistributedNotificationService {
-    /// Creates a new distributed notification service.
+impl NotificationService {
+    /// Creates a new notification service.
     ///
     /// # Errors
     /// Returns an error if the subscription to `PubSub` fails.
@@ -85,7 +83,7 @@ impl DistributedNotificationService {
                 .instrument(tracing::info_span!("notification_gc")),
         );
 
-        // 2. Background Dispatcher task (PubSub -> Local Channels)
+        // Background Dispatcher task (PubSub -> Local Channels)
         let mut notification_rx = repo.subscribe_realtime().await?;
         let dispatcher_channels = Arc::clone(&channels);
         let dispatcher_metrics = metrics.clone();
@@ -168,12 +166,9 @@ impl DistributedNotificationService {
             }
         }
     }
-}
 
-#[async_trait]
-impl NotificationService for DistributedNotificationService {
     #[tracing::instrument(skip(self), fields(user_id = %user_id))]
-    async fn subscribe(&self, user_id: Uuid) -> broadcast::Receiver<UserEvent> {
+    pub async fn subscribe(&self, user_id: Uuid) -> broadcast::Receiver<UserEvent> {
         let tx = self
             .channels
             .entry(user_id)
@@ -189,7 +184,7 @@ impl NotificationService for DistributedNotificationService {
     }
 
     #[tracing::instrument(skip(self), fields(user_id = %user_id, event = ?event))]
-    async fn notify(&self, user_id: Uuid, event: UserEvent) {
+    pub async fn notify(&self, user_id: Uuid, event: UserEvent) {
         // Fast Path: WebSocket/PubSub
         if let Err(e) = self.repo.publish_realtime(user_id, event).await {
             tracing::error!(error = %e, "Failed to publish to PubSub");
@@ -209,7 +204,7 @@ impl NotificationService for DistributedNotificationService {
     }
 
     #[tracing::instrument(skip(self), fields(user_id = %user_id))]
-    async fn cancel_pending_notifications(&self, user_id: Uuid) {
+    pub async fn cancel_pending_notifications(&self, user_id: Uuid) {
         if let Err(e) = self.repo.cancel_job(user_id).await {
             tracing::error!(error = %e, "Failed to cancel pending push notification");
         }
@@ -241,7 +236,6 @@ mod tests {
         channels.insert(user_id_stale, tx_stale);
 
         // 2. Make one stale by dropping its last receiver
-        // (Wait, rx_stale is still in scope, let's drop it explicitly)
         drop(rx_stale);
 
         // Check initial state
@@ -250,7 +244,7 @@ mod tests {
         // 3. Start GC with a very short interval
         let gc_channels = Arc::clone(&channels);
         tokio::spawn(async move {
-            DistributedNotificationService::run_gc(gc_channels, metrics, 1, shutdown_rx).await;
+            NotificationService::run_gc(gc_channels, metrics, 1, shutdown_rx).await;
         });
 
         // 4. Wait for one GC cycle

@@ -11,8 +11,9 @@ use obscura_server::{
     proto::obscura::v1::{
         AckMessage, EncryptedMessage, Envelope, PreKeyStatus, WebSocketFrame, web_socket_frame::Payload,
     },
-    services::notification::NotificationService,
+    services::notification_service::NotificationService,
 };
+
 use prost::Message as ProstMessage;
 use rand::RngCore;
 use rand::rngs::OsRng;
@@ -224,7 +225,7 @@ pub struct TestApp {
     pub ws_url: String,
     pub client: Client,
     pub s3_client: aws_sdk_s3::Client,
-    pub notifier: Arc<dyn NotificationService>,
+    pub notifier: NotificationService,
     pub shutdown_tx: tokio::sync::watch::Sender<bool>,
 }
 

@@ -41,7 +41,7 @@ use crate::services::gateway::GatewayService;
 use crate::services::health_service::HealthService;
 use crate::services::key_service::KeyService;
 use crate::services::message_service::MessageService;
-use crate::services::notification::{DistributedNotificationService, NotificationService};
+use crate::services::notification_service::NotificationService;
 use crate::services::push_token_service::PushTokenService;
 use crate::services::rate_limit_service::RateLimitService;
 use crate::workers::{AttachmentCleanupWorker, MessageCleanupWorker, PushNotificationWorker};
@@ -169,14 +169,9 @@ impl AppBuilder {
         let push_token_service = PushTokenService::new(pool.clone(), push_token_repo.clone());
         let notification_repo =
             Arc::new(adapters::redis::NotificationRepository::new(Arc::clone(&pubsub), &config.notifications));
-        let notifier: Arc<dyn NotificationService> = Arc::new(
-            DistributedNotificationService::new(
-                Arc::clone(&notification_repo),
-                &config.notifications,
-                shutdown_rx.clone(),
-            )
-            .await?,
-        );
+        let notifier =
+            NotificationService::new(Arc::clone(&notification_repo), &config.notifications, shutdown_rx.clone())
+                .await?;
 
         // Initialize Core Services
         let crypto_service = CryptoService::new();
@@ -185,7 +180,7 @@ impl AppBuilder {
         let message_service = MessageService::new(
             pool.clone(),
             message_repo.clone(),
-            Arc::clone(&notifier),
+            notifier.clone(),
             config.messaging.clone(),
             config.ttl_days,
         );
@@ -195,14 +190,15 @@ impl AppBuilder {
             message_repo.clone(),
             auth_service.clone(),
             key_service.clone(),
-            Arc::clone(&notifier),
+            notifier.clone(),
         );
         let gateway_service = GatewayService::new(
             message_service.clone(),
             key_service.clone(),
-            Arc::clone(&notifier),
+            notifier.clone(),
             config.websocket.clone(),
         );
+
         let attachment_service = AttachmentService::new(
             pool.clone(),
             attachment_repo.clone(),

@@ -4,12 +4,11 @@ use crate::config::MessagingConfig;
 use crate::domain::message::Message;
 use crate::domain::notification::UserEvent;
 use crate::error::Result;
-use crate::services::notification::NotificationService;
+use crate::services::notification_service::NotificationService;
 use opentelemetry::{
     KeyValue, global,
     metrics::{Counter, Histogram},
 };
-use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
@@ -38,17 +37,18 @@ impl Metrics {
 pub struct MessageService {
     pool: DbPool,
     repo: MessageRepository,
-    notifier: Arc<dyn NotificationService>,
+    notifier: NotificationService,
     config: MessagingConfig,
     ttl_days: i64,
     metrics: Metrics,
 }
 
 impl MessageService {
+    #[must_use]
     pub fn new(
         pool: DbPool,
         repo: MessageRepository,
-        notifier: Arc<dyn NotificationService>,
+        notifier: NotificationService,
         config: MessagingConfig,
         ttl_days: i64,
     ) -> Self {

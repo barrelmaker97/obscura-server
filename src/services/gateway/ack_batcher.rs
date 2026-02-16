@@ -1,7 +1,6 @@
 use crate::services::gateway::Metrics;
 use crate::services::message_service::MessageService;
-use crate::services::notification::NotificationService;
-use std::sync::Arc;
+use crate::services::notification_service::NotificationService;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::Instrument;
@@ -19,7 +18,7 @@ impl AckBatcher {
     pub fn new(
         user_id: Uuid,
         message_service: MessageService,
-        notifier: Arc<dyn NotificationService>,
+        notifier: NotificationService,
         metrics: Metrics,
         buffer_size: usize,
         batch_size: usize,
@@ -62,7 +61,7 @@ impl AckBatcher {
         user_id: Uuid,
         mut rx: mpsc::Receiver<Uuid>,
         message_service: MessageService,
-        notifier: Arc<dyn NotificationService>,
+        notifier: NotificationService,
         metrics: Metrics,
         batch_size: usize,
         flush_interval_ms: u64,

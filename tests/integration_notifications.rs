@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use common::{SharedMockPushProvider, TestApp, notification_counts};
 use obscura_server::adapters::push::{PushError, PushProvider};
 use obscura_server::adapters::redis::NotificationRepository;
-use obscura_server::services::notification::{DistributedNotificationService, NotificationService};
+use obscura_server::services::notification_service::NotificationService;
 use obscura_server::services::push_token_service::PushTokenService;
 use obscura_server::workers::PushNotificationWorker;
 use serde_json::json;
@@ -49,11 +49,9 @@ async fn test_scheduled_push_delivery() {
 
     let notification_repo = Arc::new(NotificationRepository::new(pubsub.clone(), &test_config.notifications));
 
-    let notifier: Arc<dyn NotificationService> = Arc::new(
-        DistributedNotificationService::new(notification_repo.clone(), &test_config.notifications, shutdown_rx.clone())
-            .await
-            .unwrap(),
-    );
+    let notifier = NotificationService::new(notification_repo.clone(), &test_config.notifications, shutdown_rx.clone())
+        .await
+        .unwrap();
 
     let worker = PushNotificationWorker::new(
         pool.clone(),
@@ -272,11 +270,9 @@ async fn test_push_coalescing() {
 
     let notification_repo = Arc::new(NotificationRepository::new(pubsub.clone(), &test_config.notifications));
 
-    let notifier: Arc<dyn NotificationService> = Arc::new(
-        DistributedNotificationService::new(notification_repo.clone(), &test_config.notifications, shutdown_rx.clone())
-            .await
-            .unwrap(),
-    );
+    let notifier = NotificationService::new(notification_repo.clone(), &test_config.notifications, shutdown_rx.clone())
+        .await
+        .unwrap();
 
     let worker = PushNotificationWorker::new(
         pool.clone(),
