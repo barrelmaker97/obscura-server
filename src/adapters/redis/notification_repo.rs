@@ -1,5 +1,5 @@
-use crate::adapters::redis::{PubSubMessage, RedisClient};
-use crate::domain::notification::UserEvent;
+use crate::adapters::redis::RedisClient;
+use crate::domain::notification::{RealtimeNotification, UserEvent};
 use redis::AsyncCommands;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -10,6 +10,7 @@ pub struct NotificationRepository {
     redis: Arc<RedisClient>,
     channel_prefix: String,
     push_queue_key: String,
+    global_channel_capacity: usize,
 }
 
 impl NotificationRepository {
@@ -18,11 +19,13 @@ impl NotificationRepository {
         redis: Arc<RedisClient>,
         channel_prefix: String,
         push_queue_key: String,
+        global_channel_capacity: usize,
     ) -> Self {
         Self {
             redis,
             channel_prefix,
             push_queue_key,
+            global_channel_capacity,
         }
     }
 
@@ -42,15 +45,26 @@ impl NotificationRepository {
     ///
     /// # Errors
     /// Returns an error if the subscription fails.
-    pub async fn subscribe_realtime(&self) -> anyhow::Result<broadcast::Receiver<PubSubMessage>> {
+    pub async fn subscribe_realtime(&self) -> anyhow::Result<broadcast::Receiver<RealtimeNotification>> {
         let pattern = format!("{}*", self.channel_prefix);
-        self.redis.subscribe(&pattern).await
-    }
+        let mut redis_rx = self.redis.subscribe(&pattern).await?;
+        
+        let (tx, rx) = broadcast::channel(self.global_channel_capacity);
+        let prefix = self.channel_prefix.clone();
+        // Spawn a mapper task to translate technical PubSubMessages into domain RealtimeNotifications
+        tokio::spawn(async move {
+            while let Ok(msg) = redis_rx.recv().await {
+                if let Some(user_id_str) = msg.channel.strip_prefix(&prefix)
+                    && let Ok(user_id) = Uuid::parse_str(user_id_str)
+                    && let Some(payload_byte) = msg.payload.first()
+                    && let Ok(event) = UserEvent::try_from(*payload_byte)
+                {
+                    let _ = tx.send(RealtimeNotification { user_id, event });
+                }
+            }
+        });
 
-    /// Returns the prefix used for user channels.
-    #[must_use]
-    pub fn channel_prefix(&self) -> &str {
-        &self.channel_prefix
+        Ok(rx)
     }
 
     /// Schedules a push notification job for a user.

@@ -271,6 +271,7 @@ impl TestApp {
             pubsub.clone(),
             config.notifications.channel_prefix.clone(),
             config.notifications.push_queue_key.clone(),
+            config.notifications.global_channel_capacity,
         ));
 
         // ALWAYS USE SHARED MOCK PROVIDER IN TESTS

@@ -47,6 +47,7 @@ async fn test_push_worker_invalidates_unregistered_tokens() {
         pubsub.clone(),
         config.notifications.channel_prefix.clone(),
         config.notifications.push_queue_key.clone(),
+        config.notifications.global_channel_capacity,
     ));
     let _: anyhow::Result<()> = notification_repo.push_job(user_id, 0).await;
 

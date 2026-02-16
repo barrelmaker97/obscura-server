@@ -50,7 +50,8 @@ async fn test_scheduled_push_delivery() {
     let notification_repo = Arc::new(NotificationRepository::new(
         pubsub.clone(),
         test_config.notifications.channel_prefix.clone(),
-        test_config.notifications.push_queue_key.clone()
+        test_config.notifications.push_queue_key.clone(),
+        test_config.notifications.global_channel_capacity,
     ));
 
     let notifier: Arc<dyn NotificationService> = Arc::new(
@@ -216,7 +217,8 @@ async fn test_delivery_exactly_once_under_competition() {
     let notification_repo = Arc::new(NotificationRepository::new(
         pubsub.clone(),
         test_config.notifications.channel_prefix.clone(),
-        test_config.notifications.push_queue_key.clone()
+        test_config.notifications.push_queue_key.clone(),
+        test_config.notifications.global_channel_capacity,
     ));
 
     // Spawn 10 competing workers
@@ -289,7 +291,8 @@ async fn test_push_coalescing() {
     let notification_repo = Arc::new(NotificationRepository::new(
         pubsub.clone(),
         test_config.notifications.channel_prefix.clone(),
-        test_config.notifications.push_queue_key.clone()
+        test_config.notifications.push_queue_key.clone(),
+        test_config.notifications.global_channel_capacity,
     ));
 
     let notifier: Arc<dyn NotificationService> = Arc::new(
@@ -372,7 +375,8 @@ async fn test_notification_worker_concurrency_limit() {
     let notification_repo = Arc::new(NotificationRepository::new(
         pubsub.clone(),
         config.notifications.channel_prefix.clone(),
-        config.notifications.push_queue_key.clone()
+        config.notifications.push_queue_key.clone(),
+        config.notifications.global_channel_capacity,
     ));
 
     let worker = PushNotificationWorker::new(

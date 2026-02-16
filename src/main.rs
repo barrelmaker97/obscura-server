@@ -106,6 +106,7 @@ async fn main() -> anyhow::Result<()> {
             pubsub.clone(),
             config.notifications.channel_prefix.clone(),
             config.notifications.push_queue_key.clone(),
+            config.notifications.global_channel_capacity,
         ));
 
         let notifier: Arc<dyn NotificationService> = Arc::new(

@@ -86,36 +86,33 @@ impl DistributedNotificationService {
         );
 
         // 2. Background Dispatcher task (PubSub -> Local Channels)
-        let mut pubsub_rx = repo.subscribe_realtime().await?;
+        let mut notification_rx = repo.subscribe_realtime().await?;
         let dispatcher_channels = Arc::clone(&channels);
         let dispatcher_metrics = metrics.clone();
         let mut dispatcher_shutdown = shutdown.clone();
-        let dispatcher_prefix = repo.channel_prefix().to_string();
 
         tokio::spawn(
             async move {
                 loop {
                     tokio::select! {
                         _ = dispatcher_shutdown.changed() => break,
-                        msg = pubsub_rx.recv() => {
-                            match msg {
-                                Ok(msg) => {
-                                    if let Some(user_id_str) = msg.channel.strip_prefix(&dispatcher_prefix)
-                                        && let Ok(user_id) = Uuid::parse_str(user_id_str)
-                                        && let Some(payload_byte) = msg.payload.first()
-                                        && let Ok(event) = UserEvent::try_from(*payload_byte)
-                                    {
-                                        let event_label = format!("{event:?}");
-                                        dispatcher_metrics.received_total.add(1, &[KeyValue::new("event", event_label.clone())]);
-                                        if let Some(tx) = dispatcher_channels.get(&user_id) {
-                                            let _ = tx.send(event);
-                                        } else {
-                                            dispatcher_metrics.unrouted_total.add(1, &[KeyValue::new("event", event_label)]);
-                                        }
+                        result = notification_rx.recv() => {
+                            match result {
+                                Ok(notification) => {
+                                    let user_id = notification.user_id;
+                                    let event = notification.event;
+                                    let event_label = format!("{event:?}");
+
+                                    dispatcher_metrics.received_total.add(1, &[KeyValue::new("event", event_label.clone())]);
+
+                                    if let Some(tx) = dispatcher_channels.get(&user_id) {
+                                        let _ = tx.send(event);
+                                    } else {
+                                        dispatcher_metrics.unrouted_total.add(1, &[KeyValue::new("event", event_label)]);
                                     }
                                 }
                                 Err(broadcast::error::RecvError::Lagged(n)) => {
-                                    tracing::warn!(missed = n, "PubSub notification dispatcher lagged");
+                                    tracing::warn!(missed = n, "Internal notification dispatcher lagged");
                                 }
                                 Err(broadcast::error::RecvError::Closed) => break,
                             }
