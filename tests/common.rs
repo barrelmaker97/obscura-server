@@ -259,7 +259,7 @@ impl TestApp {
         let s3_client = obscura_server::init_s3_client(&config.storage).await;
 
         let push_provider = Arc::new(SharedMockPushProvider);
-        let components = obscura_server::AppBuilder::new(config.clone())
+        let app = obscura_server::AppBuilder::new(config.clone())
             .with_database(pool.clone())
             .with_pubsub(pubsub.clone())
             .with_s3(s3_client.clone())
@@ -270,20 +270,21 @@ impl TestApp {
             .expect("Failed to build application for tests");
 
         // Spawn workers explicitly in tests if needed (some tests might want to control this)
-        let _worker_tasks = components.workers.spawn_all(shutdown_rx.clone());
+        let _worker_tasks = app.workers.spawn_all(shutdown_rx.clone());
 
-        let notifier = components.services.notification_service.clone();
-        let app = app_router(config.clone(), components.services, shutdown_rx.clone());
-        let mgmt_app = obscura_server::api::mgmt_router(obscura_server::api::MgmtState {
-            health_service: components.health_service,
-        });
+        let notifier = app.services.notification_service.clone();
+        let app_router = app_router(config.clone(), app.services, shutdown_rx.clone());
+        let mgmt_app =
+            obscura_server::api::mgmt_router(obscura_server::api::MgmtState { health_service: app.health_service });
 
         let server_url = format!("http://{}", addr);
         let mgmt_url = format!("http://{}", mgmt_addr);
         let ws_url = format!("ws://{}/v1/gateway", addr);
 
         tokio::spawn(async move {
-            axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
+            axum::serve(listener, app_router.into_make_service_with_connect_info::<std::net::SocketAddr>())
+                .await
+                .unwrap();
         });
 
         tokio::spawn(async move {

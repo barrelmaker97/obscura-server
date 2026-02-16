@@ -55,7 +55,7 @@ pub struct Resources {
 }
 
 #[derive(Debug)]
-pub struct ServiceContainer {
+pub struct Services {
     pub key_service: KeyService,
     pub attachment_service: AttachmentService,
     pub account_service: AccountService,
@@ -68,21 +68,21 @@ pub struct ServiceContainer {
 }
 
 #[derive(Debug)]
-pub struct AppComponents {
+pub struct App {
     pub resources: Resources,
-    pub services: ServiceContainer,
+    pub services: Services,
     pub health_service: HealthService,
-    pub workers: WorkerManager,
+    pub workers: Workers,
 }
 
 #[derive(Debug)]
-pub struct WorkerManager {
+pub struct Workers {
     pub message_worker: MessageCleanupWorker,
     pub attachment_worker: AttachmentCleanupWorker,
     pub push_worker: PushNotificationWorker,
 }
 
-impl WorkerManager {
+impl Workers {
     #[must_use]
     pub fn spawn_all(self, shutdown_rx: watch::Receiver<bool>) -> Vec<tokio::task::JoinHandle<()>> {
         let mut tasks = Vec::new();
@@ -168,7 +168,7 @@ impl AppBuilder {
     /// Returns an error if mandatory dependencies (pool, pubsub, etc.) are missing,
     /// or if any service fails to initialize.
     #[tracing::instrument(skip(self))]
-    pub async fn build(self) -> anyhow::Result<AppComponents> {
+    pub async fn build(self) -> anyhow::Result<App> {
         let pool = self.pool.ok_or_else(|| anyhow::anyhow!("Database pool is required"))?;
         let pubsub = self.pubsub.ok_or_else(|| anyhow::anyhow!("PubSub client is required"))?;
         let s3_client = self.s3_client.ok_or_else(|| anyhow::anyhow!("S3 client is required"))?;
@@ -177,7 +177,7 @@ impl AppBuilder {
 
         let config = &self.config;
 
-        let resources = Resources { pool: pool.clone(), pubsub: pubsub.clone(), s3_client: s3_client.clone() };
+        let resources = Resources { pool: pool.clone(), pubsub: Arc::clone(&pubsub), s3_client: s3_client.clone() };
 
         // Initialize Repositories
         let key_repo = KeyRepository::new();
@@ -237,7 +237,7 @@ impl AppBuilder {
             config.health.clone(),
         );
 
-        let services = ServiceContainer {
+        let services = Services {
             key_service,
             attachment_service,
             account_service,
@@ -249,7 +249,7 @@ impl AppBuilder {
             rate_limit_service,
         };
 
-        let workers = WorkerManager {
+        let workers = Workers {
             message_worker: MessageCleanupWorker::new(pool.clone(), message_repo, config.messaging.clone()),
             attachment_worker: AttachmentCleanupWorker::new(
                 pool.clone(),
@@ -266,7 +266,7 @@ impl AppBuilder {
             ),
         };
 
-        Ok(AppComponents { resources, services, health_service, workers })
+        Ok(App { resources, services, health_service, workers })
     }
 }
 

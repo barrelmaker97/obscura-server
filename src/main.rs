@@ -30,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
     obscura_server::setup_panic_hook();
 
     let boot_span = tracing::info_span!("server_boot");
-    let (api_listener, mgmt_listener, app, mgmt_app, shutdown_tx, shutdown_rx, workers) = async {
+    let (api_listener, mgmt_listener, app_router, mgmt_app, shutdown_tx, shutdown_rx, workers) = async {
         // Phase 1: Infrastructure Setup (Resources)
         let pool = adapters::database::init_pool(&config.database_url).await?;
         obscura_server::run_migrations(&pool).await?;
@@ -49,7 +49,7 @@ async fn main() -> anyhow::Result<()> {
 
         // Phase 2: Component Wiring (Pure logic, no side effects)
         let push_provider = Arc::new(adapters::push::fcm::FcmPushProvider);
-        let components = AppBuilder::new(config.clone())
+        let app = AppBuilder::new(config.clone())
             .with_database(pool)
             .with_pubsub(pubsub)
             .with_s3(s3_client)
@@ -59,8 +59,8 @@ async fn main() -> anyhow::Result<()> {
             .await?;
 
         // Phase 3: Runtime Setup (Listeners and Routers)
-        let app = obscura_server::api::app_router(config.clone(), components.services, shutdown_rx.clone());
-        let mgmt_app = obscura_server::api::mgmt_router(MgmtState { health_service: components.health_service });
+        let app_router = obscura_server::api::app_router(config.clone(), app.services, shutdown_rx.clone());
+        let mgmt_app = obscura_server::api::mgmt_router(MgmtState { health_service: app.health_service });
 
         let api_addr: SocketAddr = format!("{}:{}", config.server.host, config.server.port).parse()?;
         let mgmt_addr: SocketAddr = format!("{}:{}", config.server.host, config.server.mgmt_port).parse()?;
@@ -79,10 +79,10 @@ async fn main() -> anyhow::Result<()> {
                 axum::Router,
                 watch::Sender<bool>,
                 watch::Receiver<bool>,
-                obscura_server::WorkerManager,
+                obscura_server::Workers,
             ),
             anyhow::Error,
-        >((api_listener, mgmt_listener, app, mgmt_app, shutdown_tx, shutdown_rx, components.workers))
+        >((api_listener, mgmt_listener, app_router, mgmt_app, shutdown_tx, shutdown_rx, app.workers))
     }
     .instrument(boot_span)
     .await?;
@@ -91,7 +91,7 @@ async fn main() -> anyhow::Result<()> {
     let worker_tasks = workers.spawn_all(shutdown_rx.clone());
 
     let mut api_rx = shutdown_rx.clone();
-    let api_server = axum::serve(api_listener, app.into_make_service_with_connect_info::<SocketAddr>())
+    let api_server = axum::serve(api_listener, app_router.into_make_service_with_connect_info::<SocketAddr>())
         .with_graceful_shutdown(async move {
             let _ = api_rx.wait_for(|&s| s).await;
         });

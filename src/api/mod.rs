@@ -1,4 +1,4 @@
-use crate::ServiceContainer;
+use crate::Services;
 use crate::api::rate_limit::log_rate_limit_events;
 use crate::config::Config;
 use crate::services::account_service::AccountService;
@@ -60,11 +60,7 @@ pub struct MgmtState {
 ///
 /// # Panics
 /// Panics if the rate limiter configuration cannot be constructed.
-pub fn app_router(
-    config: Config,
-    services: ServiceContainer,
-    shutdown_rx: tokio::sync::watch::Receiver<bool>,
-) -> Router {
+pub fn app_router(config: Config, services: Services, shutdown_rx: tokio::sync::watch::Receiver<bool>) -> Router {
     let std_interval_ns = 1_000_000_000 / config.rate_limit.per_second.max(1);
     let standard_conf = Arc::new(
         GovernorConfigBuilder::default()
