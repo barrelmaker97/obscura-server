@@ -1,4 +1,3 @@
-#![allow(clippy::needless_raw_string_hashes)]
 pub mod attachment_repo;
 pub mod key_repo;
 pub mod message_repo;

@@ -16,10 +16,7 @@ pub struct NotificationRepository {
 
 impl NotificationRepository {
     #[must_use]
-    pub fn new(
-        redis: Arc<RedisClient>,
-        config: &NotificationConfig,
-    ) -> Self {
+    pub fn new(redis: Arc<RedisClient>, config: &NotificationConfig) -> Self {
         Self {
             redis,
             channel_prefix: config.channel_prefix.clone(),
@@ -47,7 +44,7 @@ impl NotificationRepository {
     pub async fn subscribe_realtime(&self) -> anyhow::Result<broadcast::Receiver<RealtimeNotification>> {
         let pattern = format!("{}*", self.channel_prefix);
         let mut redis_rx = self.redis.subscribe(&pattern).await?;
-        
+
         let (tx, rx) = broadcast::channel(self.global_channel_capacity);
         let prefix = self.channel_prefix.clone();
         // Spawn a mapper task to translate technical PubSubMessages into domain RealtimeNotifications
@@ -96,36 +93,47 @@ impl NotificationRepository {
         Ok(())
     }
 
-    /// Pulls a batch of due push notification jobs from the queue.
+    /// Leases a batch of due push notification jobs atomically.
     ///
     /// # Errors
     /// Returns an error if the Redis operation fails.
     #[allow(clippy::cast_precision_loss)]
-    pub async fn claim_due_jobs(&self, limit: isize) -> anyhow::Result<Vec<Uuid>> {
+    pub async fn lease_due_jobs(&self, limit: isize, timeout_secs: u64) -> anyhow::Result<Vec<Uuid>> {
         let now = time::OffsetDateTime::now_utc().unix_timestamp() as f64;
+        let lease_until = now + timeout_secs as f64;
         let mut conn = self.redis.publisher();
 
-        // 1. Read candidates
-        let candidates: Vec<String> = conn
-            .zrangebyscore_limit(&self.push_queue_key, "-inf", now, 0, limit)
-            .await?;
+        // Lua Script:
+        // 1. Get candidates using ZRANGEBYSCORE
+        // 2. Loop through candidates and ZADD them with the new score
+        // 3. Return the candidates
+        let script = redis::Script::new(
+            r#"
+            local jobs = redis.call('ZRANGEBYSCORE', ARGV[1], '-inf', ARGV[2], 'LIMIT', 0, ARGV[3])
+            if #jobs > 0 then
+                for _, job in ipairs(jobs) do
+                    redis.call('ZADD', ARGV[1], ARGV[4], job)
+                end
+            end
+            return jobs
+            "#,
+        );
 
-        let mut claimed = Vec::new();
+        let candidates: Vec<String> =
+            script.arg(&self.push_queue_key).arg(now).arg(limit).arg(lease_until).invoke_async(&mut conn).await?;
 
-        // 2. Claim candidates one by one
-        for member in candidates {
-            // zrem returns 1 if the item was removed (we claimed it), 0 if someone else did.
-            match conn.zrem::<_, _, i64>(&self.push_queue_key, &member).await {
-                Ok(1) => {
-                    if let Ok(id) = Uuid::parse_str(&member) {
-                        claimed.push(id);
-                    }
-                }
-                Ok(_) => {} // Someone else claimed it
-                Err(e) => tracing::error!(error = %e, "Failed to claim job from Redis"),
-            }
-        }
+        let leased = candidates.into_iter().filter_map(|s| Uuid::parse_str(&s).ok()).collect();
 
-        Ok(claimed)
+        Ok(leased)
+    }
+
+    /// Deletes a push notification job from the queue (finalizing it).
+    ///
+    /// # Errors
+    /// Returns an error if the Redis operation fails.
+    pub async fn delete_job(&self, user_id: Uuid) -> anyhow::Result<()> {
+        let mut conn = self.redis.publisher();
+        let _: i64 = conn.zrem(&self.push_queue_key, user_id.to_string()).await?;
+        Ok(())
     }
 }

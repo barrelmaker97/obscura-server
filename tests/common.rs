@@ -268,20 +268,14 @@ impl TestApp {
 
         let push_token_service = PushTokenService::new(pool.clone(), push_token_repo.clone());
 
-        let notification_repo = Arc::new(adapters::redis::NotificationRepository::new(
-            pubsub.clone(),
-            &config.notifications,
-        ));
+        let notification_repo =
+            Arc::new(adapters::redis::NotificationRepository::new(pubsub.clone(), &config.notifications));
 
         // ALWAYS USE SHARED MOCK PROVIDER IN TESTS
         let notifier: Arc<dyn NotificationService> = Arc::new(
-            DistributedNotificationService::new(
-                notification_repo.clone(),
-                &config.notifications,
-                shutdown_rx.clone(),
-            )
-            .await
-            .expect("Failed to create DistributedNotificationService for tests."),
+            DistributedNotificationService::new(notification_repo.clone(), &config.notifications, shutdown_rx.clone())
+                .await
+                .expect("Failed to create DistributedNotificationService for tests."),
         );
 
         let push_worker = PushNotificationWorker::new(
@@ -397,17 +391,7 @@ impl TestApp {
                 .unwrap();
         });
 
-        TestApp {
-            pool,
-            config,
-            server_url,
-            mgmt_url,
-            ws_url,
-            client: Client::new(),
-            s3_client,
-            notifier,
-            shutdown_tx,
-        }
+        TestApp { pool, config, server_url, mgmt_url, ws_url, client: Client::new(), s3_client, notifier, shutdown_tx }
     }
 
     pub async fn register_user(&self, username: &str) -> TestUser {

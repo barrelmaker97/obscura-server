@@ -314,6 +314,10 @@ pub struct NotificationConfig {
     /// Redis `PubSub` channel prefix for user notifications
     #[arg(long, env = "OBSCURA_NOTIFICATIONS_CHANNEL_PREFIX", default_value_t = NotificationConfig::default().channel_prefix)]
     pub channel_prefix: String,
+
+    /// How long a push job is leased by a worker in seconds
+    #[arg(long, env = "OBSCURA_NOTIFICATIONS_VISIBILITY_TIMEOUT_SECS", default_value_t = NotificationConfig::default().visibility_timeout_secs)]
+    pub visibility_timeout_secs: u64,
 }
 
 impl Default for NotificationConfig {
@@ -328,6 +332,7 @@ impl Default for NotificationConfig {
             worker_concurrency: 100,
             push_queue_key: "jobs:push_notifications".to_string(),
             channel_prefix: "user:".to_string(),
+            visibility_timeout_secs: 30,
         }
     }
 }

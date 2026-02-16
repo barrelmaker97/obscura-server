@@ -42,11 +42,11 @@ async fn test_push_worker_invalidates_unregistered_tokens() {
     }
 
     // 2. Schedule a push
-    let pubsub = obscura_server::adapters::redis::RedisClient::new(&config.pubsub, 1024, tokio::sync::watch::channel(false).1).await.unwrap();
-    let notification_repo = Arc::new(NotificationRepository::new(
-        pubsub.clone(),
-        &config.notifications,
-    ));
+    let pubsub =
+        obscura_server::adapters::redis::RedisClient::new(&config.pubsub, 1024, tokio::sync::watch::channel(false).1)
+            .await
+            .unwrap();
+    let notification_repo = Arc::new(NotificationRepository::new(pubsub.clone(), &config.notifications));
     let _: anyhow::Result<()> = notification_repo.push_job(user_id, 0).await;
 
     // 3. Setup Worker with FAILING provider

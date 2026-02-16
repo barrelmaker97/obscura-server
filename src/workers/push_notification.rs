@@ -44,6 +44,7 @@ pub struct PushNotificationWorker {
     token_repo: PushTokenRepository,
     poll_limit: isize,
     interval_secs: u64,
+    visibility_timeout_secs: u64,
     semaphore: Arc<Semaphore>,
     metrics: Metrics,
 }
@@ -63,6 +64,7 @@ impl PushNotificationWorker {
             token_repo,
             poll_limit: config.worker_poll_limit,
             interval_secs: config.worker_interval_secs,
+            visibility_timeout_secs: config.visibility_timeout_secs,
             semaphore: Arc::new(Semaphore::new(config.worker_concurrency)),
             metrics: Metrics::new(),
         }
@@ -99,13 +101,14 @@ impl PushNotificationWorker {
         }
 
         let limit = (available as isize).min(self.poll_limit);
-        let user_ids = self.repo.claim_due_jobs(limit).await?;
+        // If the worker crashes, the job will become visible again after this period.
+        let user_ids = self.repo.lease_due_jobs(limit, self.visibility_timeout_secs).await?;
 
         if user_ids.is_empty() {
             return Ok(());
         }
 
-        tracing::info!(count = user_ids.len(), "Processing due push notifications");
+        tracing::info!(count = user_ids.len(), "Processing leased push notifications");
 
         // 1. Batch lookup tokens for all users
         let user_token_pairs = {
@@ -118,6 +121,7 @@ impl PushNotificationWorker {
             let provider = Arc::clone(&self.provider);
             let pool = self.pool.clone();
             let token_repo = self.token_repo.clone();
+            let repo = Arc::clone(&self.repo);
             let metrics = self.metrics.clone();
 
             // Acquire a permit before spawning.
@@ -134,10 +138,16 @@ impl PushNotificationWorker {
                         Ok(()) => {
                             tracing::debug!(token = %token, "Push notification sent successfully");
                             metrics.sent.add(1, &[]);
+                            // Success: Remove job from Redis
+                            let _ = repo.delete_job(user_id).await;
                         }
                         Err(PushError::Unregistered) => {
                             tracing::info!(token = %token, "Token unregistered, deleting from database");
                             metrics.invalidated_tokens.add(1, &[]);
+
+                            // Definitively failed: Remove job from Redis anyway
+                            let _ = repo.delete_job(user_id).await;
+
                             let conn_res = pool.acquire().await;
                             if let Ok(mut conn) = conn_res
                                 && let Err(e) = token_repo.delete_token(&mut conn, &token).await
@@ -146,12 +156,14 @@ impl PushNotificationWorker {
                             }
                         }
                         Err(PushError::QuotaExceeded) => {
-                            tracing::warn!("Push quota exceeded, should implement backoff");
+                            tracing::warn!("Push quota exceeded, allowing visibility timeout to trigger retry");
                             metrics.errors.add(1, &[KeyValue::new("reason", "quota_exceeded")]);
+                            // We do NOT delete the job; it will be retried when the lease expires.
                         }
                         Err(PushError::Other(e)) => {
-                            tracing::error!(error = %e, token = %token, "Failed to send push notification");
+                            tracing::error!(error = %e, token = %token, "Failed to send push notification, will retry");
                             metrics.errors.add(1, &[KeyValue::new("reason", "other")]);
+                            // We do NOT delete the job; it will be retried when the lease expires.
                         }
                     }
                 }

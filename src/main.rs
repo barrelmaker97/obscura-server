@@ -102,18 +102,12 @@ async fn main() -> anyhow::Result<()> {
         // Initialize Specialized Services
         let push_token_service = PushTokenService::new(pool.clone(), push_token_repo.clone());
 
-        let notification_repo = Arc::new(adapters::redis::NotificationRepository::new(
-            pubsub.clone(),
-            &config.notifications,
-        ));
+        let notification_repo =
+            Arc::new(adapters::redis::NotificationRepository::new(pubsub.clone(), &config.notifications));
 
         let notifier: Arc<dyn NotificationService> = Arc::new(
-            DistributedNotificationService::new(
-                notification_repo.clone(),
-                &config.notifications,
-                shutdown_rx.clone(),
-            )
-            .await?,
+            DistributedNotificationService::new(notification_repo.clone(), &config.notifications, shutdown_rx.clone())
+                .await?,
         );
 
         // Storage Setup

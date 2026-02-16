@@ -47,19 +47,12 @@ async fn test_scheduled_push_delivery() {
     test_config.notifications.push_delay_secs = 1;
     test_config.notifications.worker_interval_secs = 1;
 
-    let notification_repo = Arc::new(NotificationRepository::new(
-        pubsub.clone(),
-        &test_config.notifications,
-    ));
+    let notification_repo = Arc::new(NotificationRepository::new(pubsub.clone(), &test_config.notifications));
 
     let notifier: Arc<dyn NotificationService> = Arc::new(
-        DistributedNotificationService::new(
-            notification_repo.clone(),
-            &test_config.notifications,
-            shutdown_rx.clone(),
-        )
-        .await
-        .unwrap(),
+        DistributedNotificationService::new(notification_repo.clone(), &test_config.notifications, shutdown_rx.clone())
+            .await
+            .unwrap(),
     );
 
     let worker = PushNotificationWorker::new(
@@ -210,10 +203,7 @@ async fn test_delivery_exactly_once_under_competition() {
     test_config.notifications.push_delay_secs = 0;
     test_config.notifications.worker_interval_secs = 1;
 
-    let notification_repo = Arc::new(NotificationRepository::new(
-        pubsub.clone(),
-        &test_config.notifications,
-    ));
+    let notification_repo = Arc::new(NotificationRepository::new(pubsub.clone(), &test_config.notifications));
 
     // Spawn 10 competing workers
     for i in 0..10 {
@@ -280,19 +270,12 @@ async fn test_push_coalescing() {
     test_config.notifications.push_delay_secs = 2;
     test_config.notifications.worker_interval_secs = 1;
 
-    let notification_repo = Arc::new(NotificationRepository::new(
-        pubsub.clone(),
-        &test_config.notifications,
-    ));
+    let notification_repo = Arc::new(NotificationRepository::new(pubsub.clone(), &test_config.notifications));
 
     let notifier: Arc<dyn NotificationService> = Arc::new(
-        DistributedNotificationService::new(
-            notification_repo.clone(),
-            &test_config.notifications,
-            shutdown_rx.clone(),
-        )
-        .await
-        .unwrap(),
+        DistributedNotificationService::new(notification_repo.clone(), &test_config.notifications, shutdown_rx.clone())
+            .await
+            .unwrap(),
     );
 
     let worker = PushNotificationWorker::new(
@@ -347,7 +330,7 @@ impl PushProvider for ConcurrencyMockProvider {
 async fn test_notification_worker_concurrency_limit() {
     common::setup_tracing();
     PEAK_IN_FLIGHT.store(0, Ordering::SeqCst);
-    
+
     let mut config = common::get_test_config();
     let pool = common::get_test_pool().await;
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
@@ -364,10 +347,7 @@ async fn test_notification_worker_concurrency_limit() {
     config.notifications.worker_poll_limit = poll_limit;
     config.notifications.worker_concurrency = concurrency;
 
-    let notification_repo = Arc::new(NotificationRepository::new(
-        pubsub.clone(),
-        &config.notifications,
-    ));
+    let notification_repo = Arc::new(NotificationRepository::new(pubsub.clone(), &config.notifications));
 
     let worker = PushNotificationWorker::new(
         pool.clone(),
