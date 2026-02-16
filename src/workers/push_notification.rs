@@ -2,6 +2,7 @@ use crate::adapters::database::DbPool;
 use crate::adapters::database::push_token_repo::PushTokenRepository;
 use crate::adapters::push::{PushError, PushProvider};
 use crate::adapters::redis::NotificationRepository;
+use crate::config::NotificationConfig;
 use opentelemetry::{KeyValue, global, metrics::Counter};
 use std::sync::Arc;
 use std::time::Duration;
@@ -53,18 +54,16 @@ impl PushNotificationWorker {
         repo: Arc<NotificationRepository>,
         provider: Arc<dyn PushProvider>,
         token_repo: PushTokenRepository,
-        poll_limit: isize,
-        interval_secs: u64,
-        concurrency: usize,
+        config: &NotificationConfig,
     ) -> Self {
         Self {
             pool,
             repo,
             provider,
             token_repo,
-            poll_limit,
-            interval_secs,
-            semaphore: Arc::new(Semaphore::new(concurrency)),
+            poll_limit: config.worker_poll_limit,
+            interval_secs: config.worker_interval_secs,
+            semaphore: Arc::new(Semaphore::new(config.worker_concurrency)),
             metrics: Metrics::new(),
         }
     }

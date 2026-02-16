@@ -1,4 +1,5 @@
 use crate::adapters::redis::RedisClient;
+use crate::config::NotificationConfig;
 use crate::domain::notification::{RealtimeNotification, UserEvent};
 use redis::AsyncCommands;
 use std::sync::Arc;
@@ -15,17 +16,15 @@ pub struct NotificationRepository {
 
 impl NotificationRepository {
     #[must_use]
-    pub const fn new(
+    pub fn new(
         redis: Arc<RedisClient>,
-        channel_prefix: String,
-        push_queue_key: String,
-        global_channel_capacity: usize,
+        config: &NotificationConfig,
     ) -> Self {
         Self {
             redis,
-            channel_prefix,
-            push_queue_key,
-            global_channel_capacity,
+            channel_prefix: config.channel_prefix.clone(),
+            push_queue_key: config.push_queue_key.clone(),
+            global_channel_capacity: config.global_channel_capacity,
         }
     }
 

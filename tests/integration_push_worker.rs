@@ -45,9 +45,7 @@ async fn test_push_worker_invalidates_unregistered_tokens() {
     let pubsub = obscura_server::adapters::redis::RedisClient::new(&config.pubsub, 1024, tokio::sync::watch::channel(false).1).await.unwrap();
     let notification_repo = Arc::new(NotificationRepository::new(
         pubsub.clone(),
-        config.notifications.channel_prefix.clone(),
-        config.notifications.push_queue_key.clone(),
-        config.notifications.global_channel_capacity,
+        &config.notifications,
     ));
     let _: anyhow::Result<()> = notification_repo.push_job(user_id, 0).await;
 
@@ -57,9 +55,7 @@ async fn test_push_worker_invalidates_unregistered_tokens() {
         notification_repo,
         Arc::new(FailingPushProvider),
         PushTokenRepository::new(),
-        10,
-        1,
-        1,
+        &config.notifications,
     );
 
     // 4. Run one iteration of the worker

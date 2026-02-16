@@ -49,9 +49,7 @@ async fn test_scheduled_push_delivery() {
 
     let notification_repo = Arc::new(NotificationRepository::new(
         pubsub.clone(),
-        test_config.notifications.channel_prefix.clone(),
-        test_config.notifications.push_queue_key.clone(),
-        test_config.notifications.global_channel_capacity,
+        &test_config.notifications,
     ));
 
     let notifier: Arc<dyn NotificationService> = Arc::new(
@@ -69,9 +67,7 @@ async fn test_scheduled_push_delivery() {
         notification_repo,
         Arc::new(SharedMockPushProvider),
         token_repo,
-        test_config.notifications.worker_poll_limit,
-        test_config.notifications.worker_interval_secs,
-        test_config.notifications.worker_concurrency,
+        &test_config.notifications,
     );
     tokio::spawn(worker.run(shutdown_rx.clone()));
 
@@ -216,9 +212,7 @@ async fn test_delivery_exactly_once_under_competition() {
 
     let notification_repo = Arc::new(NotificationRepository::new(
         pubsub.clone(),
-        test_config.notifications.channel_prefix.clone(),
-        test_config.notifications.push_queue_key.clone(),
-        test_config.notifications.global_channel_capacity,
+        &test_config.notifications,
     ));
 
     // Spawn 10 competing workers
@@ -228,9 +222,7 @@ async fn test_delivery_exactly_once_under_competition() {
             notification_repo.clone(),
             Arc::new(SharedMockPushProvider),
             token_repo.clone(),
-            test_config.notifications.worker_poll_limit,
-            test_config.notifications.worker_interval_secs,
-            test_config.notifications.worker_concurrency,
+            &test_config.notifications,
         );
         let rx = shutdown_rx.clone();
         tokio::spawn(
@@ -290,9 +282,7 @@ async fn test_push_coalescing() {
 
     let notification_repo = Arc::new(NotificationRepository::new(
         pubsub.clone(),
-        test_config.notifications.channel_prefix.clone(),
-        test_config.notifications.push_queue_key.clone(),
-        test_config.notifications.global_channel_capacity,
+        &test_config.notifications,
     ));
 
     let notifier: Arc<dyn NotificationService> = Arc::new(
@@ -310,9 +300,7 @@ async fn test_push_coalescing() {
         notification_repo,
         Arc::new(SharedMockPushProvider),
         token_repo,
-        test_config.notifications.worker_poll_limit,
-        test_config.notifications.worker_interval_secs,
-        test_config.notifications.worker_concurrency,
+        &test_config.notifications,
     );
     tokio::spawn(worker.run(shutdown_rx.clone()));
 
@@ -374,9 +362,7 @@ async fn test_notification_worker_concurrency_limit() {
 
     let notification_repo = Arc::new(NotificationRepository::new(
         pubsub.clone(),
-        config.notifications.channel_prefix.clone(),
-        config.notifications.push_queue_key.clone(),
-        config.notifications.global_channel_capacity,
+        &config.notifications,
     ));
 
     let worker = PushNotificationWorker::new(
@@ -384,9 +370,7 @@ async fn test_notification_worker_concurrency_limit() {
         notification_repo.clone(),
         Arc::new(ConcurrencyMockProvider),
         token_repo.clone(),
-        poll_limit,
-        1,
-        concurrency,
+        &config.notifications,
     );
 
     tokio::spawn(worker.run(shutdown_rx.clone()));

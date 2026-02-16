@@ -269,9 +269,7 @@ impl TestApp {
 
         let notification_repo = Arc::new(adapters::redis::NotificationRepository::new(
             pubsub.clone(),
-            config.notifications.channel_prefix.clone(),
-            config.notifications.push_queue_key.clone(),
-            config.notifications.global_channel_capacity,
+            &config.notifications,
         ));
 
         // ALWAYS USE SHARED MOCK PROVIDER IN TESTS
@@ -290,9 +288,7 @@ impl TestApp {
             notification_repo,
             Arc::new(SharedMockPushProvider),
             push_token_repo.clone(),
-            config.notifications.worker_poll_limit,
-            config.notifications.worker_interval_secs,
-            config.notifications.worker_concurrency,
+            &config.notifications,
         );
 
         tokio::spawn(push_worker.run(shutdown_rx.clone()));

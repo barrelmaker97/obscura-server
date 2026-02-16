@@ -104,9 +104,7 @@ async fn main() -> anyhow::Result<()> {
 
         let notification_repo = Arc::new(adapters::redis::NotificationRepository::new(
             pubsub.clone(),
-            config.notifications.channel_prefix.clone(),
-            config.notifications.push_queue_key.clone(),
-            config.notifications.global_channel_capacity,
+            &config.notifications,
         ));
 
         let notifier: Arc<dyn NotificationService> = Arc::new(
@@ -233,9 +231,7 @@ async fn main() -> anyhow::Result<()> {
             notification_repo,
             Arc::new(adapters::push::fcm::FcmPushProvider),
             push_token_repo,
-            config.notifications.worker_poll_limit,
-            config.notifications.worker_interval_secs,
-            config.notifications.worker_concurrency,
+            &config.notifications,
         );
         let push_worker_rx = shutdown_rx.clone();
         let push_worker_task = tokio::spawn(async move {
