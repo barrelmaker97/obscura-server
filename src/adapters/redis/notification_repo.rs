@@ -29,6 +29,7 @@ impl NotificationRepository {
     ///
     /// # Errors
     /// Returns an error if the Redis operation fails.
+    #[tracing::instrument(level = "debug", skip(self), err)]
     pub async fn publish_realtime(&self, user_id: Uuid, event: UserEvent) -> anyhow::Result<()> {
         let channel_name = format!("{}{user_id}", self.channel_prefix);
         let payload = [event as u8];
@@ -41,6 +42,7 @@ impl NotificationRepository {
     ///
     /// # Errors
     /// Returns an error if the subscription fails.
+    #[tracing::instrument(level = "debug", skip(self), err)]
     pub async fn subscribe_realtime(&self) -> anyhow::Result<broadcast::Receiver<RealtimeNotification>> {
         let pattern = format!("{}*", self.channel_prefix);
         let mut redis_rx = self.redis.subscribe(&pattern).await?;
@@ -68,6 +70,7 @@ impl NotificationRepository {
     /// # Errors
     /// Returns an error if the Redis operation fails.
     #[allow(clippy::cast_precision_loss)]
+    #[tracing::instrument(level = "debug", skip(self), err)]
     pub async fn push_job(&self, user_id: Uuid, delay_secs: u64) -> anyhow::Result<()> {
         let run_at = time::OffsetDateTime::now_utc().unix_timestamp() + i64::try_from(delay_secs).unwrap_or(0);
 
@@ -87,6 +90,7 @@ impl NotificationRepository {
     ///
     /// # Errors
     /// Returns an error if the Redis operation fails.
+    #[tracing::instrument(level = "debug", skip(self), err)]
     pub async fn cancel_job(&self, user_id: Uuid) -> anyhow::Result<()> {
         let mut conn = self.redis.publisher();
         let _: i64 = conn.zrem(&self.push_queue_key, user_id.to_string()).await?;
@@ -98,6 +102,7 @@ impl NotificationRepository {
     /// # Errors
     /// Returns an error if the Redis operation fails.
     #[allow(clippy::cast_precision_loss)]
+    #[tracing::instrument(level = "debug", skip(self), err)]
     pub async fn lease_due_jobs(&self, limit: isize, timeout_secs: u64) -> anyhow::Result<Vec<Uuid>> {
         let now = time::OffsetDateTime::now_utc().unix_timestamp() as f64;
         let lease_until = now + timeout_secs as f64;
@@ -131,6 +136,7 @@ impl NotificationRepository {
     ///
     /// # Errors
     /// Returns an error if the Redis operation fails.
+    #[tracing::instrument(level = "debug", skip(self), err)]
     pub async fn delete_job(&self, user_id: Uuid) -> anyhow::Result<()> {
         let mut conn = self.redis.publisher();
         let _: i64 = conn.zrem(&self.push_queue_key, user_id.to_string()).await?;

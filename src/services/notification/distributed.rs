@@ -106,8 +106,10 @@ impl DistributedNotificationService {
                                     dispatcher_metrics.received_total.add(1, &[KeyValue::new("event", event_label.clone())]);
 
                                     if let Some(tx) = dispatcher_channels.get(&user_id) {
+                                        tracing::trace!(%user_id, ?event, "Dispatched notification to local channel");
                                         let _ = tx.send(event);
                                     } else {
+                                        tracing::debug!(%user_id, ?event, "No local subscriber for notification");
                                         dispatcher_metrics.unrouted_total.add(1, &[KeyValue::new("event", event_label)]);
                                     }
                                 }
@@ -136,6 +138,7 @@ impl DistributedNotificationService {
         loop {
             tokio::select! {
                 _ = interval.tick() => {
+                    tracing::debug!("Starting notification channel GC cycle");
                     let start = std::time::Instant::now();
                     let mut reclaimed_this_cycle = 0;
 
@@ -152,7 +155,9 @@ impl DistributedNotificationService {
                     metrics.gc_duration_seconds.record(duration, &[]);
                     if reclaimed_this_cycle > 0 {
                         metrics.gc_reclaimed_total.add(reclaimed_this_cycle, &[]);
+                        tracing::info!(reclaimed = reclaimed_this_cycle, "Notification channel GC reclaimed stale channels");
                     }
+                    tracing::debug!(duration_secs = %duration, "Notification channel GC cycle completed");
                 }
                 _ = shutdown.changed() => break,
             }

@@ -105,6 +105,7 @@ impl PushNotificationWorker {
         let user_ids = self.repo.lease_due_jobs(limit, self.visibility_timeout_secs).await?;
 
         if user_ids.is_empty() {
+            tracing::debug!("No due push notification jobs found");
             return Ok(());
         }
 
