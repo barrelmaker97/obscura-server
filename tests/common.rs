@@ -4,29 +4,14 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use dashmap::DashMap;
 use futures::{SinkExt, StreamExt};
 use obscura_server::{
+    adapters,
     adapters::push::{PushError, PushProvider},
-    adapters::{
-        self, database::attachment_repo::AttachmentRepository, database::key_repo::KeyRepository,
-        database::message_repo::MessageRepository, database::push_token_repo::PushTokenRepository,
-        database::refresh_token_repo::RefreshTokenRepository, database::user_repo::UserRepository,
-    },
-    api::{ServiceContainer, app_router},
+    api::app_router,
     config::{AuthConfig, Config, PubSubConfig, RateLimitConfig, ServerConfig, StorageConfig},
     proto::obscura::v1::{
         AckMessage, EncryptedMessage, Envelope, PreKeyStatus, WebSocketFrame, web_socket_frame::Payload,
     },
-    services::{
-        account_service::AccountService,
-        attachment_service::AttachmentService,
-        gateway::GatewayService,
-        health_service::HealthService,
-        key_service::KeyService,
-        message_service::MessageService,
-        notification::{DistributedNotificationService, NotificationService},
-        push_token_service::PushTokenService,
-        rate_limit_service::RateLimitService,
-    },
-    workers::PushNotificationWorker,
+    services::notification::NotificationService,
 };
 use prost::Message as ProstMessage;
 use rand::RngCore;
@@ -270,124 +255,23 @@ impl TestApp {
         .await
         .expect("Failed to create RedisClient for tests. Is Redis running?");
 
-        // Initialize Repositories
-        let key_repo = KeyRepository::new();
-        let message_repo = MessageRepository::new();
-        let user_repo = UserRepository::new();
-        let refresh_repo = RefreshTokenRepository::new();
-        let attachment_repo = AttachmentRepository::new();
-        let push_token_repo = PushTokenRepository::new();
+        let s3_client = obscura_server::init_s3_client(&config.storage).await;
 
-        let push_token_service = PushTokenService::new(pool.clone(), push_token_repo.clone());
-
-        let notification_repo =
-            Arc::new(adapters::redis::NotificationRepository::new(pubsub.clone(), &config.notifications));
-
-        // ALWAYS USE SHARED MOCK PROVIDER IN TESTS
-        let notifier: Arc<dyn NotificationService> = Arc::new(
-            DistributedNotificationService::new(notification_repo.clone(), &config.notifications, shutdown_rx.clone())
-                .await
-                .expect("Failed to create DistributedNotificationService for tests."),
-        );
-
-        let push_worker = PushNotificationWorker::new(
+        let push_provider = Arc::new(SharedMockPushProvider);
+        let (services, health_service, _worker_tasks) = obscura_server::init_application(
             pool.clone(),
-            notification_repo,
-            Arc::new(SharedMockPushProvider),
-            push_token_repo.clone(),
-            &config.notifications,
-        );
-
-        tokio::spawn(push_worker.run(shutdown_rx.clone()));
-
-        let region_provider = aws_config::Region::new(config.storage.region.clone());
-        let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider);
-
-        if let Some(ref endpoint) = config.storage.endpoint {
-            config_loader = config_loader.endpoint_url(endpoint);
-        }
-
-        if let (Some(ak), Some(sk)) = (&config.storage.access_key, &config.storage.secret_key) {
-            let creds = aws_credential_types::Credentials::new(ak.clone(), sk.clone(), None, None, "static");
-            config_loader = config_loader.credentials_provider(creds);
-        }
-
-        let sdk_config = config_loader.load().await;
-        let s3_config_builder =
-            aws_sdk_s3::config::Builder::from(&sdk_config).force_path_style(config.storage.force_path_style);
-        let s3_client = aws_sdk_s3::Client::from_conf(s3_config_builder.build());
-
-        let crypto_service = obscura_server::services::crypto_service::CryptoService::new();
-
-        // Initialize Services
-        let key_service = KeyService::new(pool.clone(), key_repo, crypto_service.clone(), config.messaging.clone());
-
-        let attachment_service = AttachmentService::new(
-            pool.clone(),
-            attachment_repo,
-            s3_client.clone(),
-            config.storage.clone(),
-            config.ttl_days,
-        );
-
-        let auth_service = obscura_server::services::auth_service::AuthService::new(
-            config.auth.clone(),
-            pool.clone(),
-            user_repo.clone(),
-            refresh_repo.clone(),
-        );
-
-        let message_service = MessageService::new(
-            pool.clone(),
-            message_repo.clone(),
-            notifier.clone(),
-            config.messaging.clone(),
-            config.ttl_days,
-        );
-
-        let account_service = AccountService::new(
-            pool.clone(),
-            user_repo,
-            message_repo.clone(),
-            auth_service.clone(),
-            key_service.clone(),
-            notifier.clone(),
-        );
-
-        let gateway_service = GatewayService::new(
-            message_service.clone(),
-            key_service.clone(),
-            notifier.clone(),
-            config.websocket.clone(),
-        );
-
-        let rate_limit_service = RateLimitService::new(config.server.trusted_proxies.clone());
-
-        let health_service = HealthService::new(
-            pool.clone(),
-            s3_client.clone(),
             pubsub.clone(),
-            config.storage.bucket.clone(),
-            config.health.clone(),
-        );
+            s3_client.clone(),
+            push_provider,
+            &config,
+            shutdown_rx.clone(),
+        )
+        .await
+        .expect("Failed to initialize application for tests");
 
-        let services = ServiceContainer {
-            pool: pool.clone(),
-            key_service,
-            attachment_service,
-            account_service,
-            auth_service,
-            message_service,
-            gateway_service,
-            notification_service: notifier.clone(),
-            push_token_service,
-            rate_limit_service,
-        };
-
+        let notifier = services.notification_service.clone();
         let app = app_router(config.clone(), services, shutdown_rx.clone());
-
-        let mgmt_state = obscura_server::api::MgmtState { health_service };
-        let mgmt_app = obscura_server::api::mgmt_router(mgmt_state);
+        let mgmt_app = obscura_server::api::mgmt_router(obscura_server::api::MgmtState { health_service });
 
         let server_url = format!("http://{}", addr);
         let mgmt_url = format!("http://{}", mgmt_addr);
