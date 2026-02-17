@@ -71,7 +71,7 @@ impl Config {
 #[derive(Clone, Debug, Args)]
 pub struct DatabaseConfig {
     /// Database connection URL
-    #[arg(long = "database-url", env = "OBSCURA_DATABASE_URL", default_value_t = DatabaseConfig::default().url)]
+    #[arg(long = "db-url", env = "OBSCURA_DATABASE_URL", default_value_t = DatabaseConfig::default().url)]
     pub url: String,
 
     /// Maximum number of connections in the pool
@@ -98,6 +98,7 @@ pub struct DatabaseConfig {
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
+            url: "postgres://user:password@localhost/signal_server".to_string(),
             max_connections: 20,
             min_connections: 5,
             acquire_timeout_secs: 3,

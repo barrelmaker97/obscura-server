@@ -27,7 +27,7 @@ Command-line options take precedence over environment variables.
 
 | Option | Description | Environment Variable | Default |
 |--------|-------------|----------------------|---------|
-| `--database-url` | PostgreSQL connection string | `OBSCURA_DATABASE_URL` | `postgres://user:password@localhost/signal_server` |
+| `--db-url` | PostgreSQL connection string | `OBSCURA_DATABASE_URL` | `postgres://user:password@localhost/signal_server` |
 | `--db-max-connections` | Max connections in the pool | `OBSCURA_DATABASE_MAX_CONNECTIONS` | `20` |
 | `--db-min-connections` | Min connections to keep idle | `OBSCURA_DATABASE_MIN_CONNECTIONS` | `5` |
 | `--db-acquire-timeout-secs` | Seconds to wait for a connection | `OBSCURA_DATABASE_ACQUIRE_TIMEOUT_SECS` | `3` |

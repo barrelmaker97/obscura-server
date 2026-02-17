@@ -102,8 +102,8 @@ pub fn get_test_config() -> Config {
         .unwrap_or_else(|_| "postgres://user:password@localhost/signal_server".to_string());
 
     let mut config = Config {
-        database_url,
         ttl_days: 30,
+        database: obscura_server::config::DatabaseConfig { url: database_url, ..Default::default() },
         server: ServerConfig {
             port: 0,
             mgmt_port: 0,
