@@ -32,19 +32,19 @@ impl Metrics {
         let meter = global::meter("obscura-server");
         Self {
             ack_batch_size: meter
-                .u64_histogram("websocket_ack_batch_size")
+                .u64_histogram("obscura_websocket_ack_batch_size")
                 .with_description("Size of ACK batches processed")
                 .build(),
             outbound_dropped_total: meter
-                .u64_counter("websocket_outbound_dropped_total")
+                .u64_counter("obscura_websocket_outbound_dropped_total")
                 .with_description("Total messages dropped due to full outbound buffer")
                 .build(),
             active_connections: meter
-                .i64_up_down_counter("websocket_active_connections")
+                .i64_up_down_counter("obscura_websocket_connections")
                 .with_description("Number of active WebSocket connections")
                 .build(),
             ack_queue_dropped_total: meter
-                .u64_counter("websocket_ack_queue_dropped_total")
+                .u64_counter("obscura_websocket_ack_dropped_total")
                 .with_description("Total ACKs dropped due to full buffer")
                 .build(),
         }

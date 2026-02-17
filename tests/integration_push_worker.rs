@@ -21,9 +21,14 @@ impl PushProvider for FailingPushProvider {
 #[tokio::test]
 async fn test_push_worker_invalidates_unregistered_tokens() {
     common::setup_tracing();
-    let config = common::get_test_config();
-    let pool = common::get_test_pool().await;
+    let mut config = common::get_test_config();
+    // Speed up intervals for the test
+    config.notifications.worker_interval_secs = 1;
+    config.notifications.janitor_interval_secs = 1;
+    // Use a unique queue key for this test to avoid competition with the default TestApp worker
+    config.notifications.push_queue_key = format!("{}-janitor", config.notifications.push_queue_key);
 
+    let pool = common::get_test_pool().await;
     let user_id = Uuid::new_v4();
     let token = "invalid_token_123";
 
@@ -42,14 +47,13 @@ async fn test_push_worker_invalidates_unregistered_tokens() {
     }
 
     // 2. Schedule a push
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let pubsub =
-        obscura_server::adapters::redis::RedisClient::new(&config.pubsub, 1024, tokio::sync::watch::channel(false).1)
-            .await
-            .unwrap();
+        obscura_server::adapters::redis::RedisClient::new(&config.pubsub, 1024, shutdown_rx.clone()).await.unwrap();
     let notification_repo = Arc::new(NotificationRepository::new(pubsub.clone(), &config.notifications));
     let _: anyhow::Result<()> = notification_repo.push_job(user_id, 0).await;
 
-    // 3. Setup Worker with FAILING provider
+    // 3. Setup Worker with FAILING provider and START it
     let worker = PushNotificationWorker::new(
         pool.clone(),
         notification_repo,
@@ -58,24 +62,12 @@ async fn test_push_worker_invalidates_unregistered_tokens() {
         &config.notifications,
     );
 
-    // 4. Run one iteration of the worker
-    let (tx, mut rx) = tokio::sync::mpsc::channel(10);
-    worker.process_due_jobs(tx).await.expect("Worker iteration failed");
+    let worker_handle = tokio::spawn(worker.run(shutdown_rx));
 
-    // Manually trigger the janitor behavior by forwarding the token
-    // (In a real run, the worker loop would handle this)
-    if let Some(t) = rx.recv().await {
-        let mut conn = pool.acquire().await.unwrap();
-        obscura_server::adapters::database::push_token_repo::PushTokenRepository::new()
-            .delete_tokens_batch(&mut conn, &[t])
-            .await
-            .unwrap();
-    }
-
-    // 5. Verify token is DELETED from database
-    // Note: Since spawn is used inside process_due_jobs, we might need a small wait
+    // 4. Verify token is AUTOMATICALLY DELETED from database by the worker loop
     let mut success = false;
-    for _ in 0..50 {
+    let start = std::time::Instant::now();
+    while start.elapsed() < std::time::Duration::from_secs(10) {
         let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM push_tokens WHERE token = $1)")
             .bind(token)
             .fetch_one(&pool)
@@ -85,8 +77,12 @@ async fn test_push_worker_invalidates_unregistered_tokens() {
             success = true;
             break;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 
-    assert!(success, "Token should have been deleted after provider returned Unregistered error");
+    // Cleanup
+    let _ = shutdown_tx.send(true);
+    let _ = worker_handle.await;
+
+    assert!(success, "Token should have been deleted automatically by the integrated worker loop");
 }

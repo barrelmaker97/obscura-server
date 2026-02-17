@@ -220,6 +220,7 @@ pub struct TestUser {
 pub struct TestApp {
     pub pool: PgPool,
     pub config: Config,
+    pub resources: obscura_server::Resources,
     pub server_url: String,
     pub mgmt_url: String,
     pub ws_url: String,
@@ -256,7 +257,7 @@ impl TestApp {
         .await
         .expect("Failed to create RedisClient for tests. Is Redis running?");
 
-        let s3_client = obscura_server::init_s3_client(&config.storage).await;
+        let s3_client = obscura_server::initialize_s3_client(&config.storage).await;
 
         let push_provider = Arc::new(SharedMockPushProvider);
         let app = obscura_server::AppBuilder::new(config.clone())
@@ -265,7 +266,7 @@ impl TestApp {
             .with_s3(s3_client.clone())
             .with_push_provider(push_provider)
             .with_shutdown_rx(shutdown_rx.clone())
-            .build()
+            .initialize()
             .await
             .expect("Failed to build application for tests");
 
@@ -293,7 +294,18 @@ impl TestApp {
                 .unwrap();
         });
 
-        TestApp { pool, config, server_url, mgmt_url, ws_url, client: Client::new(), s3_client, notifier, shutdown_tx }
+        TestApp {
+            pool,
+            config,
+            resources: app.resources,
+            server_url,
+            mgmt_url,
+            ws_url,
+            client: Client::new(),
+            s3_client,
+            notifier,
+            shutdown_tx,
+        }
     }
 
     pub async fn register_user(&self, username: &str) -> TestUser {

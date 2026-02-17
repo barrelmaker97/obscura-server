@@ -43,7 +43,7 @@ use crate::services::message_service::MessageService;
 use crate::services::notification_service::NotificationService;
 use crate::services::push_token_service::PushTokenService;
 use crate::services::rate_limit_service::RateLimitService;
-use crate::workers::{AttachmentCleanupWorker, MessageCleanupWorker, PushNotificationWorker};
+use crate::workers::{AttachmentCleanupWorker, MessageCleanupWorker, NotificationWorker, PushNotificationWorker};
 use std::sync::Arc;
 use tokio::sync::watch;
 
@@ -80,6 +80,7 @@ pub struct Workers {
     pub message_worker: MessageCleanupWorker,
     pub attachment_worker: AttachmentCleanupWorker,
     pub push_worker: PushNotificationWorker,
+    pub notification_worker: NotificationWorker,
 }
 
 impl Workers {
@@ -100,9 +101,15 @@ impl Workers {
         }));
 
         let push_worker = self.push_worker;
-        let push_rx = shutdown_rx;
+        let push_rx = shutdown_rx.clone();
         tasks.push(tokio::spawn(async move {
             push_worker.run(push_rx).await;
+        }));
+
+        let notification_worker = self.notification_worker;
+        let notification_rx = shutdown_rx;
+        tasks.push(tokio::spawn(async move {
+            notification_worker.run(notification_rx).await;
         }));
 
         tasks
@@ -168,12 +175,12 @@ impl AppBuilder {
     /// Returns an error if mandatory dependencies (pool, pubsub, etc.) are missing,
     /// or if any service fails to initialize.
     #[tracing::instrument(skip(self))]
-    pub async fn build(self) -> anyhow::Result<App> {
+    pub async fn initialize(self) -> anyhow::Result<App> {
         let pool = self.pool.ok_or_else(|| anyhow::anyhow!("Database pool is required"))?;
         let pubsub = self.pubsub.ok_or_else(|| anyhow::anyhow!("PubSub client is required"))?;
         let s3_client = self.s3_client.ok_or_else(|| anyhow::anyhow!("S3 client is required"))?;
         let push_provider = self.push_provider.ok_or_else(|| anyhow::anyhow!("Push provider is required"))?;
-        let shutdown_rx = self.shutdown_rx.ok_or_else(|| anyhow::anyhow!("Shutdown receiver is required"))?;
+        let _shutdown_rx = self.shutdown_rx.ok_or_else(|| anyhow::anyhow!("Shutdown receiver is required"))?;
 
         let config = &self.config;
 
@@ -186,17 +193,12 @@ impl AppBuilder {
         let refresh_repo = RefreshTokenRepository::new();
         let attachment_repo = AttachmentRepository::new();
         let push_token_repo = PushTokenRepository::new();
-
-        // Initialize Specialized Services
-        let push_token_service = PushTokenService::new(pool.clone(), push_token_repo.clone());
         let notification_repo =
             Arc::new(adapters::redis::NotificationRepository::new(Arc::clone(&pubsub), &config.notifications));
-        let notifier =
-            NotificationService::new(Arc::clone(&notification_repo), &config.notifications, shutdown_rx.clone())
-                .await?;
 
         // Initialize Core Services
         let crypto_service = CryptoService::new();
+        let notifier = NotificationService::new(Arc::clone(&notification_repo), &config.notifications);
         let key_service = KeyService::new(pool.clone(), key_repo, crypto_service, config.messaging.clone());
         let auth_service = AuthService::new(config.auth.clone(), pool.clone(), user_repo.clone(), refresh_repo);
         let message_service = MessageService::new(
@@ -220,7 +222,7 @@ impl AppBuilder {
             notifier.clone(),
             config.websocket.clone(),
         );
-
+        let push_token_service = PushTokenService::new(pool.clone(), push_token_repo.clone());
         let attachment_service = AttachmentService::new(
             pool.clone(),
             attachment_repo.clone(),
@@ -244,7 +246,7 @@ impl AppBuilder {
             auth_service,
             message_service,
             gateway_service,
-            notification_service: notifier,
+            notification_service: notifier.clone(),
             push_token_service,
             rate_limit_service,
         };
@@ -259,10 +261,15 @@ impl AppBuilder {
             ),
             push_worker: PushNotificationWorker::new(
                 pool,
-                notification_repo,
+                Arc::clone(&notification_repo),
                 push_provider,
                 push_token_repo,
                 &config.notifications,
+            ),
+            notification_worker: NotificationWorker::new(
+                notifier,
+                notification_repo,
+                config.notifications.gc_interval_secs,
             ),
         };
 
@@ -281,7 +288,7 @@ pub async fn run_migrations(pool: &adapters::database::DbPool) -> anyhow::Result
 
 /// Initializes an S3 client from configuration.
 #[tracing::instrument(skip(config))]
-pub async fn init_s3_client(config: &StorageConfig) -> aws_sdk_s3::Client {
+pub async fn initialize_s3_client(config: &StorageConfig) -> aws_sdk_s3::Client {
     let region_provider = aws_config::Region::new(config.region.clone());
     let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider);
 

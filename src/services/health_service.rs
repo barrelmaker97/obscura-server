@@ -18,7 +18,7 @@ impl Metrics {
         let meter = global::meter("obscura-server");
         Self {
             status: meter
-                .i64_gauge("health_status")
+                .i64_gauge("obscura_health_status")
                 .with_description("Status of health checks (1 for ok, 0 for error)")
                 .build(),
         }

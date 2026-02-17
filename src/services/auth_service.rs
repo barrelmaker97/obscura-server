@@ -31,15 +31,15 @@ impl Metrics {
         let meter = global::meter("obscura-server");
         Self {
             login: meter
-                .u64_counter("auth_login_total")
+                .u64_counter("obscura_logins_total")
                 .with_description("Total number of successful login attempts")
                 .build(),
             refresh: meter
-                .u64_counter("auth_refresh_total")
+                .u64_counter("obscura_token_refreshes_total")
                 .with_description("Total number of successful token rotations")
                 .build(),
             logout: meter
-                .u64_counter("auth_logout_total")
+                .u64_counter("obscura_logouts_total")
                 .with_description("Total number of successful logout attempts")
                 .build(),
         }

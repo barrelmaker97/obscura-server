@@ -20,7 +20,7 @@ impl Metrics {
         let meter = global::meter("obscura-server");
         Self {
             prekey_low_total: meter
-                .u64_counter("keys_prekey_low_total")
+                .u64_counter("obscura_prekey_threshold_reached_total")
                 .with_description("Events where users dipped below prekey threshold")
                 .build(),
         }

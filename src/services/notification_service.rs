@@ -8,7 +8,6 @@ use opentelemetry::{
 };
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use tracing::Instrument;
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
@@ -26,27 +25,27 @@ impl Metrics {
         let meter = global::meter("obscura-server");
         Self {
             sends_total: meter
-                .u64_counter("notification_sends_total")
+                .u64_counter("obscura_notifications_sent_total")
                 .with_description("Total notification send attempts")
                 .build(),
             received_total: meter
-                .u64_counter("notification_received_total")
+                .u64_counter("obscura_notifications_received_total")
                 .with_description("Total notifications received from PubSub")
                 .build(),
             unrouted_total: meter
-                .u64_counter("notification_unrouted_total")
+                .u64_counter("obscura_notifications_unrouted_total")
                 .with_description("Notifications received from PubSub with no local subscribers")
                 .build(),
             active_channels: meter
-                .i64_up_down_counter("notification_active_channels")
+                .i64_up_down_counter("obscura_notification_channels")
                 .with_description("Number of active local notification channels")
                 .build(),
             gc_duration_seconds: meter
-                .f64_histogram("notification_gc_duration_seconds")
+                .f64_histogram("obscura_notification_gc_duration_seconds")
                 .with_description("Time taken to perform a single GC iteration")
                 .build(),
             gc_reclaimed_total: meter
-                .u64_counter("notification_gc_reclaimed_total")
+                .u64_counter("obscura_notification_channels_reclaimed_total")
                 .with_description("Total number of stale channels reclaimed by GC")
                 .build(),
         }
@@ -63,108 +62,58 @@ pub struct NotificationService {
 }
 
 impl NotificationService {
-    /// Creates a new notification service.
-    ///
-    /// # Errors
-    /// Returns an error if the subscription to `PubSub` fails.
-    pub async fn new(
-        repo: Arc<NotificationRepository>,
-        config: &NotificationConfig,
-        shutdown: tokio::sync::watch::Receiver<bool>,
-    ) -> anyhow::Result<Self> {
-        let channels = Arc::new(DashMap::new());
-        let metrics = Metrics::new();
-
-        let push_delay_secs = config.push_delay_secs;
-        let user_channel_capacity = config.user_channel_capacity;
-
-        tokio::spawn(
-            Self::run_gc(Arc::clone(&channels), metrics.clone(), config.gc_interval_secs, shutdown.clone())
-                .instrument(tracing::info_span!("notification_gc")),
-        );
-
-        // Background Dispatcher task (PubSub -> Local Channels)
-        let mut notification_rx = repo.subscribe_realtime().await?;
-        let dispatcher_channels = Arc::clone(&channels);
-        let dispatcher_metrics = metrics.clone();
-        let mut dispatcher_shutdown = shutdown.clone();
-
-        tokio::spawn(
-            async move {
-                loop {
-                    tokio::select! {
-                        _ = dispatcher_shutdown.changed() => break,
-                        result = notification_rx.recv() => {
-                            match result {
-                                Ok(notification) => {
-                                    let user_id = notification.user_id;
-                                    let event = notification.event;
-                                    let event_label = format!("{event:?}");
-
-                                    dispatcher_metrics.received_total.add(1, &[KeyValue::new("event", event_label.clone())]);
-
-                                    if let Some(tx) = dispatcher_channels.get(&user_id) {
-                                        tracing::trace!(%user_id, ?event, "Dispatched notification to local channel");
-                                        let _ = tx.send(event);
-                                    } else {
-                                        tracing::debug!(%user_id, ?event, "No local subscriber for notification");
-                                        dispatcher_metrics.unrouted_total.add(1, &[KeyValue::new("event", event_label)]);
-                                    }
-                                }
-                                Err(broadcast::error::RecvError::Lagged(n)) => {
-                                    tracing::warn!(missed = n, "Internal notification dispatcher lagged");
-                                }
-                                Err(broadcast::error::RecvError::Closed) => break,
-                            }
-                        }
-                    }
-                }
-            }
-            .instrument(tracing::info_span!("notification_dispatcher")),
-        );
-
-        Ok(Self { repo, channels, user_channel_capacity, push_delay_secs, metrics })
+    /// Creates a new notification service handle.
+    #[must_use]
+    pub fn new(repo: Arc<NotificationRepository>, config: &NotificationConfig) -> Self {
+        Self {
+            repo,
+            channels: Arc::new(DashMap::new()),
+            user_channel_capacity: config.user_channel_capacity,
+            push_delay_secs: config.push_delay_secs,
+            metrics: Metrics::new(),
+        }
     }
 
-    async fn run_gc(
-        channels: Arc<DashMap<Uuid, broadcast::Sender<UserEvent>>>,
-        metrics: Metrics,
-        interval_secs: u64,
-        mut shutdown: tokio::sync::watch::Receiver<bool>,
-    ) {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
-        loop {
-            tokio::select! {
-                _ = interval.tick() => {
-                    async {
-                        let start = std::time::Instant::now();
-                        tracing::debug!("Starting notification channel GC cycle");
-                        let mut reclaimed_this_cycle = 0;
+    /// Dispatches an external real-time notification to local subscribers.
+    pub fn dispatch_event(&self, notification: &crate::domain::notification::RealtimeNotification) {
+        let user_id = notification.user_id;
+        let event = notification.event;
+        let event_label = format!("{event:?}");
 
-                        channels.retain(|_, sender| {
-                            let active = sender.receiver_count() > 0;
-                            if !active {
-                                metrics.active_channels.add(-1, &[]);
-                                reclaimed_this_cycle += 1;
-                            }
-                            active
-                        });
+        self.metrics.received_total.add(1, &[KeyValue::new("event", event_label.clone())]);
 
-                        let duration = start.elapsed().as_secs_f64();
-                        metrics.gc_duration_seconds.record(duration, &[]);
-
-                        if reclaimed_this_cycle > 0 {
-                            metrics.gc_reclaimed_total.add(reclaimed_this_cycle, &[]);
-                            tracing::info!(reclaimed = reclaimed_this_cycle, "Notification channel GC reclaimed stale channels");
-                        }
-                        tracing::debug!(duration_secs = %duration, "Notification channel GC cycle completed");
-                    }
-                    .instrument(tracing::debug_span!("gc_cycle"))
-                    .await;
-                }
-                _ = shutdown.changed() => break,
-            }
+        if let Some(tx) = self.channels.get(&user_id) {
+            tracing::trace!(%user_id, ?event, "Dispatched notification to local channel");
+            let _ = tx.send(event);
+        } else {
+            tracing::debug!(%user_id, ?event, "No local subscriber for notification");
+            self.metrics.unrouted_total.add(1, &[KeyValue::new("event", event_label)]);
         }
+    }
+
+    /// Performs a garbage collection cycle to reclaim stale notification channels.
+    pub fn perform_gc(&self) {
+        let start = std::time::Instant::now();
+        tracing::debug!("Starting notification channel GC cycle");
+        let mut reclaimed_this_cycle = 0;
+
+        self.channels.retain(|_, sender| {
+            let active = sender.receiver_count() > 0;
+            if !active {
+                self.metrics.active_channels.add(-1, &[]);
+                reclaimed_this_cycle += 1;
+            }
+            active
+        });
+
+        let duration = start.elapsed().as_secs_f64();
+        self.metrics.gc_duration_seconds.record(duration, &[]);
+
+        if reclaimed_this_cycle > 0 {
+            self.metrics.gc_reclaimed_total.add(reclaimed_this_cycle, &[]);
+            tracing::info!(reclaimed = reclaimed_this_cycle, "Notification channel GC reclaimed stale channels");
+        }
+        tracing::debug!(duration_secs = %duration, "Notification channel GC cycle completed");
     }
 
     #[tracing::instrument(skip(self), fields(user_id = %user_id))]
@@ -214,16 +163,22 @@ impl NotificationService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
-    use tokio::sync::{broadcast, watch};
+    use tokio::sync::watch;
 
     #[tokio::test]
     async fn test_run_gc_reclaims_stale_channels() {
         crate::telemetry::init_test_telemetry();
 
-        let channels = Arc::new(DashMap::new());
-        let metrics = Metrics::new();
-        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let config = NotificationConfig::default();
+
+        let pubsub =
+            crate::adapters::redis::RedisClient::new(&crate::config::PubSubConfig::default(), 1024, shutdown_rx)
+                .await
+                .expect("Redis client creation");
+
+        let repo = Arc::new(NotificationRepository::new(pubsub, &config));
+        let service = NotificationService::new(repo, &config);
 
         // 1. Setup channels
         let user_id_active = Uuid::new_v4();
@@ -232,29 +187,21 @@ mod tests {
         let (tx_active, _rx_active) = broadcast::channel(10);
         let (tx_stale, rx_stale) = broadcast::channel(10);
 
-        channels.insert(user_id_active, tx_active);
-        channels.insert(user_id_stale, tx_stale);
+        service.channels.insert(user_id_active, tx_active);
+        service.channels.insert(user_id_stale, tx_stale);
 
         // 2. Make one stale by dropping its last receiver
         drop(rx_stale);
 
         // Check initial state
-        assert_eq!(channels.len(), 2);
+        assert_eq!(service.channels.len(), 2);
 
-        // 3. Start GC with a very short interval
-        let gc_channels = Arc::clone(&channels);
-        tokio::spawn(async move {
-            NotificationService::run_gc(gc_channels, metrics, 1, shutdown_rx).await;
-        });
+        // 3. Perform GC
+        service.perform_gc();
 
-        // 4. Wait for one GC cycle
-        tokio::time::sleep(Duration::from_millis(1500)).await;
-
-        // 5. Verify results
-        assert_eq!(channels.len(), 1, "GC should have reclaimed exactly 1 channel");
-        assert!(channels.contains_key(&user_id_active), "Active channel should remain");
-        assert!(!channels.contains_key(&user_id_stale), "Stale channel should be gone");
-
-        let _ = shutdown_tx.send(true);
+        // 4. Verify results
+        assert_eq!(service.channels.len(), 1, "GC should have reclaimed exactly 1 channel");
+        assert!(service.channels.contains_key(&user_id_active), "Active channel should remain");
+        assert!(!service.channels.contains_key(&user_id_stale), "Stale channel should be gone");
     }
 }

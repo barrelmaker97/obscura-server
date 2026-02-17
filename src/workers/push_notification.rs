@@ -21,15 +21,15 @@ impl Metrics {
         let meter = global::meter("obscura-server");
         Self {
             sent: meter
-                .u64_counter("push_sent_total")
+                .u64_counter("obscura_push_notifications_sent_total")
                 .with_description("Total number of push notifications successfully sent")
                 .build(),
             errors: meter
-                .u64_counter("push_errors_total")
+                .u64_counter("obscura_push_notification_errors_total")
                 .with_description("Total number of push notification delivery errors")
                 .build(),
             invalidated_tokens: meter
-                .u64_counter("push_invalidated_tokens_total")
+                .u64_counter("obscura_push_invalid_tokens_total")
                 .with_description("Total number of push tokens removed due to being unregistered")
                 .build(),
         }
@@ -76,59 +76,49 @@ impl PushNotificationWorker {
 
     pub async fn run(self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
         let mut interval = tokio::time::interval(Duration::from_secs(self.interval_secs));
+        let mut janitor_interval = tokio::time::interval(Duration::from_secs(self.janitor_interval_secs));
         let (invalid_token_tx, mut invalid_token_rx) = mpsc::channel::<String>(self.janitor_channel_capacity);
 
-        // Spawn Janitor task to handle batch token deletion
-        let janitor_pool = self.pool.clone();
-        let janitor_repo = self.token_repo.clone();
-        let janitor_interval = self.janitor_interval_secs;
-        let janitor_batch_size = self.janitor_batch_size;
-        let janitor_task = tokio::spawn(
-            async move {
-                let mut batch = Vec::new();
-                let mut flush_interval = tokio::time::interval(Duration::from_secs(janitor_interval));
+        let mut janitor_batch = Vec::new();
 
-                loop {
-                    tokio::select! {
-                        res = invalid_token_rx.recv() => {
-                            if let Some(token) = res {
-                                batch.push(token);
-                                if batch.len() >= janitor_batch_size {
-                                    Self::flush_invalid_tokens(&janitor_pool, &janitor_repo, &mut batch).await;
-                                }
-                            } else {
-                                // Channel closed, perform final flush and exit
-                                Self::flush_invalid_tokens(&janitor_pool, &janitor_repo, &mut batch).await;
-                                break;
-                            }
-                        }
-                        _ = flush_interval.tick() => {
-                            Self::flush_invalid_tokens(&janitor_pool, &janitor_repo, &mut batch).await;
-                        }
-                    }
-                }
-            }
-            .instrument(tracing::info_span!("push_token_janitor")),
-        );
+        tracing::info!("Push notification worker started");
 
         while !*shutdown.borrow() {
             tokio::select! {
+                _ = shutdown.changed() => break,
+
                 _ = interval.tick() => {
                     if let Err(e) = self.process_due_jobs(invalid_token_tx.clone())
-                        .instrument(tracing::debug_span!("push_notification_iteration"))
+                        .instrument(tracing::debug_span!("process_push_jobs"))
                         .await
                     {
                         tracing::error!(error = %e, "Failed to process due notification jobs");
                     }
                 }
-                _ = shutdown.changed() => break,
+
+                _ = janitor_interval.tick() => {
+                    async {
+                        Self::flush_invalid_tokens(&self.pool, &self.token_repo, &mut janitor_batch).await;
+                    }
+                    .instrument(tracing::debug_span!("flush_invalid_tokens"))
+                    .await;
+                }
+
+                res = invalid_token_rx.recv() => {
+                    if let Some(token) = res {
+                        janitor_batch.push(token);
+                        if janitor_batch.len() >= self.janitor_batch_size {
+                            Self::flush_invalid_tokens(&self.pool, &self.token_repo, &mut janitor_batch).await;
+                        }
+                    }
+                }
             }
         }
 
-        tracing::info!("Notification worker shutting down...");
-        // Dropping the last tx will cause the janitor to finish its final flush and exit
-        drop(invalid_token_tx);
-        let _ = janitor_task.await;
+        tracing::info!("Push notification worker shutting down...");
+
+        // Final cleanup
+        Self::flush_invalid_tokens(&self.pool, &self.token_repo, &mut janitor_batch).await;
     }
 
     #[tracing::instrument(level = "debug", skip(pool, repo, batch))]
