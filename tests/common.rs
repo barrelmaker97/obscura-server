@@ -220,6 +220,7 @@ pub struct TestUser {
 pub struct TestApp {
     pub pool: PgPool,
     pub config: Config,
+    pub resources: obscura_server::Resources,
     pub server_url: String,
     pub mgmt_url: String,
     pub ws_url: String,
@@ -293,7 +294,18 @@ impl TestApp {
                 .unwrap();
         });
 
-        TestApp { pool, config, server_url, mgmt_url, ws_url, client: Client::new(), s3_client, notifier, shutdown_tx }
+        TestApp {
+            pool,
+            config,
+            resources: app.resources,
+            server_url,
+            mgmt_url,
+            ws_url,
+            client: Client::new(),
+            s3_client,
+            notifier,
+            shutdown_tx,
+        }
     }
 
     pub async fn register_user(&self, username: &str) -> TestUser {

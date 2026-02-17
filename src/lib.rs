@@ -43,7 +43,7 @@ use crate::services::message_service::MessageService;
 use crate::services::notification_service::NotificationService;
 use crate::services::push_token_service::PushTokenService;
 use crate::services::rate_limit_service::RateLimitService;
-use crate::workers::{AttachmentCleanupWorker, MessageCleanupWorker, PushNotificationWorker};
+use crate::workers::{AttachmentCleanupWorker, MessageCleanupWorker, NotificationWorker, PushNotificationWorker};
 use std::sync::Arc;
 use tokio::sync::watch;
 
@@ -80,6 +80,7 @@ pub struct Workers {
     pub message_worker: MessageCleanupWorker,
     pub attachment_worker: AttachmentCleanupWorker,
     pub push_worker: PushNotificationWorker,
+    pub notification_worker: NotificationWorker,
 }
 
 impl Workers {
@@ -100,9 +101,15 @@ impl Workers {
         }));
 
         let push_worker = self.push_worker;
-        let push_rx = shutdown_rx;
+        let push_rx = shutdown_rx.clone();
         tasks.push(tokio::spawn(async move {
             push_worker.run(push_rx).await;
+        }));
+
+        let notification_worker = self.notification_worker;
+        let notification_rx = shutdown_rx;
+        tasks.push(tokio::spawn(async move {
+            notification_worker.run(notification_rx).await;
         }));
 
         tasks
@@ -173,7 +180,7 @@ impl AppBuilder {
         let pubsub = self.pubsub.ok_or_else(|| anyhow::anyhow!("PubSub client is required"))?;
         let s3_client = self.s3_client.ok_or_else(|| anyhow::anyhow!("S3 client is required"))?;
         let push_provider = self.push_provider.ok_or_else(|| anyhow::anyhow!("Push provider is required"))?;
-        let shutdown_rx = self.shutdown_rx.ok_or_else(|| anyhow::anyhow!("Shutdown receiver is required"))?;
+        let _shutdown_rx = self.shutdown_rx.ok_or_else(|| anyhow::anyhow!("Shutdown receiver is required"))?;
 
         let config = &self.config;
 
@@ -189,10 +196,7 @@ impl AppBuilder {
         let notification_repo =
             Arc::new(adapters::redis::NotificationRepository::new(Arc::clone(&pubsub), &config.notifications));
 
-        // TODO remove hidden background tasks from this, move to worker
-        let notifier =
-            NotificationService::new(Arc::clone(&notification_repo), &config.notifications, shutdown_rx.clone())
-                .await?;
+        let notifier = NotificationService::new(Arc::clone(&notification_repo), &config.notifications);
 
         // Initialize Core Services
         let crypto_service = CryptoService::new();
@@ -243,7 +247,7 @@ impl AppBuilder {
             auth_service,
             message_service,
             gateway_service,
-            notification_service: notifier,
+            notification_service: notifier.clone(),
             push_token_service,
             rate_limit_service,
         };
@@ -263,6 +267,7 @@ impl AppBuilder {
                 push_token_repo,
                 &config.notifications,
             ),
+            notification_worker: NotificationWorker::new(notifier, config.notifications.gc_interval_secs),
         };
 
         Ok(App { resources, services, health_service, workers })
