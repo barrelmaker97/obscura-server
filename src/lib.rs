@@ -174,8 +174,8 @@ impl AppBuilder {
     /// # Errors
     /// Returns an error if mandatory dependencies (pool, pubsub, etc.) are missing,
     /// or if any service fails to initialize.
-    #[tracing::instrument(skip(self), name = "initialize_application")]
-    pub async fn build(self) -> anyhow::Result<App> {
+    #[tracing::instrument(skip(self))]
+    pub async fn initialize(self) -> anyhow::Result<App> {
         let pool = self.pool.ok_or_else(|| anyhow::anyhow!("Database pool is required"))?;
         let pubsub = self.pubsub.ok_or_else(|| anyhow::anyhow!("PubSub client is required"))?;
         let s3_client = self.s3_client.ok_or_else(|| anyhow::anyhow!("S3 client is required"))?;
@@ -287,7 +287,7 @@ pub async fn run_migrations(pool: &adapters::database::DbPool) -> anyhow::Result
 }
 
 /// Initializes an S3 client from configuration.
-#[tracing::instrument(skip(config), name = "initialize_s3_client")]
+#[tracing::instrument(skip(config))]
 pub async fn initialize_s3_client(config: &StorageConfig) -> aws_sdk_s3::Client {
     let region_provider = aws_config::Region::new(config.region.clone());
     let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider);
