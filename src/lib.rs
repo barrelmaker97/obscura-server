@@ -261,12 +261,16 @@ impl AppBuilder {
             ),
             push_worker: PushNotificationWorker::new(
                 pool,
-                notification_repo,
+                Arc::clone(&notification_repo),
                 push_provider,
                 push_token_repo,
                 &config.notifications,
             ),
-            notification_worker: NotificationWorker::new(notifier, config.notifications.gc_interval_secs),
+            notification_worker: NotificationWorker::new(
+                notifier,
+                notification_repo,
+                config.notifications.gc_interval_secs,
+            ),
         };
 
         Ok(App { resources, services, health_service, workers })

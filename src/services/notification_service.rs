@@ -74,16 +74,6 @@ impl NotificationService {
         }
     }
 
-    /// Subscribes to the underlying real-time notification stream.
-    ///
-    /// # Errors
-    /// Returns an error if the subscription to the repository fails.
-    pub async fn subscribe_realtime(
-        &self,
-    ) -> anyhow::Result<broadcast::Receiver<crate::domain::notification::RealtimeNotification>> {
-        self.repo.subscribe_realtime().await
-    }
-
     /// Dispatches an external real-time notification to local subscribers.
     pub fn dispatch_event(&self, notification: &crate::domain::notification::RealtimeNotification) {
         let user_id = notification.user_id;
