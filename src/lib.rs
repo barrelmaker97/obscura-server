@@ -196,10 +196,10 @@ impl AppBuilder {
         let notification_repo =
             Arc::new(adapters::redis::NotificationRepository::new(Arc::clone(&pubsub), &config.notifications));
 
-        let notifier = NotificationService::new(Arc::clone(&notification_repo), &config.notifications);
 
         // Initialize Core Services
         let crypto_service = CryptoService::new();
+        let notifier = NotificationService::new(Arc::clone(&notification_repo), &config.notifications);
         let key_service = KeyService::new(pool.clone(), key_repo, crypto_service, config.messaging.clone());
         let auth_service = AuthService::new(config.auth.clone(), pool.clone(), user_repo.clone(), refresh_repo);
         let message_service = MessageService::new(
