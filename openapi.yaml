@@ -506,8 +506,9 @@ components:
           type: integer
           description: Required if identityKey is provided.
         signedPreKey:
-          $ref: '#/components/schemas/SignedPreKey'
           description: Signed Pre-Key. ID must be strictly greater than the current stored ID.
+          allOf:
+            - $ref: '#/components/schemas/SignedPreKey'
         oneTimePreKeys:
           type: array
           items:
@@ -524,8 +525,9 @@ components:
         signedPreKey:
           $ref: '#/components/schemas/SignedPreKey'
         oneTimePreKey:
-          $ref: '#/components/schemas/OneTimePreKey'
           nullable: true
+          allOf:
+            - $ref: '#/components/schemas/OneTimePreKey'
 
     SignedPreKey:
       type: object
