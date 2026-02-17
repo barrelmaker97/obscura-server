@@ -6,6 +6,9 @@ info:
     - **Control Plane (REST):** Registration, Key Management, Sending.
     - **Data Plane (WebSocket):** Real-time message delivery and acknowledgement.
     - **Protocol:** Protocol Buffers (application/x-protobuf) are used for message bodies to minimize metadata leakage and binary bloat.
+
+    **Protobuf Definitions:**
+    The WebSocket and Message schemas are defined in the [obscura-proto](https://github.com/barrelmaker97/obscura-proto/blob/main/obscura/v1/obscura.proto) repository.
   version: 0.0.0
 paths:
   # --- Account & Identity ---
@@ -21,22 +24,26 @@ paths:
       responses:
         '201':
           description: Account created.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/x-request-id'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
         '400':
-          description: Invalid input.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/BadRequestError'
         '409':
           description: Username already exists.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/x-request-id'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/TooManyRequestsError'
 
   /v1/sessions:
     post:
@@ -50,16 +57,17 @@ paths:
       responses:
         '200':
           description: Authenticated.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/x-request-id'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
         '401':
-          description: Unauthorized (Invalid credentials).
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/UnauthorizedError'
+        '429':
+          $ref: '#/components/responses/TooManyRequestsError'
 
     delete:
       summary: Logout (Revoke Refresh Token).
@@ -76,6 +84,9 @@ paths:
       responses:
         '200':
           description: Session revoked.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/x-request-id'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
 
@@ -94,16 +105,15 @@ paths:
       responses:
         '200':
           description: Tokens refreshed.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/x-request-id'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
         '401':
-          description: Invalid or expired refresh token.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/UnauthorizedError'
 
   # --- Keys (X3DH) ---
   /v1/keys:
@@ -131,14 +141,15 @@ paths:
       responses:
         '200':
           description: Keys updated or takeover successful.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/x-request-id'
         '400':
-          description: Invalid key formats, invalid signature, or pre-key limit exceeded.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '429':
+          $ref: '#/components/responses/TooManyRequestsError'
 
   /v1/keys/{userId}:
     get:
@@ -157,16 +168,17 @@ paths:
       responses:
         '200':
           description: PreKey Bundle.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/x-request-id'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/PreKeyBundleResponse'
         '404':
-          description: User not found or no keys available.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/TooManyRequestsError'
 
   # --- Messaging (REST Upstream) ---
   /v1/messages/{recipientId}:
@@ -201,20 +213,17 @@ paths:
       responses:
         '201':
           description: Message queued.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/x-request-id'
         '400':
-          description: Invalid Protobuf.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
-          description: Recipient not found.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/TooManyRequestsError'
 
   # --- WebSocket Gateway (Documentation Only) ---
   /v1/gateway:
@@ -225,7 +234,9 @@ paths:
         Clients must connect here to receive messages.
         - **Protocol:** `WebSocketFrame` (Protobuf).
         - **Auth:** Pass the JWT in the query string: `ws://.../v1/gateway?token=<jwt>`.
-        - **Flow:** Server pushes `Envelope`. Client responds with `AckMessage`. Server deletes message.
+        - **Handshake:** Server validates the JWT and ensures the user has an Identity Key stored.
+        - **Welcome:** Upon successful connection, the server may immediately push a `PreKeyStatus` frame if the user's one-time pre-key count is below the configured threshold.
+        - **Flow:** Server pushes `Envelope` frames. Client MUST respond with `AckMessage` frames. Server batches deletions based on ACKs.
       tags: [Messaging]
       parameters:
         - name: token
@@ -238,7 +249,9 @@ paths:
         '101':
           description: Switching Protocols.
         '401':
-          description: Unauthorized (Invalid or missing token).
+          $ref: '#/components/responses/UnauthorizedError'
+        '429':
+          $ref: '#/components/responses/TooManyRequestsError'
 
   # --- Attachments (Binary Storage) ---
   /v1/attachments:
@@ -247,6 +260,7 @@ paths:
       description: |
         Uploads an encrypted binary blob to long-term storage (S3).
         Blob will be auto-deleted after the configured TTL.
+        Max size is enforced via the `storage-max-size-bytes` configuration.
       tags: [Attachments]
       security:
         - bearerAuth: []
@@ -259,18 +273,19 @@ paths:
       responses:
         '201':
           description: Upload successful.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/x-request-id'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AttachmentResponse'
         '400':
-          description: File too large.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '429':
+          $ref: '#/components/responses/TooManyRequestsError'
 
   /v1/attachments/{id}:
     get:
@@ -288,6 +303,9 @@ paths:
       responses:
         '200':
           description: Binary file stream.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/x-request-id'
           content:
             application/octet-stream:
               schema:
@@ -296,11 +314,9 @@ paths:
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
-          description: Not found or expired.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/TooManyRequestsError'
 
   # --- Push Notifications ---
   /v1/push-tokens:
@@ -321,14 +337,15 @@ paths:
       responses:
         '200':
           description: Token registered successfully.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/x-request-id'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '400':
-          description: Invalid token format.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/BadRequestError'
+        '429':
+          $ref: '#/components/responses/TooManyRequestsError'
 
 components:
   securitySchemes:
@@ -337,9 +354,52 @@ components:
       scheme: bearer
       bearerFormat: JWT
 
+  headers:
+    x-request-id:
+      description: Unique identifier for the request, used for tracing and debugging.
+      schema:
+        type: string
+        format: uuid
+    retry-after:
+      description: The number of seconds to wait before retrying the request.
+      schema:
+        type: string
+
   responses:
     UnauthorizedError:
       description: Unauthorized (Invalid or missing token).
+      headers:
+        x-request-id:
+          $ref: '#/components/headers/x-request-id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    BadRequestError:
+      description: Invalid input or malformed request.
+      headers:
+        x-request-id:
+          $ref: '#/components/headers/x-request-id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFoundError:
+      description: The requested resource was not found.
+      headers:
+        x-request-id:
+          $ref: '#/components/headers/x-request-id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    TooManyRequestsError:
+      description: Rate limit exceeded.
+      headers:
+        x-request-id:
+          $ref: '#/components/headers/x-request-id'
+        retry-after:
+          $ref: '#/components/headers/retry-after'
       content:
         application/json:
           schema:
