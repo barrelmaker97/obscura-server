@@ -83,8 +83,10 @@ pub async fn get_test_pool() -> PgPool {
     let database_url = std::env::var("OBSCURA_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://user:password@localhost/signal_server".to_string());
 
-    let pool =
-        adapters::database::init_pool(&database_url).await.expect("Failed to connect to DB. Is Postgres running?");
+    let mut config = obscura_server::config::DatabaseConfig::default();
+    config.url = database_url;
+
+    let pool = adapters::database::init_pool(&config).await.expect("Failed to connect to DB. Is Postgres running?");
 
     sqlx::migrate!().run(&pool).await.expect("Failed to run migrations");
 
@@ -100,8 +102,8 @@ pub fn get_test_config() -> Config {
         .unwrap_or_else(|_| "postgres://user:password@localhost/signal_server".to_string());
 
     let mut config = Config {
-        database_url,
         ttl_days: 30,
+        database: obscura_server::config::DatabaseConfig { url: database_url, ..Default::default() },
         server: ServerConfig {
             port: 0,
             mgmt_port: 0,

@@ -32,7 +32,7 @@ async fn main() -> anyhow::Result<()> {
     let boot_span = tracing::info_span!("boot_server");
     let (api_listener, mgmt_listener, app_router, mgmt_app, shutdown_tx, shutdown_rx, workers) = async {
         // Phase 1: Infrastructure Setup (Resources)
-        let pool = adapters::database::init_pool(&config.database_url).await?;
+        let pool = adapters::database::init_pool(&config.database).await?;
         obscura_server::run_migrations(&pool).await?;
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);

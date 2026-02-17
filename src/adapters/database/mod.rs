@@ -6,8 +6,10 @@ pub mod records;
 pub mod refresh_token_repo;
 pub mod user_repo;
 
+use crate::config::DatabaseConfig;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Pool, Postgres};
+use std::time::Duration;
 
 pub type DbPool = Pool<Postgres>;
 
@@ -15,6 +17,13 @@ pub type DbPool = Pool<Postgres>;
 ///
 /// # Errors
 /// Returns `sqlx::Error` if the connection fails.
-pub async fn init_pool(database_url: &str) -> Result<DbPool, sqlx::Error> {
-    PgPoolOptions::new().max_connections(20).connect(database_url).await
+pub async fn init_pool(config: &DatabaseConfig) -> Result<DbPool, sqlx::Error> {
+    PgPoolOptions::new()
+        .max_connections(config.max_connections)
+        .min_connections(config.min_connections)
+        .acquire_timeout(Duration::from_secs(config.acquire_timeout_secs))
+        .idle_timeout(Duration::from_secs(config.idle_timeout_secs))
+        .max_lifetime(Duration::from_secs(config.max_lifetime_secs))
+        .connect(&config.url)
+        .await
 }
