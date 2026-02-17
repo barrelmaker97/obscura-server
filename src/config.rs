@@ -4,13 +4,12 @@ use ipnetwork::IpNetwork;
 #[derive(Clone, Debug, Parser)]
 #[command(version, about, long_about = None)]
 pub struct Config {
-    /// Database connection URL
-    #[arg(long, env = "OBSCURA_DATABASE_URL", default_value_t = Config::default().database_url)]
-    pub database_url: String,
-
     /// Global time-to-live for messages and attachments in days
     #[arg(long, env = "OBSCURA_TTL_DAYS", default_value_t = Config::default().ttl_days)]
     pub ttl_days: i64,
+
+    #[command(flatten)]
+    pub database: DatabaseConfig,
 
     #[command(flatten)]
     pub server: ServerConfig,
@@ -46,8 +45,8 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            database_url: "postgres://user:password@localhost/signal_server".to_string(),
             ttl_days: 30,
+            database: DatabaseConfig::default(),
             server: ServerConfig::default(),
             auth: AuthConfig::default(),
             rate_limit: RateLimitConfig::default(),
@@ -66,6 +65,45 @@ impl Config {
     #[must_use]
     pub fn load() -> Self {
         Self::parse()
+    }
+}
+
+#[derive(Clone, Debug, Args)]
+pub struct DatabaseConfig {
+    /// Database connection URL
+    #[arg(long = "database-url", env = "OBSCURA_DATABASE_URL", default_value_t = DatabaseConfig::default().url)]
+    pub url: String,
+
+    /// Maximum number of connections in the pool
+    #[arg(long = "db-max-connections", env = "OBSCURA_DATABASE_MAX_CONNECTIONS", default_value_t = DatabaseConfig::default().max_connections)]
+    pub max_connections: u32,
+
+    /// Minimum number of connections to keep idle in the pool
+    #[arg(long = "db-min-connections", env = "OBSCURA_DATABASE_MIN_CONNECTIONS", default_value_t = DatabaseConfig::default().min_connections)]
+    pub min_connections: u32,
+
+    /// Seconds to wait before timing out on acquiring a connection
+    #[arg(long = "db-acquire-timeout-secs", env = "OBSCURA_DATABASE_ACQUIRE_TIMEOUT_SECS", default_value_t = DatabaseConfig::default().acquire_timeout_secs)]
+    pub acquire_timeout_secs: u64,
+
+    /// Seconds before an idle connection is closed
+    #[arg(long = "db-idle-timeout-secs", env = "OBSCURA_DATABASE_IDLE_TIMEOUT_SECS", default_value_t = DatabaseConfig::default().idle_timeout_secs)]
+    pub idle_timeout_secs: u64,
+
+    /// Seconds before a connection is retired and replaced
+    #[arg(long = "db-max-lifetime-secs", env = "OBSCURA_DATABASE_MAX_LIFETIME_SECS", default_value_t = DatabaseConfig::default().max_lifetime_secs)]
+    pub max_lifetime_secs: u64,
+}
+
+impl Default for DatabaseConfig {
+    fn default() -> Self {
+        Self {
+            max_connections: 20,
+            min_connections: 5,
+            acquire_timeout_secs: 3,
+            idle_timeout_secs: 600,
+            max_lifetime_secs: 1800,
+        }
     }
 }
 
