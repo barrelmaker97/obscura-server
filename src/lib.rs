@@ -174,7 +174,7 @@ impl AppBuilder {
     /// # Errors
     /// Returns an error if mandatory dependencies (pool, pubsub, etc.) are missing,
     /// or if any service fails to initialize.
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self), name = "initialize_application")]
     pub async fn build(self) -> anyhow::Result<App> {
         let pool = self.pool.ok_or_else(|| anyhow::anyhow!("Database pool is required"))?;
         let pubsub = self.pubsub.ok_or_else(|| anyhow::anyhow!("PubSub client is required"))?;
@@ -195,7 +195,6 @@ impl AppBuilder {
         let push_token_repo = PushTokenRepository::new();
         let notification_repo =
             Arc::new(adapters::redis::NotificationRepository::new(Arc::clone(&pubsub), &config.notifications));
-
 
         // Initialize Core Services
         let crypto_service = CryptoService::new();
@@ -284,8 +283,8 @@ pub async fn run_migrations(pool: &adapters::database::DbPool) -> anyhow::Result
 }
 
 /// Initializes an S3 client from configuration.
-#[tracing::instrument(skip(config))]
-pub async fn init_s3_client(config: &StorageConfig) -> aws_sdk_s3::Client {
+#[tracing::instrument(skip(config), name = "initialize_s3_client")]
+pub async fn initialize_s3_client(config: &StorageConfig) -> aws_sdk_s3::Client {
     let region_provider = aws_config::Region::new(config.region.clone());
     let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider);
 

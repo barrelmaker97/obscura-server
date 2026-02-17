@@ -29,7 +29,7 @@ async fn main() -> anyhow::Result<()> {
 
     obscura_server::setup_panic_hook();
 
-    let boot_span = tracing::info_span!("server_boot");
+    let boot_span = tracing::info_span!("boot_server");
     let (api_listener, mgmt_listener, app_router, mgmt_app, shutdown_tx, shutdown_rx, workers) = async {
         // Phase 1: Infrastructure Setup (Resources)
         let pool = adapters::database::init_pool(&config.database_url).await?;
@@ -45,7 +45,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .await?;
 
-        let s3_client = obscura_server::init_s3_client(&config.storage).await;
+        let s3_client = obscura_server::initialize_s3_client(&config.storage).await;
 
         // Phase 2: Component Wiring (Pure logic, no side effects)
         let push_provider = Arc::new(adapters::push::fcm::FcmPushProvider);

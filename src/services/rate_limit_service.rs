@@ -18,7 +18,7 @@ impl Metrics {
         let meter = global::meter("obscura-server");
         Self {
             decisions_total: meter
-                .u64_counter("rate_limit_decisions_total")
+                .u64_counter("obscura_rate_limit_decisions_total")
                 .with_description("Rate limit decisions (allowed/throttled)")
                 .build(),
         }

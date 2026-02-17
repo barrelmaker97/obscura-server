@@ -25,27 +25,27 @@ impl Metrics {
         let meter = global::meter("obscura-server");
         Self {
             sends_total: meter
-                .u64_counter("notification_sends_total")
+                .u64_counter("obscura_notifications_sent_total")
                 .with_description("Total notification send attempts")
                 .build(),
             received_total: meter
-                .u64_counter("notification_received_total")
+                .u64_counter("obscura_notifications_received_total")
                 .with_description("Total notifications received from PubSub")
                 .build(),
             unrouted_total: meter
-                .u64_counter("notification_unrouted_total")
+                .u64_counter("obscura_notifications_unrouted_total")
                 .with_description("Notifications received from PubSub with no local subscribers")
                 .build(),
             active_channels: meter
-                .i64_up_down_counter("notification_active_channels")
+                .i64_up_down_counter("obscura_notification_channels")
                 .with_description("Number of active local notification channels")
                 .build(),
             gc_duration_seconds: meter
-                .f64_histogram("notification_gc_duration_seconds")
+                .f64_histogram("obscura_notification_gc_duration_seconds")
                 .with_description("Time taken to perform a single GC iteration")
                 .build(),
             gc_reclaimed_total: meter
-                .u64_counter("notification_gc_reclaimed_total")
+                .u64_counter("obscura_notification_channels_reclaimed_total")
                 .with_description("Total number of stale channels reclaimed by GC")
                 .build(),
         }

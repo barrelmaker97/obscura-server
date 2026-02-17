@@ -30,11 +30,11 @@ impl Metrics {
         let meter = global::meter("obscura-server");
         Self {
             uploaded_bytes: meter
-                .u64_counter("attachments_uploaded_bytes")
+                .u64_counter("obscura_attachment_upload_bytes_total")
                 .with_description("Total bytes of attachments uploaded")
                 .build(),
             upload_size_bytes: meter
-                .u64_histogram("attachments_upload_size_bytes")
+                .u64_histogram("obscura_attachment_upload_size_bytes")
                 .with_description("Distribution of attachment upload sizes")
                 .build(),
         }

@@ -22,11 +22,11 @@ impl Metrics {
         let meter = global::meter("obscura-server");
         Self {
             sent_total: meter
-                .u64_counter("messages_sent_total")
+                .u64_counter("obscura_messages_sent_total")
                 .with_description("Total messages successfully sent")
                 .build(),
             fetch_batch_size: meter
-                .u64_histogram("messaging_fetch_batch_size")
+                .u64_histogram("obscura_message_fetch_batch_size")
                 .with_description("Number of messages fetched in a single batch")
                 .build(),
         }

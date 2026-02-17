@@ -18,11 +18,11 @@ impl Metrics {
         let meter = global::meter("obscura-server");
         Self {
             deleted: meter
-                .u64_counter("attachments_deleted_total")
+                .u64_counter("obscura_attachments_deleted_total")
                 .with_description("Total number of expired attachments deleted from storage")
                 .build(),
             errors: meter
-                .u64_counter("attachments_cleanup_errors_total")
+                .u64_counter("obscura_attachment_cleanup_errors_total")
                 .with_description("Total number of errors encountered during attachment cleanup")
                 .build(),
         }
@@ -65,7 +65,7 @@ impl AttachmentCleanupWorker {
                             }
                         }
                     }
-                    .instrument(tracing::info_span!("attachment_cleanup_iteration"))
+                    .instrument(tracing::info_span!("run_attachment_cleanup"))
                     .await;
                 }
                 _ = shutdown.changed() => {}

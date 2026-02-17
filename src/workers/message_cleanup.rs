@@ -16,7 +16,7 @@ impl Metrics {
         let meter = global::meter("obscura-server");
         Self {
             inbox_overflow: meter
-                .u64_counter("messaging_inbox_overflow_total")
+                .u64_counter("obscura_messages_overflow_total")
                 .with_description("Total messages deleted due to inbox overflow")
                 .build(),
         }
@@ -44,7 +44,7 @@ impl MessageCleanupWorker {
             tokio::select! {
                 _ = interval.tick() => {
                     if let Err(e) = self.perform_cleanup()
-                        .instrument(tracing::info_span!("message_cleanup_iteration"))
+                        .instrument(tracing::info_span!("run_message_cleanup"))
                         .await
                     {
                         tracing::error!(error = ?e, "Message cleanup iteration failed");

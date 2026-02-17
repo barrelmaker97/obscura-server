@@ -257,7 +257,7 @@ impl TestApp {
         .await
         .expect("Failed to create RedisClient for tests. Is Redis running?");
 
-        let s3_client = obscura_server::init_s3_client(&config.storage).await;
+        let s3_client = obscura_server::initialize_s3_client(&config.storage).await;
 
         let push_provider = Arc::new(SharedMockPushProvider);
         let app = obscura_server::AppBuilder::new(config.clone())

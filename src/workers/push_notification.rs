@@ -21,15 +21,15 @@ impl Metrics {
         let meter = global::meter("obscura-server");
         Self {
             sent: meter
-                .u64_counter("push_sent_total")
+                .u64_counter("obscura_push_notifications_sent_total")
                 .with_description("Total number of push notifications successfully sent")
                 .build(),
             errors: meter
-                .u64_counter("push_errors_total")
+                .u64_counter("obscura_push_notification_errors_total")
                 .with_description("Total number of push notification delivery errors")
                 .build(),
             invalidated_tokens: meter
-                .u64_counter("push_invalidated_tokens_total")
+                .u64_counter("obscura_push_invalid_tokens_total")
                 .with_description("Total number of push tokens removed due to being unregistered")
                 .build(),
         }
@@ -89,7 +89,7 @@ impl PushNotificationWorker {
 
                 _ = interval.tick() => {
                     if let Err(e) = self.process_due_jobs(invalid_token_tx.clone())
-                        .instrument(tracing::debug_span!("push_notification_iteration"))
+                        .instrument(tracing::debug_span!("process_push_jobs"))
                         .await
                     {
                         tracing::error!(error = %e, "Failed to process due notification jobs");
@@ -97,7 +97,11 @@ impl PushNotificationWorker {
                 }
 
                 _ = janitor_interval.tick() => {
-                    Self::flush_invalid_tokens(&self.pool, &self.token_repo, &mut janitor_batch).await;
+                    async {
+                        Self::flush_invalid_tokens(&self.pool, &self.token_repo, &mut janitor_batch).await;
+                    }
+                    .instrument(tracing::debug_span!("flush_invalid_tokens"))
+                    .await;
                 }
 
                 res = invalid_token_rx.recv() => {

@@ -22,11 +22,11 @@ impl Metrics {
         let meter = global::meter("obscura-server");
         Self {
             registered_total: meter
-                .u64_counter("users_registered_total")
+                .u64_counter("obscura_registrations_total")
                 .with_description("Total number of successful user registrations")
                 .build(),
             takeovers_total: meter
-                .u64_counter("keys_takeovers_total")
+                .u64_counter("obscura_key_takeovers_total")
                 .with_description("Total number of device takeover events")
                 .build(),
         }
