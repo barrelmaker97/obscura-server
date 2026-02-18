@@ -286,3 +286,31 @@ async fn test_mixed_ack_processing() {
     // Verify all 3 are deleted
     app.assert_message_count(user_b.user_id, 0).await;
 }
+
+#[tokio::test]
+async fn test_ack_security_cross_user_deletion() {
+    let app = TestApp::spawn().await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+
+    let user_a = app.register_user(&format!("alice_sec_{}", run_id)).await;
+    let user_b = app.register_user(&format!("bob_sec_{}", run_id)).await;
+    let user_c = app.register_user(&format!("eve_sec_{}", run_id)).await;
+
+    // A sends to B
+    app.send_message(&user_a.token, user_b.user_id, b"Secret").await;
+
+    // B connects and gets the message ID
+    let mut ws_b = app.connect_ws(&user_b.token).await;
+    let env = ws_b.receive_envelope().await.expect("Bob should receive message");
+    let target_msg_id = env.id;
+
+    // C tries to ACK B's message
+    let mut ws_c = app.connect_ws(&user_c.token).await;
+    ws_c.send_ack(target_msg_id.clone()).await;
+
+    // Wait for async processing
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Assert message is STILL there for B (count should be 1)
+    app.assert_message_count(user_b.user_id, 1).await;
+}

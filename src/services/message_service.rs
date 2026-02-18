@@ -121,9 +121,9 @@ impl MessageService {
         skip(self),
         fields(batch_count = message_ids.len())
     )]
-    pub async fn delete_batch(&self, message_ids: &[Uuid]) -> Result<()> {
+    pub async fn delete_batch(&self, user_id: Uuid, message_ids: &[Uuid]) -> Result<()> {
         let mut conn = self.pool.acquire().await?;
-        self.repo.delete_batch(&mut conn, message_ids).await
+        self.repo.delete_batch(&mut conn, user_id, message_ids).await
     }
 
     #[must_use]

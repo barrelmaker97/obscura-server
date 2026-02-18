@@ -109,16 +109,25 @@ impl MessageRepository {
         Ok(messages.into_iter().map(Into::into).collect())
     }
 
-    /// Deletes a batch of messages.
+    /// Deletes a batch of messages for a specific user.
     ///
     /// # Errors
     /// Returns `sqlx::Error` if the deletion fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub(crate) async fn delete_batch(&self, conn: &mut PgConnection, message_ids: &[Uuid]) -> Result<()> {
+    pub(crate) async fn delete_batch(
+        &self,
+        conn: &mut PgConnection,
+        user_id: Uuid,
+        message_ids: &[Uuid],
+    ) -> Result<()> {
         if message_ids.is_empty() {
             return Ok(());
         }
-        sqlx::query("DELETE FROM messages WHERE id = ANY($1)").bind(message_ids).execute(conn).await?;
+        sqlx::query("DELETE FROM messages WHERE id = ANY($1) AND recipient_id = $2")
+            .bind(message_ids)
+            .bind(user_id)
+            .execute(conn)
+            .await?;
         Ok(())
     }
 

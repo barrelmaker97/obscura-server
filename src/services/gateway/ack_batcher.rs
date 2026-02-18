@@ -27,7 +27,8 @@ impl AckBatcher {
         let batcher_metrics = metrics.clone();
         let task = tokio::spawn(
             async move {
-                Self::run_background(rx, message_service, batcher_metrics, batch_size, flush_interval_ms).await;
+                Self::run_background(user_id, rx, message_service, batcher_metrics, batch_size, flush_interval_ms)
+                    .await;
             }
             .instrument(tracing::info_span!("ack_batcher", user_id = %user_id)),
         );
@@ -49,6 +50,7 @@ impl AckBatcher {
     }
 
     async fn run_background(
+        user_id: Uuid,
         mut rx: mpsc::Receiver<Uuid>,
         message_service: MessageService,
         metrics: Metrics,
@@ -78,7 +80,7 @@ impl AckBatcher {
             if !batch.is_empty() {
                 tracing::debug!(batch_size = batch.len(), "Flushing ACK batch");
                 metrics.ack_batch_size.record(batch.len() as u64, &[]);
-                if let Err(e) = message_service.delete_batch(&batch).await {
+                if let Err(e) = message_service.delete_batch(user_id, &batch).await {
                     tracing::error!(error = %e, "Failed to delete message batch");
                 }
             }
