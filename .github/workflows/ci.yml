@@ -69,3 +69,6 @@ jobs:
 
       - name: Run tests
         run: cargo test
+
+      - name: Run smoke test
+        run: cargo run -- --help
