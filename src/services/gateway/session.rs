@@ -54,7 +54,6 @@ impl Session {
         let ack_batcher = AckBatcher::new(
             user_id,
             message_service.clone(),
-            notifier.clone(),
             metrics.clone(),
             config.ack_buffer_size,
             config.ack_batch_size,
@@ -95,10 +94,30 @@ impl Session {
                         Some(Ok(WsMessage::Binary(bin))) => {
                             if let Ok(frame) = WebSocketFrame::decode(bin.as_ref()) {
                                 if let Some(Payload::Ack(ack)) = frame.payload {
-                                    if let Ok(msg_id) = Uuid::parse_str(&ack.message_id) {
-                                        ack_batcher.push(msg_id);
-                                    } else {
-                                        tracing::warn!("Received ACK with invalid UUID");
+                                    let mut uuids = Vec::new();
+
+                                    // Support legacy single ID
+                                    if !ack.message_id.is_empty() {
+                                        if let Ok(id) = Uuid::parse_str(&ack.message_id) {
+                                            uuids.push(id);
+                                        } else {
+                                            tracing::warn!("Received ACK with invalid UUID: {}", ack.message_id);
+                                        }
+                                    }
+
+                                    // Support bulk IDs
+                                    for id_str in ack.message_ids {
+                                        if let Ok(id) = Uuid::parse_str(&id_str) {
+                                            uuids.push(id);
+                                        } else {
+                                            tracing::warn!("Received ACK with invalid UUID in list: {}", id_str);
+                                        }
+                                    }
+
+                                    if !uuids.is_empty() {
+                                        // Immediately cancel push notifications to avoid "phantom buzzes"
+                                        notifier.cancel_pending_notifications(user_id).await;
+                                        ack_batcher.push(uuids);
                                     }
                                 } else {
                                     tracing::warn!("Received unexpected Protobuf payload type");

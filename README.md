@@ -86,7 +86,7 @@ Command-line options take precedence over environment variables.
 | `--gc-interval-secs` | How often to run notification cleanup | `OBSCURA_NOTIFICATIONS_GC_INTERVAL_SECS` | `60` |
 | `--global-channel-capacity` | Capacity of global dispatcher channel | `OBSCURA_NOTIFICATIONS_GLOBAL_CHANNEL_CAPACITY` | `1024` |
 | `--user-channel-capacity` | Capacity of per-user notification channel | `OBSCURA_NOTIFICATIONS_USER_CHANNEL_CAPACITY` | `64` |
-| `--push-delay-secs` | Grace period before sending a fallback push | `OBSCURA_NOTIFICATIONS_PUSH_DELAY_SECS` | `10` |
+| `--push-delay-secs` | Grace period before sending a fallback push | `OBSCURA_NOTIFICATIONS_PUSH_DELAY_SECS` | `2` |
 | `--worker-interval-secs` | Frequency of push queue polling | `OBSCURA_NOTIFICATIONS_WORKER_INTERVAL_SECS` | `1` |
 | `--worker-concurrency` | Max concurrent push delivery tasks (also Redis poll limit) | `OBSCURA_NOTIFICATIONS_WORKER_CONCURRENCY` | `100` |
 | `--push-queue-key` | Redis key for the push notification queue | `OBSCURA_NOTIFICATIONS_PUSH_QUEUE_KEY` | `jobs:push_notifications` |
