@@ -199,7 +199,7 @@ async fn test_ack_buffer_saturation() {
     let mut client = app.connect_ws(&user.token).await;
 
     for _ in 0..15 {
-        let ack = AckMessage { message_id: Uuid::new_v4().to_string() };
+        let ack = AckMessage { message_id: Uuid::new_v4().to_string(), message_ids: vec![] };
         let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
         let mut buf = Vec::new();
         frame.encode(&mut buf).unwrap();
@@ -208,4 +208,109 @@ async fn test_ack_buffer_saturation() {
 
     client.sink.send(WsMessage::Ping(vec![].into())).await.unwrap();
     assert!(client.receive_pong().await.is_some());
+}
+
+#[tokio::test]
+async fn test_bulk_ack_processing() {
+    let app = TestApp::spawn().await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+
+    let user_a = app.register_user(&format!("alice_bulk_{}", run_id)).await;
+    let user_b = app.register_user(&format!("bob_bulk_{}", run_id)).await;
+
+    // Send 5 messages
+    for i in 0..5 {
+        app.send_message(&user_a.token, user_b.user_id, format!("msg {}", i).as_bytes()).await;
+    }
+
+    let mut ws = app.connect_ws(&user_b.token).await;
+
+    // Receive all 5
+    let mut message_ids = Vec::new();
+    for _ in 0..5 {
+        if let Some(env) = ws.receive_envelope().await {
+            message_ids.push(env.id);
+        }
+    }
+    assert_eq!(message_ids.len(), 5);
+
+    // Send ONE bulk ACK
+    let ack = AckMessage {
+        message_id: String::new(), // Legacy field empty
+        message_ids: message_ids.clone(),
+    };
+    let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
+    let mut buf = Vec::new();
+    frame.encode(&mut buf).unwrap();
+    ws.sink.send(WsMessage::Binary(buf.into())).await.unwrap();
+
+    // Verify all 5 are deleted
+    app.assert_message_count(user_b.user_id, 0).await;
+}
+
+#[tokio::test]
+async fn test_mixed_ack_processing() {
+    let app = TestApp::spawn().await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+
+    let user_a = app.register_user(&format!("alice_mix_{}", run_id)).await;
+    let user_b = app.register_user(&format!("bob_mix_{}", run_id)).await;
+
+    // Send 3 messages
+    for i in 0..3 {
+        app.send_message(&user_a.token, user_b.user_id, format!("msg {}", i).as_bytes()).await;
+    }
+
+    let mut ws = app.connect_ws(&user_b.token).await;
+
+    let mut message_ids = Vec::new();
+    for _ in 0..3 {
+        if let Some(env) = ws.receive_envelope().await {
+            message_ids.push(env.id);
+        }
+    }
+    assert_eq!(message_ids.len(), 3);
+
+    // Send ACK with BOTH fields
+    // message_id = First message
+    // message_ids = Remaining two messages
+    let ack = AckMessage {
+        message_id: message_ids[0].clone(),
+        message_ids: vec![message_ids[1].clone(), message_ids[2].clone()],
+    };
+    let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
+    let mut buf = Vec::new();
+    frame.encode(&mut buf).unwrap();
+    ws.sink.send(WsMessage::Binary(buf.into())).await.unwrap();
+
+    // Verify all 3 are deleted
+    app.assert_message_count(user_b.user_id, 0).await;
+}
+
+#[tokio::test]
+async fn test_ack_security_cross_user_deletion() {
+    let app = TestApp::spawn().await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+
+    let user_a = app.register_user(&format!("alice_sec_{}", run_id)).await;
+    let user_b = app.register_user(&format!("bob_sec_{}", run_id)).await;
+    let user_c = app.register_user(&format!("eve_sec_{}", run_id)).await;
+
+    // A sends to B
+    app.send_message(&user_a.token, user_b.user_id, b"Secret").await;
+
+    // B connects and gets the message ID
+    let mut ws_b = app.connect_ws(&user_b.token).await;
+    let env = ws_b.receive_envelope().await.expect("Bob should receive message");
+    let target_msg_id = env.id;
+
+    // C tries to ACK B's message
+    let mut ws_c = app.connect_ws(&user_c.token).await;
+    ws_c.send_ack(target_msg_id.clone()).await;
+
+    // Wait for async processing
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Assert message is STILL there for B (count should be 1)
+    app.assert_message_count(user_b.user_id, 1).await;
 }

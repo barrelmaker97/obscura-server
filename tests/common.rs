@@ -469,7 +469,7 @@ impl TestWsClient {
     }
 
     pub async fn send_ack(&mut self, message_id: String) {
-        let ack = AckMessage { message_id };
+        let ack = AckMessage { message_id, message_ids: vec![] };
         let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
         let mut buf = Vec::new();
         frame.encode(&mut buf).unwrap();

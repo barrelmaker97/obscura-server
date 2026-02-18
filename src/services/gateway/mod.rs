@@ -24,6 +24,8 @@ pub(crate) struct Metrics {
     pub(crate) outbound_dropped_total: Counter<u64>,
     pub(crate) active_connections: UpDownCounter<i64>,
     pub(crate) ack_queue_dropped_total: Counter<u64>,
+    pub(crate) acks_received_single_total: Counter<u64>,
+    pub(crate) acks_received_bulk_total: Counter<u64>,
 }
 
 impl Metrics {
@@ -46,6 +48,14 @@ impl Metrics {
             ack_queue_dropped_total: meter
                 .u64_counter("obscura_websocket_ack_dropped_total")
                 .with_description("Total ACKs dropped due to full buffer")
+                .build(),
+            acks_received_single_total: meter
+                .u64_counter("obscura_websocket_acks_received_single_total")
+                .with_description("Total legacy single ACKs received from clients")
+                .build(),
+            acks_received_bulk_total: meter
+                .u64_counter("obscura_websocket_acks_received_bulk_total")
+                .with_description("Total bulk ACKs received from clients")
                 .build(),
         }
     }

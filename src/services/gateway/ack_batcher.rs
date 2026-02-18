@@ -1,6 +1,5 @@
 use crate::services::gateway::Metrics;
 use crate::services::message_service::MessageService;
-use crate::services::notification_service::NotificationService;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::Instrument;
@@ -18,7 +17,6 @@ impl AckBatcher {
     pub fn new(
         user_id: Uuid,
         message_service: MessageService,
-        notifier: NotificationService,
         metrics: Metrics,
         buffer_size: usize,
         batch_size: usize,
@@ -29,16 +27,8 @@ impl AckBatcher {
         let batcher_metrics = metrics.clone();
         let task = tokio::spawn(
             async move {
-                Self::run_background(
-                    user_id,
-                    rx,
-                    message_service,
-                    notifier,
-                    batcher_metrics,
-                    batch_size,
-                    flush_interval_ms,
-                )
-                .await;
+                Self::run_background(user_id, rx, message_service, batcher_metrics, batch_size, flush_interval_ms)
+                    .await;
             }
             .instrument(tracing::info_span!("ack_batcher", user_id = %user_id)),
         );
@@ -46,10 +36,12 @@ impl AckBatcher {
         Self { tx, metrics, task }
     }
 
-    pub fn push(&self, msg_id: Uuid) {
-        if self.tx.try_send(msg_id).is_err() {
-            tracing::warn!(message_id = %msg_id, "Dropped ACK due to full buffer");
-            self.metrics.ack_queue_dropped_total.add(1, &[]);
+    pub fn push(&self, msg_ids: Vec<Uuid>) {
+        for msg_id in msg_ids {
+            if self.tx.try_send(msg_id).is_err() {
+                tracing::warn!(message_id = %msg_id, "Dropped ACK due to full buffer");
+                self.metrics.ack_queue_dropped_total.add(1, &[]);
+            }
         }
     }
 
@@ -61,7 +53,6 @@ impl AckBatcher {
         user_id: Uuid,
         mut rx: mpsc::Receiver<Uuid>,
         message_service: MessageService,
-        notifier: NotificationService,
         metrics: Metrics,
         batch_size: usize,
         flush_interval_ms: u64,
@@ -89,12 +80,8 @@ impl AckBatcher {
             if !batch.is_empty() {
                 tracing::debug!(batch_size = batch.len(), "Flushing ACK batch");
                 metrics.ack_batch_size.record(batch.len() as u64, &[]);
-                if let Err(e) = message_service.delete_batch(&batch).await {
+                if let Err(e) = message_service.delete_batch(user_id, &batch).await {
                     tracing::error!(error = %e, "Failed to delete message batch");
-                } else {
-                    // Once we've successfully ACKed some messages, we can cancel
-                    // any pending push notifications for this user.
-                    notifier.cancel_pending_notifications(user_id).await;
                 }
             }
         }

@@ -383,7 +383,7 @@ impl Default for NotificationConfig {
             gc_interval_secs: 60,
             global_channel_capacity: 1024,
             user_channel_capacity: 64,
-            push_delay_secs: 10,
+            push_delay_secs: 2,
             worker_interval_secs: 1,
             worker_concurrency: 100,
             push_queue_key: "jobs:push_notifications".to_string(),
@@ -417,7 +417,7 @@ pub struct WsConfig {
 
 impl Default for WsConfig {
     fn default() -> Self {
-        Self { outbound_buffer_size: 32, ack_buffer_size: 100, ack_batch_size: 50, ack_flush_interval_ms: 500 }
+        Self { outbound_buffer_size: 32, ack_buffer_size: 1000, ack_batch_size: 100, ack_flush_interval_ms: 500 }
     }
 }
 
