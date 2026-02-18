@@ -71,7 +71,12 @@ impl Config {
 #[derive(Clone, Debug, Args)]
 pub struct DatabaseConfig {
     /// Database connection URL
-    #[arg(long = "db-url", env = "OBSCURA_DATABASE_URL", default_value_t = DatabaseConfig::default().url)]
+    #[arg(
+        long = "db-url",
+        id = "database_url",
+        env = "OBSCURA_DATABASE_URL",
+        default_value_t = DatabaseConfig::default().url
+    )]
     pub url: String,
 
     /// Maximum number of connections in the pool
@@ -111,7 +116,12 @@ impl Default for DatabaseConfig {
 #[derive(Clone, Debug, Args)]
 pub struct PubSubConfig {
     /// `PubSub` connection URL (e.g. <redis://localhost:6379>)
-    #[arg(long = "pubsub-url", env = "OBSCURA_PUBSUB_URL", default_value_t = PubSubConfig::default().url)]
+    #[arg(
+        long = "pubsub-url",
+        id = "pubsub_url",
+        env = "OBSCURA_PUBSUB_URL",
+        default_value_t = PubSubConfig::default().url
+    )]
     pub url: String,
 
     /// Minimum backoff time for `PubSub` reconnection in seconds
@@ -489,5 +499,16 @@ pub struct HealthConfig {
 impl Default for HealthConfig {
     fn default() -> Self {
         Self { db_timeout_ms: 2000, storage_timeout_ms: 2000, pubsub_timeout_ms: 2000 }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn verify_cli() {
+        Config::command().debug_assert();
     }
 }
