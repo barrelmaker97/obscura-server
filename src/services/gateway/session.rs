@@ -100,12 +100,16 @@ impl Session {
                                     if !ack.message_id.is_empty() {
                                         if let Ok(id) = Uuid::parse_str(&ack.message_id) {
                                             uuids.push(id);
+                                            metrics.acks_received_single_total.add(1, &[]);
                                         } else {
                                             tracing::warn!("Received ACK with invalid UUID: {}", ack.message_id);
                                         }
                                     }
 
                                     // Support bulk IDs
+                                    if !ack.message_ids.is_empty() {
+                                        metrics.acks_received_bulk_total.add(1, &[]);
+                                    }
                                     for id_str in ack.message_ids {
                                         if let Ok(id) = Uuid::parse_str(&id_str) {
                                             uuids.push(id);

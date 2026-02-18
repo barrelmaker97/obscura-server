@@ -109,8 +109,8 @@ Command-line options take precedence over environment variables.
 | Option | Description | Environment Variable | Default |
 |--------|-------------|----------------------|---------|
 | `--ws-outbound-buffer-size` | WS outbound channel capacity | `OBSCURA_WS_OUTBOUND_BUFFER_SIZE` | `32` |
-| `--ws-ack-buffer-size` | WS ACK channel capacity | `OBSCURA_WS_ACK_BUFFER_SIZE` | `100` |
-| `--ws-ack-batch-size` | WS ACK DB batch size | `OBSCURA_WS_ACK_BATCH_SIZE` | `50` |
+| `--ws-ack-buffer-size` | WS ACK channel capacity | `OBSCURA_WS_ACK_BUFFER_SIZE` | `1000` |
+| `--ws-ack-batch-size` | WS ACK DB batch size | `OBSCURA_WS_ACK_BATCH_SIZE` | `100` |
 | `--ws-ack-flush-interval-ms` | WS ACK DB flush interval | `OBSCURA_WS_ACK_FLUSH_INTERVAL_MS` | `500` |
 
 ### Storage Configuration (Attachments)

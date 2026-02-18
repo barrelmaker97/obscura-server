@@ -417,7 +417,7 @@ pub struct WsConfig {
 
 impl Default for WsConfig {
     fn default() -> Self {
-        Self { outbound_buffer_size: 32, ack_buffer_size: 100, ack_batch_size: 50, ack_flush_interval_ms: 500 }
+        Self { outbound_buffer_size: 32, ack_buffer_size: 1000, ack_batch_size: 100, ack_flush_interval_ms: 500 }
     }
 }
 
