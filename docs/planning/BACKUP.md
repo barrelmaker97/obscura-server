@@ -1,4 +1,4 @@
-# Design Doc 001: Encrypted Cloud Backup
+# Encrypted Cloud Backup
 
 ## 1. Overview
 This feature allows users to recover their account identity and contacts list when switching to a new device. It explicitly **excludes** message history, aligning with Obscura's ephemeral nature.
