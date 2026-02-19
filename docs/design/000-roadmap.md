@@ -6,7 +6,6 @@ This document serves as the master index for planned work and architectural visi
 
 ### 📱 Phase 1: Mobile Essentials
 *Features required for a functional mobile application experience.*
-- [ ] **[004: Push Notifications](004-push-notifications.md)**: Generic FCM/APNs alerts for offline delivery and "wake-up" functionality.
 - [ ] **[001: Encrypted Cloud Backup](001-encrypted-backup.md)**: Secure account recovery via client-side password encryption to prevent data loss.
 
 ### 👤 Phase 2: Identity & Social
