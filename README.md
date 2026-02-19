@@ -3,7 +3,7 @@
 **Obscura Server** is a minimalist, secure relay server for the Signal Protocol. It facilitates end-to-end encrypted asynchronous messaging while maintaining a zero-knowledge architecture.
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![CI](https://github.com/nolan-cooper/obscura-server/actions/workflows/ci.yml/badge.svg)](https://github.com/nolan-cooper/obscura-server/actions/workflows/ci.yml)
+[![CI](https://github.com/barrelmaker97/obscura-server/actions/workflows/ci.yml/badge.svg)](https://github.com/barrelmaker97/obscura-server/actions/workflows/ci.yml)
 
 ## Features
 
@@ -20,27 +20,7 @@
 
 Obscura acts as a passive relay between Signal Protocol clients. It manages the discovery of cryptographic material and the queuing of encrypted blobs.
 
-```mermaid
-sequenceDiagram
-    participant A as Alice (Client)
-    participant S as Obscura Server
-    participant B as Bob (Client)
-
-    Note over A,B: Registration
-    A->>S: Upload Identity & PreKeys
-    B->>S: Upload Identity & PreKeys
-
-    Note over A,B: Message Exchange
-    A->>S: Request Bob's PreKey Bundle
-    S-->>A: Bob's Public Keys (Identity, Signed, One-Time)
-    A->>A: Perform X3DH (Generate Shared Secret)
-    A->>S: Send Encrypted Message (Bob)
-    S->>S: Store Opaque Blob
-    S-->>B: Real-time Poke (WebSocket/Push)
-    B->>S: Fetch Pending Messages
-    S-->>B: Bob's Encrypted Blobs
-    B->>B: Decrypt with Shared Secret
-```
+See [**docs/ARCHITECTURE.md**](./docs/ARCHITECTURE.md) for a detailed look at how the system works.
 
 ---
 
