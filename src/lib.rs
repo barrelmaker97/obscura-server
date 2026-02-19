@@ -59,8 +59,8 @@ pub struct Resources {
     pub s3_client: aws_sdk_s3::Client,
 }
 
-#[derive(Clone, Debug)]
-pub struct Repositories {
+#[derive(Clone)]
+pub struct Adapters {
     pub key: KeyRepository,
     pub message: MessageRepository,
     pub user: UserRepository,
@@ -69,6 +69,23 @@ pub struct Repositories {
     pub backup: BackupRepository,
     pub push_token: PushTokenRepository,
     pub notification: Arc<adapters::redis::NotificationRepository>,
+    pub storage: Arc<dyn adapters::storage::ObjectStorage>,
+    pub push: Arc<dyn PushProvider>,
+}
+
+impl std::fmt::Debug for Adapters {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Adapters")
+            .field("key", &self.key)
+            .field("message", &self.message)
+            .field("user", &self.user)
+            .field("refresh", &self.refresh)
+            .field("attachment", &self.attachment)
+            .field("backup", &self.backup)
+            .field("push_token", &self.push_token)
+            .field("notification", &self.notification)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug)]
@@ -211,8 +228,8 @@ impl AppBuilder {
 
         let resources = Resources { pool: pool.clone(), pubsub: Arc::clone(&pubsub), s3_client: s3_client.clone() };
 
-        // Initialize Repositories
-        let repos = Repositories {
+        // Initialize Adapters (Trait implementations and Repositories)
+        let adapters = Adapters {
             key: KeyRepository::new(),
             message: MessageRepository::new(),
             user: UserRepository::new(),
@@ -224,29 +241,27 @@ impl AppBuilder {
                 Arc::clone(&pubsub),
                 &config.notifications,
             )),
+            storage: Arc::new(S3Storage::new(s3_client.clone(), config.storage.bucket.clone())),
+            push: push_provider,
         };
-
-        // Initialize Storage Adapter
-        let s3_storage: Arc<dyn adapters::storage::ObjectStorage> =
-            Arc::new(S3Storage::new(s3_client.clone(), config.storage.bucket.clone()));
 
         // Initialize Core Services
         let crypto_service = CryptoService::new();
-        let notifier = NotificationService::new(Arc::clone(&repos.notification), &config.notifications);
-        let key_service = KeyService::new(pool.clone(), repos.key.clone(), crypto_service, config.messaging.clone());
+        let notifier = NotificationService::new(Arc::clone(&adapters.notification), &config.notifications);
+        let key_service = KeyService::new(pool.clone(), adapters.key.clone(), crypto_service, config.messaging.clone());
         let auth_service =
-            AuthService::new(config.auth.clone(), pool.clone(), repos.user.clone(), repos.refresh.clone());
+            AuthService::new(config.auth.clone(), pool.clone(), adapters.user.clone(), adapters.refresh.clone());
         let message_service = MessageService::new(
             pool.clone(),
-            repos.message.clone(),
+            adapters.message.clone(),
             notifier.clone(),
             config.messaging.clone(),
             config.ttl_days,
         );
         let account_service = AccountService::new(
             pool.clone(),
-            repos.user.clone(),
-            repos.message.clone(),
+            adapters.user.clone(),
+            adapters.message.clone(),
             auth_service.clone(),
             key_service.clone(),
             notifier.clone(),
@@ -257,16 +272,20 @@ impl AppBuilder {
             notifier.clone(),
             config.websocket.clone(),
         );
-        let push_token_service = PushTokenService::new(pool.clone(), repos.push_token.clone());
+        let push_token_service = PushTokenService::new(pool.clone(), adapters.push_token.clone());
         let attachment_service = AttachmentService::new(
             pool.clone(),
-            repos.attachment.clone(),
-            Arc::clone(&s3_storage),
+            adapters.attachment.clone(),
+            Arc::clone(&adapters.storage),
             config.attachment.clone(),
             config.ttl_days,
         );
-        let backup_service =
-            BackupService::new(pool.clone(), repos.backup.clone(), Arc::clone(&s3_storage), config.backup.clone());
+        let backup_service = BackupService::new(
+            pool.clone(),
+            adapters.backup.clone(),
+            Arc::clone(&adapters.storage),
+            config.backup.clone(),
+        );
         let rate_limit_service = RateLimitService::new(config.server.trusted_proxies.clone());
         let health_service = HealthService::new(
             pool.clone(),
@@ -289,7 +308,7 @@ impl AppBuilder {
             rate_limit_service,
         };
 
-        let workers = Self::init_workers(config, pool, &repos, &s3_storage, push_provider, notifier);
+        let workers = Self::init_workers(config, pool, &adapters, notifier);
 
         Ok(App { resources, services, health_service, workers })
     }
@@ -297,35 +316,33 @@ impl AppBuilder {
     fn init_workers(
         config: &Config,
         pool: adapters::database::DbPool,
-        repos: &Repositories,
-        s3_storage: &Arc<dyn adapters::storage::ObjectStorage>,
-        push_provider: Arc<dyn PushProvider>,
+        adapters: &Adapters,
         notifier: NotificationService,
     ) -> Workers {
         Workers {
-            message_worker: MessageCleanupWorker::new(pool.clone(), repos.message.clone(), config.messaging.clone()),
+            message_worker: MessageCleanupWorker::new(pool.clone(), adapters.message.clone(), config.messaging.clone()),
             attachment_worker: AttachmentCleanupWorker::new(
                 pool.clone(),
-                repos.attachment.clone(),
-                Arc::clone(s3_storage),
+                adapters.attachment.clone(),
+                Arc::clone(&adapters.storage),
                 config.attachment.clone(),
             ),
             backup_worker: BackupCleanupWorker::new(
                 pool.clone(),
-                repos.backup.clone(),
-                Arc::clone(s3_storage),
+                adapters.backup.clone(),
+                Arc::clone(&adapters.storage),
                 config.backup.clone(),
             ),
             push_worker: PushNotificationWorker::new(
                 pool,
-                Arc::clone(&repos.notification),
-                push_provider,
-                repos.push_token.clone(),
+                Arc::clone(&adapters.notification),
+                Arc::clone(&adapters.push),
+                adapters.push_token.clone(),
                 &config.notifications,
             ),
             notification_worker: NotificationWorker::new(
                 notifier,
-                Arc::clone(&repos.notification),
+                Arc::clone(&adapters.notification),
                 config.notifications.gc_interval_secs,
             ),
         }
