@@ -61,8 +61,27 @@ To prevent abuse and manage costs:
 -   **Auth**: Required.
 -   **Response**: The binary blob (streamed from S3) + `ETag` header (version).
 
+### 4.4 Risks & Mitigations
+
+| Risk | Impact | Mitigation |
+| :--- | :--- | :--- |
+| **Connection Pool Starvation** | Slow client uploads hold DB transactions open, blocking the entire API. | Use aggressive timeouts (e.g., 30s) for S3 streaming. For future large backups (>10MB), move to direct S3 uploads via Presigned URLs. |
+| **Out-of-Sync State** | S3 upload succeeds but DB update fails (Ghost Data). | Use atomic SQL updates. The client is the source of truth; they will retry with their known version, eventually reconciling the state. Enable S3 Bucket Versioning for recovery. |
+| **Orphaned S3 Objects** | Account deletion or failed initial uploads leave opaque blobs in S3. | Implement a "Janitor" cleanup task or use S3 Lifecycle policies to prune objects not referenced in the `backups` table. |
+| **Conflict Bandwidth Waste** | A client might finish a large upload only to receive a `409 Conflict`. | Acceptable tradeoff for server-side simplicity. Clients should "Fetch-before-Upload" to minimize this window. |
+
 ## 5. Implementation Tasks
 - [ ] Create `backups` table (`user_id` PK, `version` INT, `updated_at` TIMESTAMP).
-- [ ] Implement `BackupRepository` (Postgres) and `BackupService` (S3 integration).
-- [ ] Implement API endpoints with `If-Match` support.
-- [ ] Write integration tests verifying overwrite behavior and conflict handling.
+- [ ] Implement `BackupRepository` (Postgres) with `SELECT FOR UPDATE` logic.
+- [ ] Implement `BackupService` with:
+    - [ ] S3 streaming integration.
+    - [ ] Aggressive IO timeouts.
+    - [ ] Atomic version incrementing.
+- [ ] Implement API endpoints:
+    - [ ] `GET /v1/backup` (with `ETag` support).
+    - [ ] `POST /v1/backup` (with `If-Match` validation).
+- [ ] Write integration tests for:
+    - [ ] Conflict handling (`409 Conflict`).
+    - [ ] Partial failure recovery.
+    - [ ] Size limit enforcement.
+- [ ] (Future) Add "Backup Janitor" to prune orphaned S3 objects.
