@@ -7,14 +7,13 @@ use axum::{
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
-use tokio_util::io::ReaderStream;
+use futures::StreamExt;
 
 /// Uploads a new backup version.
 ///
 /// # Errors
-/// Returns `AppError::BadRequest` if `If-Match` header is missing or invalid.
-/// Returns `AppError::PreconditionFailed` if `If-Match` version does not match current version.
-/// Returns `AppError::Conflict` if another upload is in progress.
+/// Returns `AppError::BadRequest` if headers are invalid.
+/// Returns `AppError::Internal` if the upload fails.
 pub async fn upload_backup(
     auth_user: AuthUser,
     State(state): State<AppState>,
@@ -34,7 +33,10 @@ pub async fn upload_backup(
     let content_len =
         headers.get(header::CONTENT_LENGTH).and_then(|v| v.to_str().ok().and_then(|s| s.parse::<usize>().ok()));
 
-    state.backup_service.handle_upload(auth_user.user_id, if_match_version, content_len, body).await?;
+    // Bridge Axum Body -> StorageStream
+    let stream = body.into_data_stream().map(|res| res.map_err(|_| AppError::Internal)).boxed();
+
+    state.backup_service.handle_upload(auth_user.user_id, if_match_version, content_len, stream).await?;
 
     Ok(StatusCode::OK)
 }
@@ -42,13 +44,12 @@ pub async fn upload_backup(
 /// Downloads the current backup.
 ///
 /// # Errors
-/// Returns `AppError::NotFound` if no backup exists.
-/// Returns `AppError::Internal` if response headers cannot be constructed.
+/// Returns `AppError::NotFound` if the backup does not exist.
+/// Returns `AppError::Internal` if there is an error during download.
 pub async fn download_backup(auth_user: AuthUser, State(state): State<AppState>) -> Result<impl IntoResponse> {
     let (version, len, stream) = state.backup_service.download(auth_user.user_id).await?;
 
-    let reader = stream.into_async_read();
-    let stream = ReaderStream::new(reader);
+    // Bridge StorageStream -> Axum Body
     let body = Body::from_stream(stream);
 
     let mut response = Response::new(body);
@@ -67,8 +68,8 @@ pub async fn download_backup(auth_user: AuthUser, State(state): State<AppState>)
 /// Checks for backup existence and returns metadata.
 ///
 /// # Errors
-/// Returns `AppError::NotFound` if no backup exists.
-/// Returns `AppError::Internal` if response headers cannot be constructed.
+/// Returns `AppError::NotFound` if the backup does not exist.
+/// Returns `AppError::Internal` if there is an error.
 pub async fn head_backup(auth_user: AuthUser, State(state): State<AppState>) -> Result<impl IntoResponse> {
     let (version, len) = state.backup_service.head(auth_user.user_id).await?;
 

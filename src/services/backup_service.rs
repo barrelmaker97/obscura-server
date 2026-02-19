@@ -1,11 +1,9 @@
 use crate::adapters::database::DbPool;
 use crate::adapters::database::backup_repo::BackupRepository;
-use crate::adapters::storage::ObjectStorage;
+use crate::adapters::storage::{ObjectStorage, StorageStream};
 use crate::config::BackupConfig;
 use crate::domain::backup::BackupState;
 use crate::error::{AppError, Result};
-use aws_sdk_s3::primitives::ByteStream;
-use axum::body::Body;
 use std::sync::Arc;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
@@ -38,15 +36,16 @@ impl BackupService {
     /// Handles the full backup upload workflow.
     ///
     /// # Errors
-    /// Returns `AppError::PreconditionFailed` if `if_match_version` does not match.
-    /// Returns `AppError::Conflict` if another upload is in progress.
-    /// Returns `AppError::Timeout` if the upload takes too long.
+    /// Returns `AppError::BadRequest` if the backup is too small.
+    /// Returns `AppError::PreconditionFailed` if the version is out of date.
+    /// Returns `AppError::Conflict` if an upload is already in progress.
+    /// Returns `AppError::Timeout` if the storage operation times out.
     pub async fn handle_upload(
         &self,
         user_id: Uuid,
         if_match_version: i32,
         content_len: Option<usize>,
-        body: Body,
+        stream: StorageStream,
     ) -> Result<()> {
         if let Some(len) = content_len
             && len < self.backup_config.min_size_bytes
@@ -88,7 +87,7 @@ impl BackupService {
         let key = format!("{}{}/v{}", self.backup_config.prefix, user_id, pending_version);
 
         // Wrap storage put with timeout
-        let put_future = self.storage.put(&key, body, content_len, self.backup_config.max_size_bytes);
+        let put_future = self.storage.put(&key, stream, content_len, self.backup_config.max_size_bytes);
 
         match tokio::time::timeout(std::time::Duration::from_secs(self.backup_config.upload_timeout_secs), put_future)
             .await
@@ -117,8 +116,8 @@ impl BackupService {
     /// Downloads the current backup for the user.
     ///
     /// # Errors
-    /// Returns `AppError::NotFound` if no backup exists.
-    pub async fn download(&self, user_id: Uuid) -> Result<(i32, u64, ByteStream)> {
+    /// Returns `AppError::NotFound` if the backup does not exist or version is 0.
+    pub async fn download(&self, user_id: Uuid) -> Result<(i32, u64, StorageStream)> {
         let mut conn = self.pool.acquire().await.map_err(AppError::Database)?;
         let backup = self.repo.find_by_user_id(&mut conn, user_id).await?;
 
@@ -138,7 +137,7 @@ impl BackupService {
     /// Checks for the existence of a backup.
     ///
     /// # Errors
-    /// Returns `AppError::NotFound` if no backup exists.
+    /// Returns `AppError::NotFound` if the backup does not exist or version is 0.
     pub async fn head(&self, user_id: Uuid) -> Result<(i32, u64)> {
         let mut conn = self.pool.acquire().await.map_err(AppError::Database)?;
         let backup = self.repo.find_by_user_id(&mut conn, user_id).await?;

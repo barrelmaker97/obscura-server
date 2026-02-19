@@ -9,35 +9,26 @@ use axum::{
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
-use tokio_util::io::ReaderStream;
+use futures::StreamExt;
 use uuid::Uuid;
 
 /// Uploads an attachment to storage.
 ///
 /// # Errors
-/// Returns `AppError::BadRequest` if the attachment exceeds the maximum size limit.
-/// Returns `AppError::Internal` if the storage upload fails.
+/// Returns `AppError::Internal` if there is an error during upload.
 pub async fn upload_attachment(
     _auth_user: AuthUser,
     State(state): State<AppState>,
     headers: HeaderMap,
     body: Body,
 ) -> Result<impl IntoResponse> {
-    let content_len = headers.get(header::CONTENT_LENGTH).and_then(|v| match v.to_str() {
-        Ok(s) => match s.parse::<usize>() {
-            Ok(len) => Some(len),
-            Err(e) => {
-                tracing::debug!(error = %e, "Invalid Content-Length value");
-                None
-            }
-        },
-        Err(e) => {
-            tracing::debug!(error = %e, "Invalid Content-Length encoding");
-            None
-        }
-    });
+    let content_len =
+        headers.get(header::CONTENT_LENGTH).and_then(|v| v.to_str().map_or(None, |s| s.parse::<usize>().ok()));
 
-    let (id, expires_at) = state.attachment_service.upload(content_len, body).await?;
+    // Bridge Axum Body -> StorageStream
+    let stream = body.into_data_stream().map(|res| res.map_err(|_e| crate::error::AppError::Internal)).boxed();
+
+    let (id, expires_at) = state.attachment_service.upload(content_len, stream).await?;
 
     Ok((StatusCode::CREATED, Json(AttachmentResponse { id, expires_at })))
 }
@@ -45,32 +36,29 @@ pub async fn upload_attachment(
 /// Downloads an attachment from storage.
 ///
 /// # Errors
-/// Returns `AppError::NotFound` if the attachment does not exist or has expired.
+/// Returns `AppError::NotFound` if the attachment is not found.
+///
+/// # Panics
+/// Panics if the default Content-Type cannot be parsed.
 pub async fn download_attachment(
     _auth_user: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse> {
-    let (content_length, body_stream) = state.attachment_service.download(id).await?;
+    let (content_length, stream) = state.attachment_service.download(id).await?;
 
-    let reader = body_stream.into_async_read();
-    let stream = ReaderStream::new(reader);
+    // Bridge StorageStream -> Axum Body
     let body = Body::from_stream(stream);
-
     let mut response = Response::new(body);
 
-    if let Ok(val) = "application/octet-stream".parse() {
-        response.headers_mut().insert(header::CONTENT_TYPE, val);
-    } else {
-        tracing::debug!("Failed to parse default Content-Type header value");
-    }
+    response
+        .headers_mut()
+        .insert(header::CONTENT_TYPE, "application/octet-stream".parse().expect("Valid Content-Type"));
 
-    if content_length > 0 {
-        if let Ok(val) = content_length.to_string().parse() {
-            response.headers_mut().insert(header::CONTENT_LENGTH, val);
-        } else {
-            tracing::debug!(content_length = %content_length, "Failed to parse Content-Length header value");
-        }
+    if content_length > 0
+        && let Ok(val) = content_length.to_string().parse()
+    {
+        response.headers_mut().insert(header::CONTENT_LENGTH, val);
     }
 
     Ok(response)

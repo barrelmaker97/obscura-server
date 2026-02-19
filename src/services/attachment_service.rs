@@ -1,10 +1,8 @@
 use crate::adapters::database::DbPool;
 use crate::adapters::database::attachment_repo::AttachmentRepository;
-use crate::adapters::storage::ObjectStorage;
+use crate::adapters::storage::{ObjectStorage, StorageStream};
 use crate::config::AttachmentConfig;
 use crate::error::{AppError, Result};
-use aws_sdk_s3::primitives::ByteStream;
-use axum::body::Body;
 use opentelemetry::{
     global,
     metrics::{Counter, Histogram},
@@ -67,17 +65,13 @@ impl AttachmentService {
         Self { pool, repo, storage, attachment_config, ttl_days, metrics: Metrics::new() }
     }
 
-    /// Uploads an attachment to S3 and records it in the database.
-    ///
-    /// # Errors
-    /// Returns `AppError::BadRequest` if the attachment exceeds the size limit.
-    /// Returns `AppError::Internal` if S3 or the database fails.
+    /// Uploads an attachment to storage.
     #[tracing::instrument(
         err(level = "warn"),
-        skip(self, body),
+        skip(self, stream),
         fields(attachment_id = tracing::field::Empty, attachment_size = tracing::field::Empty)
     )]
-    pub(crate) async fn upload(&self, content_len: Option<usize>, body: Body) -> Result<(Uuid, i64)> {
+    pub(crate) async fn upload(&self, content_len: Option<usize>, stream: StorageStream) -> Result<(Uuid, i64)> {
         if let Some(len) = content_len {
             tracing::Span::current().record("attachment_size", len);
             if len > self.attachment_config.max_size_bytes {
@@ -86,11 +80,10 @@ impl AttachmentService {
         }
 
         let id = Uuid::new_v4();
-        // Use the configured prefix
         let key = format!("{}{}", self.attachment_config.prefix, id);
         tracing::Span::current().record("attachment_id", tracing::field::display(id));
 
-        self.storage.put(&key, body, content_len, self.attachment_config.max_size_bytes).await?;
+        self.storage.put(&key, stream, content_len, self.attachment_config.max_size_bytes).await?;
 
         let expires_at = OffsetDateTime::now_utc() + Duration::days(self.ttl_days);
         let mut conn = self.pool.acquire().await?;
@@ -106,16 +99,13 @@ impl AttachmentService {
         Ok((id, expires_at.unix_timestamp()))
     }
 
-    /// Downloads an attachment from S3.
-    ///
-    /// # Errors
-    /// Returns `AppError::NotFound` if the attachment does not exist or has expired.
+    /// Downloads an attachment from storage.
     #[tracing::instrument(
         err(level = "warn"),
         skip(self),
         fields(attachment_id = %id, attachment_size = tracing::field::Empty)
     )]
-    pub(crate) async fn download(&self, id: Uuid) -> Result<(u64, ByteStream)> {
+    pub(crate) async fn download(&self, id: Uuid) -> Result<(u64, StorageStream)> {
         // 1. Check Existence & Expiry using Domain Logic
         let mut conn = self.pool.acquire().await?;
         match self.repo.find_by_id(&mut conn, id).await? {
@@ -129,11 +119,11 @@ impl AttachmentService {
 
         // 2. Stream from Storage
         let key = format!("{}{}", self.attachment_config.prefix, id);
-        let (content_length, body) = self.storage.get(&key).await?;
+        let (content_length, stream) = self.storage.get(&key).await?;
 
         tracing::Span::current().record("attachment_size", content_length);
 
         tracing::debug!("Attachment download successful");
-        Ok((content_length, body))
+        Ok((content_length, stream))
     }
 }
