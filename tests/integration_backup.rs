@@ -7,6 +7,7 @@ mod common;
 async fn test_backup_lifecycle() {
     let mut config = common::get_test_config();
     config.storage.bucket = format!("test-backup-{}", &Uuid::new_v4().to_string()[..8]);
+    config.storage.backup_min_size_bytes = 0;
     
     let app = common::TestApp::spawn_with_config(config.clone()).await;
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
@@ -110,9 +111,38 @@ async fn test_backup_lifecycle() {
 }
 
 #[tokio::test]
+async fn test_backup_min_size() {
+    let mut config = common::get_test_config();
+    config.storage.bucket = format!("test-backup-min-{}", &Uuid::new_v4().to_string()[..8]);
+    config.storage.backup_min_size_bytes = 10;
+    
+    let app = common::TestApp::spawn_with_config(config.clone()).await;
+    common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
+
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user = app.register_user(&format!("backup_min_{}", run_id)).await;
+
+    // Upload too small
+    let content = b"TooSmall"; // 8 bytes
+    let resp = app
+        .client
+        .post(format!("{}/v1/backup", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("If-Match", "0")
+        .header("Content-Length", content.len().to_string())
+        .body(content.to_vec())
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn test_backup_concurrent_conflict() {
     let mut config = common::get_test_config();
     config.storage.bucket = format!("test-backup-conflict-{}", &Uuid::new_v4().to_string()[..8]);
+    config.storage.backup_min_size_bytes = 0;
     let app = common::TestApp::spawn_with_config(config).await;
     common::ensure_storage_bucket(&app.s3_client, &app.config.storage.bucket).await;
     
