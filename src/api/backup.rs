@@ -26,19 +26,15 @@ pub async fn upload_backup(
         .ok_or(AppError::BadRequest("Missing If-Match header".into()))?
         .to_str()
         .map_err(|_| AppError::BadRequest("Invalid If-Match header".into()))?;
-        
+
     let if_match_str = if_match_header.trim_matches('"');
-    let if_match_version = if_match_str.parse::<i32>()
-        .map_err(|_| AppError::BadRequest("Invalid version in If-Match header".into()))?;
+    let if_match_version =
+        if_match_str.parse::<i32>().map_err(|_| AppError::BadRequest("Invalid version in If-Match header".into()))?;
 
-    let content_len = headers.get(header::CONTENT_LENGTH).and_then(|v| {
-        v.to_str().ok().and_then(|s| s.parse::<usize>().ok())
-    });
+    let content_len =
+        headers.get(header::CONTENT_LENGTH).and_then(|v| v.to_str().ok().and_then(|s| s.parse::<usize>().ok()));
 
-    state
-        .backup_service
-        .handle_upload(auth_user.user_id, if_match_version, content_len, body)
-        .await?;
+    state.backup_service.handle_upload(auth_user.user_id, if_match_version, content_len, body).await?;
 
     Ok(StatusCode::OK)
 }
@@ -48,31 +44,23 @@ pub async fn upload_backup(
 /// # Errors
 /// Returns `AppError::NotFound` if no backup exists.
 /// Returns `AppError::Internal` if response headers cannot be constructed.
-pub async fn download_backup(
-    auth_user: AuthUser,
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse> {
+pub async fn download_backup(auth_user: AuthUser, State(state): State<AppState>) -> Result<impl IntoResponse> {
     let (version, len, stream) = state.backup_service.download(auth_user.user_id).await?;
-    
+
     let reader = stream.into_async_read();
     let stream = ReaderStream::new(reader);
     let body = Body::from_stream(stream);
-    
+
     let mut response = Response::new(body);
-    response.headers_mut().insert(
-        header::CONTENT_TYPE, 
-        HeaderValue::from_static("application/octet-stream")
-    );
-    response.headers_mut().insert(
-        header::CONTENT_LENGTH, 
-        HeaderValue::from_str(&len.to_string()).map_err(|_| AppError::Internal)?
-    );
+    response.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"));
+    response
+        .headers_mut()
+        .insert(header::CONTENT_LENGTH, HeaderValue::from_str(&len.to_string()).map_err(|_| AppError::Internal)?);
     // Return ETag quoted
-    response.headers_mut().insert(
-        header::ETAG, 
-        HeaderValue::from_str(&format!("\"{version}\"")).map_err(|_| AppError::Internal)?
-    );
-    
+    response
+        .headers_mut()
+        .insert(header::ETAG, HeaderValue::from_str(&format!("\"{version}\"")).map_err(|_| AppError::Internal)?);
+
     Ok(response)
 }
 
@@ -81,25 +69,17 @@ pub async fn download_backup(
 /// # Errors
 /// Returns `AppError::NotFound` if no backup exists.
 /// Returns `AppError::Internal` if response headers cannot be constructed.
-pub async fn head_backup(
-    auth_user: AuthUser,
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse> {
+pub async fn head_backup(auth_user: AuthUser, State(state): State<AppState>) -> Result<impl IntoResponse> {
     let (version, len) = state.backup_service.head(auth_user.user_id).await?;
-    
+
     let mut response = Response::new(Body::empty());
-    response.headers_mut().insert(
-        header::CONTENT_TYPE, 
-        HeaderValue::from_static("application/octet-stream")
-    );
-    response.headers_mut().insert(
-        header::CONTENT_LENGTH, 
-        HeaderValue::from_str(&len.to_string()).map_err(|_| AppError::Internal)?
-    );
-    response.headers_mut().insert(
-        header::ETAG, 
-        HeaderValue::from_str(&format!("\"{version}\"")).map_err(|_| AppError::Internal)?
-    );
-    
+    response.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"));
+    response
+        .headers_mut()
+        .insert(header::CONTENT_LENGTH, HeaderValue::from_str(&len.to_string()).map_err(|_| AppError::Internal)?);
+    response
+        .headers_mut()
+        .insert(header::ETAG, HeaderValue::from_str(&format!("\"{version}\"")).map_err(|_| AppError::Internal)?);
+
     Ok(response)
 }

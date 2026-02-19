@@ -19,13 +19,11 @@ impl BackupRepository {
     /// # Errors
     /// Returns `sqlx::Error` if the query fails.
     pub async fn find_by_user_id(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Option<Backup>> {
-        let record = sqlx::query_as::<_, BackupRecord>(
-            "SELECT * FROM backups WHERE user_id = $1"
-        )
-        .bind(user_id)
-        .fetch_optional(conn)
-        .await?;
-        
+        let record = sqlx::query_as::<_, BackupRecord>("SELECT * FROM backups WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_optional(conn)
+            .await?;
+
         Ok(record.map(Into::into))
     }
 
@@ -40,7 +38,7 @@ impl BackupRepository {
             VALUES ($1)
             ON CONFLICT (user_id) DO UPDATE SET user_id = EXCLUDED.user_id
             RETURNING *
-            "#
+            "#,
         )
         .bind(user_id)
         .fetch_one(conn)
@@ -55,10 +53,10 @@ impl BackupRepository {
     /// # Errors
     /// Returns `sqlx::Error` if the query fails.
     pub async fn reserve_slot(
-        &self, 
-        conn: &mut PgConnection, 
-        user_id: Uuid, 
-        expected_version: i32
+        &self,
+        conn: &mut PgConnection,
+        user_id: Uuid,
+        expected_version: i32,
     ) -> Result<Option<Backup>> {
         let record = sqlx::query_as::<_, BackupRecord>(
             r#"
@@ -69,7 +67,7 @@ impl BackupRepository {
                 pending_at = NOW()
             WHERE user_id = $1 AND current_version = $2 AND state = 'ACTIVE'
             RETURNING *
-            "#
+            "#,
         )
         .bind(user_id)
         .bind(expected_version)
@@ -78,17 +76,13 @@ impl BackupRepository {
 
         Ok(record.map(Into::into))
     }
-    
+
     /// Reserves a slot without checking version (force update).
     ///
     /// # Errors
     /// Returns `sqlx::Error` if the query fails.
-    pub async fn reserve_slot_force(
-        &self,
-        conn: &mut PgConnection,
-        user_id: Uuid
-    ) -> Result<Backup> {
-         let record = sqlx::query_as::<_, BackupRecord>(
+    pub async fn reserve_slot_force(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Backup> {
+        let record = sqlx::query_as::<_, BackupRecord>(
             r#"
             UPDATE backups
             SET 
@@ -97,7 +91,7 @@ impl BackupRepository {
                 pending_at = NOW()
             WHERE user_id = $1
             RETURNING *
-            "#
+            "#,
         )
         .bind(user_id)
         .fetch_one(conn)
@@ -109,12 +103,7 @@ impl BackupRepository {
     ///
     /// # Errors
     /// Returns `sqlx::Error` if the query fails.
-    pub async fn commit_version(
-        &self,
-        conn: &mut PgConnection,
-        user_id: Uuid,
-        pending_version: i32
-    ) -> Result<()> {
+    pub async fn commit_version(&self, conn: &mut PgConnection, user_id: Uuid, pending_version: i32) -> Result<()> {
         sqlx::query(
             r#"
             UPDATE backups
@@ -125,7 +114,7 @@ impl BackupRepository {
                 updated_at = NOW(),
                 pending_at = NULL
             WHERE user_id = $1 AND pending_version = $2 AND state = 'UPLOADING'
-            "#
+            "#,
         )
         .bind(user_id)
         .bind(pending_version)
@@ -133,39 +122,35 @@ impl BackupRepository {
         .await?;
         Ok(())
     }
-    
+
     /// Fetches stale uploads for cleanup.
     ///
     /// # Errors
     /// Returns `sqlx::Error` if the query fails.
     pub async fn fetch_stale_uploads(
-        &self, 
-        conn: &mut PgConnection, 
-        threshold: OffsetDateTime, 
-        limit: i64
+        &self,
+        conn: &mut PgConnection,
+        threshold: OffsetDateTime,
+        limit: i64,
     ) -> Result<Vec<Backup>> {
         let records = sqlx::query_as::<_, BackupRecord>(
-            "SELECT * FROM backups WHERE state = 'UPLOADING' AND pending_at < $1 LIMIT $2"
+            "SELECT * FROM backups WHERE state = 'UPLOADING' AND pending_at < $1 LIMIT $2",
         )
         .bind(threshold)
         .bind(limit)
         .fetch_all(conn)
         .await?;
-        
+
         Ok(records.into_iter().map(Into::into).collect())
     }
-    
+
     /// Resets a stale upload to ACTIVE state.
     ///
     /// # Errors
     /// Returns `sqlx::Error` if the query fails.
-    pub async fn reset_stale(
-        &self,
-        conn: &mut PgConnection,
-        user_id: Uuid
-    ) -> Result<()> {
-         sqlx::query(
-            "UPDATE backups SET state = 'ACTIVE', pending_version = NULL, pending_at = NULL WHERE user_id = $1"
+    pub async fn reset_stale(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<()> {
+        sqlx::query(
+            "UPDATE backups SET state = 'ACTIVE', pending_version = NULL, pending_at = NULL WHERE user_id = $1",
         )
         .bind(user_id)
         .execute(conn)

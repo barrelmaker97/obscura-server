@@ -211,7 +211,8 @@ impl AppBuilder {
             Arc::new(adapters::redis::NotificationRepository::new(Arc::clone(&pubsub), &config.notifications));
 
         // Initialize Storage Adapter
-        let s3_storage: Arc<dyn adapters::storage::ObjectStorage> = Arc::new(S3Storage::new(s3_client.clone(), config.storage.bucket.clone()));
+        let s3_storage: Arc<dyn adapters::storage::ObjectStorage> =
+            Arc::new(S3Storage::new(s3_client.clone(), config.storage.bucket.clone()));
 
         // Initialize Core Services
         let crypto_service = CryptoService::new();
@@ -247,12 +248,8 @@ impl AppBuilder {
             config.storage.clone(),
             config.ttl_days,
         );
-        let backup_service = BackupService::new(
-            pool.clone(),
-            backup_repo.clone(),
-            Arc::clone(&s3_storage),
-            config.storage.clone(),
-        );
+        let backup_service =
+            BackupService::new(pool.clone(), backup_repo.clone(), Arc::clone(&s3_storage), config.storage.clone());
         let rate_limit_service = RateLimitService::new(config.server.trusted_proxies.clone());
         let health_service = HealthService::new(
             pool.clone(),

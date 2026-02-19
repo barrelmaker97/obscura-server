@@ -8,7 +8,7 @@ async fn test_backup_lifecycle() {
     let mut config = common::get_test_config();
     config.storage.bucket = format!("test-backup-{}", &Uuid::new_v4().to_string()[..8]);
     config.storage.backup_min_size_bytes = 0;
-    
+
     let app = common::TestApp::spawn_with_config(config.clone()).await;
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
@@ -38,7 +38,7 @@ async fn test_backup_lifecycle() {
         .unwrap();
 
     assert_eq!(resp_up.status(), StatusCode::OK);
-    
+
     // 3. Download
     let resp_down = app
         .client
@@ -50,9 +50,9 @@ async fn test_backup_lifecycle() {
 
     assert_eq!(resp_down.status(), StatusCode::OK);
     let etag = resp_down.headers().get("ETag").unwrap().to_str().unwrap().to_string();
-    assert_eq!(etag, "\"1\""); 
+    assert_eq!(etag, "\"1\"");
     assert_eq!(resp_down.bytes().await.unwrap(), content.to_vec());
-    
+
     // 4. Upload (Update, If-Match: 1)
     let content_v2 = b"Backup Data v2";
     let resp_up_v2 = app
@@ -64,9 +64,9 @@ async fn test_backup_lifecycle() {
         .send()
         .await
         .unwrap();
-        
+
     assert_eq!(resp_up_v2.status(), StatusCode::OK);
-    
+
     // 5. Download v2
     let resp_down_v2 = app
         .client
@@ -75,7 +75,7 @@ async fn test_backup_lifecycle() {
         .send()
         .await
         .unwrap();
-        
+
     assert_eq!(resp_down_v2.status(), StatusCode::OK);
     let etag_v2 = resp_down_v2.headers().get("ETag").unwrap().to_str().unwrap().to_string();
     assert_eq!(etag_v2, "\"2\"");
@@ -91,9 +91,9 @@ async fn test_backup_lifecycle() {
         .send()
         .await
         .unwrap();
-        
+
     assert_eq!(resp_conflict.status(), StatusCode::PRECONDITION_FAILED);
-    
+
     // 7. Head
     let resp_head = app
         .client
@@ -102,7 +102,7 @@ async fn test_backup_lifecycle() {
         .send()
         .await
         .unwrap();
-        
+
     assert_eq!(resp_head.status(), StatusCode::OK);
     let etag_head = resp_head.headers().get("ETag").unwrap().to_str().unwrap();
     assert_eq!(etag_head, "\"2\"");
@@ -115,7 +115,7 @@ async fn test_backup_min_size() {
     let mut config = common::get_test_config();
     config.storage.bucket = format!("test-backup-min-{}", &Uuid::new_v4().to_string()[..8]);
     config.storage.backup_min_size_bytes = 10;
-    
+
     let app = common::TestApp::spawn_with_config(config.clone()).await;
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
@@ -145,10 +145,10 @@ async fn test_backup_concurrent_conflict() {
     config.storage.backup_min_size_bytes = 0;
     let app = common::TestApp::spawn_with_config(config).await;
     common::ensure_storage_bucket(&app.s3_client, &app.config.storage.bucket).await;
-    
+
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
     let user = app.register_user(&format!("backup_con_{}", run_id)).await;
-    
+
     // Manually insert a "stale" UPLOADING record
     let user_id = user.user_id;
     sqlx::query("INSERT INTO backups (user_id, current_version, pending_version, state, pending_at) VALUES ($1, 0, 1, 'UPLOADING', NOW() - INTERVAL '1 hour')")
@@ -156,7 +156,7 @@ async fn test_backup_concurrent_conflict() {
         .execute(&app.pool)
         .await
         .unwrap();
-        
+
     // Attempt upload (should succeed by taking over stale)
     let resp_takeover = app
         .client
@@ -167,9 +167,9 @@ async fn test_backup_concurrent_conflict() {
         .send()
         .await
         .unwrap();
-        
+
     assert_eq!(resp_takeover.status(), StatusCode::OK);
-    
+
     // Verify current version is 1
     let row: (i32,) = sqlx::query_as("SELECT current_version FROM backups WHERE user_id = $1")
         .bind(user_id)
@@ -177,14 +177,14 @@ async fn test_backup_concurrent_conflict() {
         .await
         .unwrap();
     assert_eq!(row.0, 1);
-    
+
     // Manually insert a "fresh" UPLOADING record (simulate concurrent upload)
     sqlx::query("UPDATE backups SET state = 'UPLOADING', pending_version = 2, pending_at = NOW() WHERE user_id = $1")
         .bind(user_id)
         .execute(&app.pool)
         .await
         .unwrap();
-        
+
     // Attempt upload (should conflict)
     let resp_conflict = app
         .client
@@ -195,6 +195,6 @@ async fn test_backup_concurrent_conflict() {
         .send()
         .await
         .unwrap();
-        
+
     assert_eq!(resp_conflict.status(), StatusCode::CONFLICT);
 }

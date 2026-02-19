@@ -47,12 +47,7 @@ impl std::fmt::Debug for BackupCleanupWorker {
 
 impl BackupCleanupWorker {
     #[must_use]
-    pub fn new(
-        pool: DbPool,
-        repo: BackupRepository,
-        storage: Arc<dyn ObjectStorage>,
-        config: StorageConfig,
-    ) -> Self {
+    pub fn new(pool: DbPool, repo: BackupRepository, storage: Arc<dyn ObjectStorage>, config: StorageConfig) -> Self {
         Self { pool, repo, storage, config, metrics: Metrics::new() }
     }
 
@@ -89,36 +84,36 @@ impl BackupCleanupWorker {
     async fn cleanup_stale(&self) -> Result<u64> {
         let mut total_cleaned = 0;
         let threshold = OffsetDateTime::now_utc() - Duration::minutes(self.config.backup_stale_threshold_mins);
-        
+
         loop {
             let mut conn = self.pool.acquire().await.map_err(AppError::Database)?;
             let stale_backups = self.repo.fetch_stale_uploads(&mut conn, threshold, 50).await?;
-            
+
             if stale_backups.is_empty() {
                 break;
             }
-            
+
             for backup in stale_backups {
-                 let user_id = backup.user_id;
-                 let pending_version = backup.pending_version.unwrap_or(0); 
-                 
-                 if pending_version > 0 {
-                     let key = format!("{}{}/v{}", self.config.backup_prefix, user_id, pending_version);
-                     
-                     // Delete from storage
-                     if let Err(e) = self.storage.delete(&key).await {
-                         tracing::warn!(error = ?e, key = %key, "Failed to delete stale backup from storage");
-                     }
-                 }
-                 
-                 if let Err(e) = self.repo.reset_stale(&mut conn, user_id).await {
-                     tracing::error!(error = ?e, user_id = %user_id, "Failed to reset stale backup in DB");
-                 } else {
-                     total_cleaned += 1;
-                 }
+                let user_id = backup.user_id;
+                let pending_version = backup.pending_version.unwrap_or(0);
+
+                if pending_version > 0 {
+                    let key = format!("{}{}/v{}", self.config.backup_prefix, user_id, pending_version);
+
+                    // Delete from storage
+                    if let Err(e) = self.storage.delete(&key).await {
+                        tracing::warn!(error = ?e, key = %key, "Failed to delete stale backup from storage");
+                    }
+                }
+
+                if let Err(e) = self.repo.reset_stale(&mut conn, user_id).await {
+                    tracing::error!(error = ?e, user_id = %user_id, "Failed to reset stale backup in DB");
+                } else {
+                    total_cleaned += 1;
+                }
             }
         }
-        
+
         Ok(total_cleaned)
     }
 }

@@ -90,9 +90,7 @@ impl AttachmentService {
         let key = format!("{}{}", self.config.attachment_prefix, id);
         tracing::Span::current().record("attachment_id", tracing::field::display(id));
 
-        self.storage
-            .put(&key, body, content_len, self.config.attachment_max_size_bytes)
-            .await?;
+        self.storage.put(&key, body, content_len, self.config.attachment_max_size_bytes).await?;
 
         let expires_at = OffsetDateTime::now_utc() + Duration::days(self.ttl_days);
         let mut conn = self.pool.acquire().await?;

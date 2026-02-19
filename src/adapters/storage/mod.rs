@@ -32,7 +32,8 @@ impl S3Storage {
     }
 }
 
-type SyncBodyReceiver = mpsc::Receiver<std::result::Result<axum::body::Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>;
+type SyncBodyReceiver =
+    mpsc::Receiver<std::result::Result<axum::body::Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>;
 
 // Wrapper to satisfy S3 SDK's Sync requirement for Body
 struct SyncBody {
