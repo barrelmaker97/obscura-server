@@ -141,22 +141,18 @@ async fn test_push_worker_removes_job_when_user_has_no_token() {
 
     let worker_handle = tokio::spawn(worker.run(shutdown_rx));
 
-    // 4. Wait for worker to process.
-    // T=0: Job visible. Worker picks it up. Leases for 2s.
-    // T=2: Job becomes visible again if not deleted.
-    // T=3: Worker would pick it up again if we let it, but we just want to check existence.
-    // Let's wait 4s to be sure it has reappeared (if not deleted).
-    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+    // 4. Wait for worker to process at least one cycle.
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
-    // 5. Check if job is gone from Redis
-    // If we can lease it, it's still there.
-    let leased = notification_repo.lease_due_jobs(10, 0).await.unwrap();
-
-    // Cleanup
+    // 5. Shutdown the worker and AWAIT its completion.
+    // This ensures no leases are currently active and the worker has finished its final cycle.
     let _ = shutdown_tx.send(true);
     let _ = worker_handle.await;
 
-    // If existing code is buggy, leased will NOT be empty (it will contain the job).
-    // If fixed, leased will be empty.
-    assert!(leased.is_empty(), "Job should have been removed because user has no token, but it was still present/reappeared: {:?}", leased);
+    // 6. Check if job is gone from Redis.
+    // Since the worker is stopped, it cannot have the job currently leased.
+    // If it's still in Redis, it will be returned by lease_due_jobs.
+    let leased = notification_repo.lease_due_jobs(10, 0).await.unwrap();
+
+    assert!(leased.is_empty(), "Job should have been removed because user has no token, but it was still present: {:?}", leased);
 }
