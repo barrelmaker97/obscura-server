@@ -16,14 +16,6 @@
 
 ---
 
-## Architecture
-
-Obscura acts as a passive relay between Signal Protocol clients. It manages the discovery of cryptographic material and the queuing of encrypted blobs.
-
-See [**docs/ARCHITECTURE.md**](./docs/ARCHITECTURE.md) for a detailed look at how the system works.
-
----
-
 ## Security & Privacy
 
 ### Threat Model
@@ -110,6 +102,7 @@ cargo test
 - **API Reference**: [openapi.yaml](./openapi.yaml)
 - **Configuration Guide**: [docs/CONFIGURATION.md](./docs/CONFIGURATION.md)
 - **Release Process**: [docs/RELEASING.md](./docs/RELEASING.md)
+- **System Architecture**: [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
 - **Design Docs**: [docs/design/](./docs/design/)
 
 # License
