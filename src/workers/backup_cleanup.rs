@@ -86,7 +86,11 @@ impl BackupCleanupWorker {
         tracing::info!("Backup janitor shutting down...");
     }
 
-    async fn cleanup_stale(&self) -> Result<u64> {
+    /// Cleans up stale "UPLOADING" backup records.
+    ///
+    /// # Errors
+    /// Returns an error if the database or storage operations fail.
+    pub async fn cleanup_stale(&self) -> Result<u64> {
         let mut total_cleaned = 0;
         let threshold = OffsetDateTime::now_utc() - Duration::minutes(self.backup_config.stale_threshold_mins);
 
