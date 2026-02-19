@@ -50,11 +50,10 @@ impl BackupService {
         content_len: Option<usize>,
         body: Body
     ) -> Result<()> {
-        if let Some(len) = content_len {
-            if len < self.config.backup_min_size_bytes {
+        if let Some(len) = content_len
+            && len < self.config.backup_min_size_bytes {
                 return Err(AppError::BadRequest("Backup too small".into()));
             }
-        }
 
         let mut conn = self.pool.acquire().await.map_err(AppError::Database)?;
         
