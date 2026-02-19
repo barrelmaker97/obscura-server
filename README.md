@@ -112,6 +112,8 @@ Command-line options take precedence over environment variables.
 | `--ws-ack-buffer-size` | WS ACK channel capacity | `OBSCURA_WS_ACK_BUFFER_SIZE` | `1000` |
 | `--ws-ack-batch-size` | WS ACK DB batch size | `OBSCURA_WS_ACK_BATCH_SIZE` | `100` |
 | `--ws-ack-flush-interval-ms` | WS ACK DB flush interval | `OBSCURA_WS_ACK_FLUSH_INTERVAL_MS` | `500` |
+| `--ws-ping-interval-secs` | How often to send a WebSocket ping frame in seconds (0 to disable) | `OBSCURA_WS_PING_INTERVAL_SECS` | `30` |
+| `--ws-ping-timeout-secs` | How long to wait for a pong response before closing the connection in seconds | `OBSCURA_WS_PING_TIMEOUT_SECS` | `10` |
 
 ### Storage Configuration (Attachments)
 

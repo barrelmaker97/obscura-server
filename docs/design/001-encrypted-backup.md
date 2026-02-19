@@ -29,30 +29,59 @@ The backup payload (inside the encryption) should contain:
 
 ## 4. Server Architecture
 
-### 4.1 Storage Limits & Concurrency
+### 4.1 Hybrid Storage Model
+To ensure transactional integrity while allowing for future scalability (e.g., message history), we use a hybrid approach:
+- **PostgreSQL**: Stores metadata and handles optimistic locking.
+- **S3**: Stores the opaque encrypted binary blob.
+
+### 4.2 Storage Limits & Concurrency
 To prevent abuse and manage costs:
--   **One-Slot Rule**: Each `user_id` is allowed exactly **one** backup row.
--   **Concurrency**: Use Optimistic Locking.
-    -   The table tracks a `version` (int) or hash.
-    -   Client must provide `If-Match` header when updating.
+-   **One-Slot Rule**: Each `user_id` is allowed exactly **one** backup. S3 objects are keyed by `backups/{user_id}` and overwritten on update.
+-   **Concurrency**: Use Optimistic Locking in Postgres.
+    -   The `backups` table tracks a `version` (int).
+    -   Client must provide `If-Match: <version>` header when updating.
+    -   **Workflow**: 
+        1. Fetch version from DB (SELECT FOR UPDATE).
+        2. Stream blob to S3.
+        3. Update version and metadata in DB.
     -   If version mismatch, server returns `409 Conflict`. Client must fetch, merge, and retry.
 
-### 4.2 API Endpoints
+### 4.3 API Endpoints
 
 #### `POST /v1/backup`
 -   **Auth**: Required (Bearer Token).
 -   **Headers**: `If-Match: <version>` (Optional for first upload).
 -   **Body**: Binary blob.
-    -   *Max Size*: 2MB (Strictly enforced).
-        -   *Note*: While Protobuf is compact, a large contact list (>5000 entries) combined with metadata could exceed 1MB. 2MB provides a safety margin while preventing storage abuse.
+    -   *Max Size*: 2MB (Strictly enforced initially).
+        -   *Scalability Note*: The S3 backend allows us to easily increase this limit (e.g., to 100MB) in the future to support encrypted message history backups without impacting database performance.
     -   *Min Size*: 32 bytes (Prevent accidental zero-byte wipes).
--   **Action**: Upsert blob into `backups` table, increment version.
+-   **Action**: Validate version, stream blob to S3, increment version in DB.
 
 #### `GET /v1/backup`
 -   **Auth**: Required.
--   **Response**: The binary blob + `ETag` header (version).
+-   **Response**: The binary blob (streamed from S3) + `ETag` header (version).
+
+### 4.4 Risks & Mitigations
+
+| Risk | Impact | Mitigation |
+| :--- | :--- | :--- |
+| **Connection Pool Starvation** | Slow client uploads hold DB transactions open, blocking the entire API. | Use aggressive timeouts (e.g., 30s) for S3 streaming. For future large backups (>10MB), move to direct S3 uploads via Presigned URLs. |
+| **Out-of-Sync State** | S3 upload succeeds but DB update fails (Ghost Data). | Use atomic SQL updates. The client is the source of truth; they will retry with their known version, eventually reconciling the state. Enable S3 Bucket Versioning for recovery. |
+| **Orphaned S3 Objects** | Account deletion or failed initial uploads leave opaque blobs in S3. | Implement a "Janitor" cleanup task or use S3 Lifecycle policies to prune objects not referenced in the `backups` table. |
+| **Conflict Bandwidth Waste** | A client might finish a large upload only to receive a `409 Conflict`. | Acceptable tradeoff for server-side simplicity. Clients should "Fetch-before-Upload" to minimize this window. |
 
 ## 5. Implementation Tasks
-- [ ] Create `backups` table (`user_id` PK, `blob` BYTEA, `updated_at` TIMESTAMP).
-- [ ] Implement API endpoints.
-- [ ] Write integration tests verifying overwrite behavior.
+- [ ] Create `backups` table (`user_id` PK, `version` INT, `updated_at` TIMESTAMP).
+- [ ] Implement `BackupRepository` (Postgres) with `SELECT FOR UPDATE` logic.
+- [ ] Implement `BackupService` with:
+    - [ ] S3 streaming integration.
+    - [ ] Aggressive IO timeouts.
+    - [ ] Atomic version incrementing.
+- [ ] Implement API endpoints:
+    - [ ] `GET /v1/backup` (with `ETag` support).
+    - [ ] `POST /v1/backup` (with `If-Match` validation).
+- [ ] Write integration tests for:
+    - [ ] Conflict handling (`409 Conflict`).
+    - [ ] Partial failure recovery.
+    - [ ] Size limit enforcement.
+- [ ] (Future) Add "Backup Janitor" to prune orphaned S3 objects.
