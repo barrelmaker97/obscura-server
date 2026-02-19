@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Semaphore, mpsc};
 use tracing::Instrument;
+use uuid::Uuid;
 
 #[derive(Clone, Debug)]
 struct Metrics {
@@ -170,7 +171,17 @@ impl PushNotificationWorker {
             self.token_repo.find_tokens_for_users(&mut conn, &user_ids).await?
         };
 
-        // 2. Dispatch concurrently, bounded by the semaphore
+        let users_with_tokens: std::collections::HashSet<Uuid> = user_token_pairs.iter().map(|(id, _)| *id).collect();
+
+        // 2. Identify and remove jobs for users who have no token
+        for user_id in &user_ids {
+            if !users_with_tokens.contains(user_id) {
+                tracing::info!(%user_id, "User has no registered push token, removing job");
+                let _ = self.repo.delete_job(*user_id).await;
+            }
+        }
+
+        // 3. Dispatch concurrently, bounded by the semaphore
         for (user_id, token) in user_token_pairs {
             let provider = Arc::clone(&self.provider);
             let repo = Arc::clone(&self.repo);

@@ -70,6 +70,12 @@ impl Session {
 
         message_pump.notify();
 
+        let mut last_seen = tokio::time::Instant::now();
+        let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(config.ping_interval_secs.max(1)));
+        // First tick happens immediately, we skip it to start probing after the first interval.
+        ping_interval.tick().await;
+        ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
         loop {
             // Priority is given to shutdown and high-frequency events to ensure
             // the server remains responsive to control signals.
@@ -89,61 +95,85 @@ impl Session {
 
                 _ = shutdown_rx.changed() => {}
 
+                _ = ping_interval.tick() => {
+                    let now = tokio::time::Instant::now();
+                    let timeout = std::time::Duration::from_secs(config.ping_interval_secs + config.ping_timeout_secs);
+
+                    if now.duration_since(last_seen) > timeout {
+                        tracing::warn!(
+                            last_seen_secs = %now.duration_since(last_seen).as_secs(),
+                            "WebSocket connection timed out (no pong/activity), closing"
+                        );
+                        break;
+                    }
+
+                    if ws_sink.send(WsMessage::Ping(Vec::new().into())).await.is_err() {
+                        break;
+                    }
+                }
+
                 msg = ws_stream.next() => {
                     let continue_loop = match msg {
-                        Some(Ok(WsMessage::Binary(bin))) => {
-                            if let Ok(frame) = WebSocketFrame::decode(bin.as_ref()) {
-                                if let Some(Payload::Ack(ack)) = frame.payload {
-                                    let mut uuids = Vec::new();
+                        Some(Ok(msg)) => {
+                            last_seen = tokio::time::Instant::now();
+                            match msg {
+                                WsMessage::Binary(bin) => {
+                                    if let Ok(frame) = WebSocketFrame::decode(bin.as_ref()) {
+                                        if let Some(Payload::Ack(ack)) = frame.payload {
+                                            let mut uuids = Vec::new();
 
-                                    // Support legacy single ID
-                                    if !ack.message_id.is_empty() {
-                                        if let Ok(id) = Uuid::parse_str(&ack.message_id) {
-                                            uuids.push(id);
-                                            metrics.acks_received_single_total.add(1, &[]);
+                                            // Support legacy single ID
+                                            if !ack.message_id.is_empty() {
+                                                if let Ok(id) = Uuid::parse_str(&ack.message_id) {
+                                                    uuids.push(id);
+                                                    metrics.acks_received_single_total.add(1, &[]);
+                                                } else {
+                                                    tracing::warn!("Received ACK with invalid UUID: {}", ack.message_id);
+                                                }
+                                            }
+
+                                            // Support bulk IDs
+                                            if !ack.message_ids.is_empty() {
+                                                metrics.acks_received_bulk_total.add(1, &[]);
+                                            }
+                                            for id_str in ack.message_ids {
+                                                if let Ok(id) = Uuid::parse_str(&id_str) {
+                                                    uuids.push(id);
+                                                } else {
+                                                    tracing::warn!("Received ACK with invalid UUID in list: {}", id_str);
+                                                }
+                                            }
+
+                                            if !uuids.is_empty() {
+                                                // Immediately cancel push notifications to avoid "phantom buzzes"
+                                                notifier.cancel_pending_notifications(user_id).await;
+                                                ack_batcher.push(uuids);
+                                            }
                                         } else {
-                                            tracing::warn!("Received ACK with invalid UUID: {}", ack.message_id);
+                                            tracing::warn!("Received unexpected Protobuf payload type");
                                         }
+                                    } else {
+                                        tracing::warn!("Failed to decode WebSocket frame");
                                     }
-
-                                    // Support bulk IDs
-                                    if !ack.message_ids.is_empty() {
-                                        metrics.acks_received_bulk_total.add(1, &[]);
-                                    }
-                                    for id_str in ack.message_ids {
-                                        if let Ok(id) = Uuid::parse_str(&id_str) {
-                                            uuids.push(id);
-                                        } else {
-                                            tracing::warn!("Received ACK with invalid UUID in list: {}", id_str);
-                                        }
-                                    }
-
-                                    if !uuids.is_empty() {
-                                        // Immediately cancel push notifications to avoid "phantom buzzes"
-                                        notifier.cancel_pending_notifications(user_id).await;
-                                        ack_batcher.push(uuids);
-                                    }
-                                } else {
-                                    tracing::warn!("Received unexpected Protobuf payload type");
+                                    true
                                 }
-                            } else {
-                                tracing::warn!("Failed to decode WebSocket frame");
+                                WsMessage::Text(t) => {
+                                    tracing::warn!("Received unexpected text message: {}", t);
+                                    true
+                                }
+                                WsMessage::Ping(_) => {
+                                    tracing::debug!("Received heartbeat ping from client");
+                                    // axum automatically responds with Pong to protocol-level Pings
+                                    true
+                                }
+                                WsMessage::Pong(_) => {
+                                    tracing::debug!("Received heartbeat pong from client");
+                                    true
+                                }
+                                WsMessage::Close(_) => false,
                             }
-                            true
                         }
-                        Some(Ok(WsMessage::Close(_)) | Err(_)) | None => false,
-                        Some(Ok(WsMessage::Text(t))) => {
-                            tracing::warn!("Received unexpected text message: {}", t);
-                            true
-                        }
-                        Some(Ok(WsMessage::Ping(_))) => {
-                            tracing::debug!("Received heartbeat ping from client");
-                            true
-                        }
-                        Some(Ok(WsMessage::Pong(_))) => {
-                            tracing::debug!("Received heartbeat pong from client");
-                            true
-                        }
+                        Some(Err(_)) | None => false,
                     };
 
                     if !continue_loop { break; }
