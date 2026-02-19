@@ -92,9 +92,21 @@ Always use versioned keys (`backups/{user_id}/v{version}`) to ensure that a fail
 - **Body**: Binary blob (2MB Max, 32b Min).
 - **Action**: Atomic swap orchestration.
 
-## 6. Implementation Tasks
+## 6. Configuration
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `OBSCURA_BACKUP_MAX_SIZE_BYTES` | `2097152` | Max backup size (2MB). |
+| `OBSCURA_BACKUP_MIN_SIZE_BYTES` | `32` | Min backup size to prevent accidental wipes. |
+| `OBSCURA_BACKUP_UPLOAD_TIMEOUT_SECS` | `60` | S3 streaming timeout. |
+| `OBSCURA_BACKUP_STALE_THRESHOLD_MINS` | `30` | Grace period for "UPLOADING" state before Janitor cleanup. |
+| `OBSCURA_BACKUP_JANITOR_INTERVAL_SECS` | `300` | Frequency of background cleanup worker cycles. |
+| `OBSCURA_BACKUP_S3_PREFIX` | `backups/` | S3 key prefix for logical namespacing. |
+
+## 7. Implementation Tasks
 
 ### Phase 1: Infrastructure
+- [ ] Add `BackupConfig` to `src/config.rs`.
 - [ ] Create `ObjectStorage` trait in `src/adapters/storage/mod.rs`.
 - [ ] Implement `S3Storage` adapter.
 - [ ] Migration: Create `backups` table with `state` and `pending` columns.
