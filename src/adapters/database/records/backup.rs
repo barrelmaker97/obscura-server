@@ -6,12 +6,12 @@ use uuid::Uuid;
 
 #[derive(Debug, FromRow)]
 pub struct BackupRecord {
-    pub user_id: Uuid,
-    pub current_version: i32,
-    pub pending_version: Option<i32>,
-    pub state: String,
-    pub updated_at: OffsetDateTime,
-    pub pending_at: Option<OffsetDateTime>,
+    pub(crate) user_id: Uuid,
+    pub(crate) current_version: i32,
+    pub(crate) pending_version: Option<i32>,
+    pub(crate) state: String,
+    pub(crate) updated_at: OffsetDateTime,
+    pub(crate) pending_at: Option<OffsetDateTime>,
 }
 
 impl From<BackupRecord> for Backup {
