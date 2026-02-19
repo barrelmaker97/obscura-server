@@ -7,7 +7,7 @@ mod common;
 async fn test_backup_lifecycle() {
     let mut config = common::get_test_config();
     config.storage.bucket = format!("test-backup-{}", &Uuid::new_v4().to_string()[..8]);
-    config.storage.backup_min_size_bytes = 0;
+    config.backup.min_size_bytes = 0;
 
     let app = common::TestApp::spawn_with_config(config.clone()).await;
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
@@ -114,7 +114,7 @@ async fn test_backup_lifecycle() {
 async fn test_backup_min_size() {
     let mut config = common::get_test_config();
     config.storage.bucket = format!("test-backup-min-{}", &Uuid::new_v4().to_string()[..8]);
-    config.storage.backup_min_size_bytes = 10;
+    config.backup.min_size_bytes = 10;
 
     let app = common::TestApp::spawn_with_config(config.clone()).await;
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
@@ -142,7 +142,7 @@ async fn test_backup_min_size() {
 async fn test_backup_concurrent_conflict() {
     let mut config = common::get_test_config();
     config.storage.bucket = format!("test-backup-conflict-{}", &Uuid::new_v4().to_string()[..8]);
-    config.storage.backup_min_size_bytes = 0;
+    config.backup.min_size_bytes = 0;
     let app = common::TestApp::spawn_with_config(config).await;
     common::ensure_storage_bucket(&app.s3_client, &app.config.storage.bucket).await;
 

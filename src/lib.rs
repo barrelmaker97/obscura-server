@@ -262,11 +262,11 @@ impl AppBuilder {
             pool.clone(),
             repos.attachment.clone(),
             Arc::clone(&s3_storage),
-            config.storage.clone(),
+            config.attachment.clone(),
             config.ttl_days,
         );
         let backup_service =
-            BackupService::new(pool.clone(), repos.backup.clone(), Arc::clone(&s3_storage), config.storage.clone());
+            BackupService::new(pool.clone(), repos.backup.clone(), Arc::clone(&s3_storage), config.backup.clone());
         let rate_limit_service = RateLimitService::new(config.server.trusted_proxies.clone());
         let health_service = HealthService::new(
             pool.clone(),
@@ -308,13 +308,13 @@ impl AppBuilder {
                 pool.clone(),
                 repos.attachment.clone(),
                 Arc::clone(s3_storage),
-                config.storage.clone(),
+                config.attachment.clone(),
             ),
             backup_worker: BackupCleanupWorker::new(
                 pool.clone(),
                 repos.backup.clone(),
                 Arc::clone(s3_storage),
-                config.storage.clone(),
+                config.backup.clone(),
             ),
             push_worker: PushNotificationWorker::new(
                 pool,

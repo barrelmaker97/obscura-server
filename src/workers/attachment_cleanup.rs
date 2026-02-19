@@ -1,7 +1,7 @@
 use crate::adapters::database::DbPool;
 use crate::adapters::database::attachment_repo::AttachmentRepository;
 use crate::adapters::storage::ObjectStorage;
-use crate::config::StorageConfig;
+use crate::config::AttachmentConfig;
 use crate::error::Result;
 use opentelemetry::{global, metrics::Counter};
 use std::sync::Arc;
@@ -35,14 +35,14 @@ pub struct AttachmentCleanupWorker {
     pool: DbPool,
     repo: AttachmentRepository,
     storage: Arc<dyn ObjectStorage>,
-    config: StorageConfig,
+    attachment_config: AttachmentConfig,
     metrics: Metrics,
 }
 
 impl std::fmt::Debug for AttachmentCleanupWorker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AttachmentCleanupWorker")
-            .field("config", &self.config)
+            .field("attachment_config", &self.attachment_config)
             .field("metrics", &self.metrics)
             .finish_non_exhaustive()
     }
@@ -54,13 +54,13 @@ impl AttachmentCleanupWorker {
         pool: DbPool,
         repo: AttachmentRepository,
         storage: Arc<dyn ObjectStorage>,
-        config: StorageConfig,
+        attachment_config: AttachmentConfig,
     ) -> Self {
-        Self { pool, repo, storage, config, metrics: Metrics::new() }
+        Self { pool, repo, storage, attachment_config, metrics: Metrics::new() }
     }
 
     pub async fn run(self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
-        let mut interval = tokio::time::interval(StdDuration::from_secs(self.config.cleanup_interval_secs));
+        let mut interval = tokio::time::interval(StdDuration::from_secs(self.attachment_config.cleanup_interval_secs));
 
         while !*shutdown.borrow() {
             tokio::select! {
@@ -101,7 +101,7 @@ impl AttachmentCleanupWorker {
             let mut conn = self.pool.acquire().await?;
             let ids = self
                 .repo
-                .fetch_expired(&mut conn, i64::try_from(self.config.cleanup_batch_size).unwrap_or(i64::MAX))
+                .fetch_expired(&mut conn, i64::try_from(self.attachment_config.cleanup_batch_size).unwrap_or(i64::MAX))
                 .await?;
 
             if ids.is_empty() {
@@ -112,7 +112,7 @@ impl AttachmentCleanupWorker {
 
             let count = ids.len();
             for id in ids {
-                let key = format!("{}{}", self.config.attachment_prefix, id);
+                let key = format!("{}{}", self.attachment_config.prefix, id);
                 let res: Result<bool> = async {
                     // Delete object from Storage first to avoid orphaned files
                     let res = self.storage.delete(&key).await;

@@ -36,6 +36,12 @@ pub struct Config {
     pub websocket: WsConfig,
 
     #[command(flatten)]
+    pub backup: BackupConfig,
+
+    #[command(flatten)]
+    pub attachment: AttachmentConfig,
+
+    #[command(flatten)]
     pub storage: StorageConfig,
 
     #[command(flatten)]
@@ -55,6 +61,8 @@ impl Default for Config {
             notifications: NotificationConfig::default(),
             pubsub: PubSubConfig::default(),
             websocket: WsConfig::default(),
+            backup: BackupConfig::default(),
+            attachment: AttachmentConfig::default(),
             storage: StorageConfig::default(),
             telemetry: TelemetryConfig::default(),
         }
@@ -206,7 +214,7 @@ pub struct ServerConfig {
     pub mgmt_port: u16,
 
     /// How long to wait for background tasks to finish during shutdown in seconds
-    #[arg(long, env = "OBSCURA_SERVER_SHUTDOWN_TIMEOUT_SECS", default_value_t = ServerConfig::default().shutdown_timeout_secs)]
+    #[arg(long = "server-shutdown-timeout-secs", env = "OBSCURA_SERVER_SHUTDOWN_TIMEOUT_SECS", default_value_t = ServerConfig::default().shutdown_timeout_secs)]
     pub shutdown_timeout_secs: u64,
 
     /// Comma-separated list of CIDRs to trust for X-Forwarded-For IP extraction
@@ -239,15 +247,15 @@ impl Default for ServerConfig {
 #[derive(Clone, Debug, Args)]
 pub struct AuthConfig {
     /// Secret key for JWT signing
-    #[arg(long, env = "OBSCURA_AUTH_JWT_SECRET", default_value_t = AuthConfig::default().jwt_secret)]
+    #[arg(long = "auth-jwt-secret", env = "OBSCURA_AUTH_JWT_SECRET", default_value_t = AuthConfig::default().jwt_secret)]
     pub jwt_secret: String,
 
     /// Access token time-to-live in seconds
-    #[arg(long, env = "OBSCURA_AUTH_TOKEN_TTL_SECS", default_value_t = AuthConfig::default().access_token_ttl_secs)]
+    #[arg(long = "auth-token-ttl-secs", env = "OBSCURA_AUTH_TOKEN_TTL_SECS", default_value_t = AuthConfig::default().access_token_ttl_secs)]
     pub access_token_ttl_secs: u64,
 
     /// Refresh token time-to-live in days
-    #[arg(long, env = "OBSCURA_AUTH_REFRESH_TOKEN_TTL_DAYS", default_value_t = AuthConfig::default().refresh_token_ttl_days)]
+    #[arg(long = "auth-refresh-token-ttl-days", env = "OBSCURA_AUTH_REFRESH_TOKEN_TTL_DAYS", default_value_t = AuthConfig::default().refresh_token_ttl_days)]
     pub refresh_token_ttl_days: i64,
 }
 
@@ -289,7 +297,7 @@ impl Default for RateLimitConfig {
 #[derive(Clone, Debug, Args)]
 pub struct MessagingConfig {
     /// Maximum number of messages in a user's inbox
-    #[arg(long, env = "OBSCURA_MESSAGING_INBOX_MAX_SIZE", default_value_t = MessagingConfig::default().max_inbox_size)]
+    #[arg(long = "messaging-inbox-max-size", env = "OBSCURA_MESSAGING_INBOX_MAX_SIZE", default_value_t = MessagingConfig::default().max_inbox_size)]
     pub max_inbox_size: i64,
 
     /// How often to run the message cleanup task
@@ -302,15 +310,15 @@ pub struct MessagingConfig {
     pub cleanup_interval_secs: u64,
 
     /// Maximum number of messages to process in a single batch
-    #[arg(long, env = "OBSCURA_MESSAGING_BATCH_LIMIT", default_value_t = MessagingConfig::default().batch_limit)]
+    #[arg(long = "messaging-batch-limit", env = "OBSCURA_MESSAGING_BATCH_LIMIT", default_value_t = MessagingConfig::default().batch_limit)]
     pub batch_limit: i64,
 
     /// Threshold of one-time prekeys to trigger a refill notification
-    #[arg(long, env = "OBSCURA_PRE_KEY_REFILL_THRESHOLD", default_value_t = MessagingConfig::default().pre_key_refill_threshold)]
+    #[arg(long = "pre-key-refill-threshold", env = "OBSCURA_PRE_KEY_REFILL_THRESHOLD", default_value_t = MessagingConfig::default().pre_key_refill_threshold)]
     pub pre_key_refill_threshold: i32,
 
     /// Maximum number of one-time prekeys allowed per user
-    #[arg(long, env = "OBSCURA_PRE_KEYS_MAX", default_value_t = MessagingConfig::default().max_pre_keys)]
+    #[arg(long = "pre-keys-max", env = "OBSCURA_PRE_KEYS_MAX", default_value_t = MessagingConfig::default().max_pre_keys)]
     pub max_pre_keys: i64,
 }
 
@@ -329,51 +337,51 @@ impl Default for MessagingConfig {
 #[derive(Clone, Debug, Args)]
 pub struct NotificationConfig {
     /// How often to run the notification garbage collection
-    #[arg(long, env = "OBSCURA_NOTIFICATIONS_GC_INTERVAL_SECS", default_value_t = NotificationConfig::default().gc_interval_secs)]
+    #[arg(long = "notifications-gc-interval-secs", env = "OBSCURA_NOTIFICATIONS_GC_INTERVAL_SECS", default_value_t = NotificationConfig::default().gc_interval_secs)]
     pub gc_interval_secs: u64,
 
     /// Capacity of the global notification dispatcher channel
-    #[arg(long, env = "OBSCURA_NOTIFICATIONS_GLOBAL_CHANNEL_CAPACITY", default_value_t = NotificationConfig::default().global_channel_capacity)]
+    #[arg(long = "notifications-global-channel-capacity", env = "OBSCURA_NOTIFICATIONS_GLOBAL_CHANNEL_CAPACITY", default_value_t = NotificationConfig::default().global_channel_capacity)]
     pub global_channel_capacity: usize,
 
     /// Capacity of the per-user notification channel
-    #[arg(long, env = "OBSCURA_NOTIFICATIONS_USER_CHANNEL_CAPACITY", default_value_t = NotificationConfig::default().user_channel_capacity)]
+    #[arg(long = "notifications-user-channel-capacity", env = "OBSCURA_NOTIFICATIONS_USER_CHANNEL_CAPACITY", default_value_t = NotificationConfig::default().user_channel_capacity)]
     pub user_channel_capacity: usize,
 
     /// Delay in seconds before a push notification is sent as a fallback
-    #[arg(long, env = "OBSCURA_NOTIFICATIONS_PUSH_DELAY_SECS", default_value_t = NotificationConfig::default().push_delay_secs)]
+    #[arg(long = "notifications-push-delay-secs", env = "OBSCURA_NOTIFICATIONS_PUSH_DELAY_SECS", default_value_t = NotificationConfig::default().push_delay_secs)]
     pub push_delay_secs: u64,
 
     /// Interval in seconds for the notification worker to poll for due jobs
-    #[arg(long, env = "OBSCURA_NOTIFICATIONS_WORKER_INTERVAL_SECS", default_value_t = NotificationConfig::default().worker_interval_secs)]
+    #[arg(long = "notifications-worker-interval-secs", env = "OBSCURA_NOTIFICATIONS_WORKER_INTERVAL_SECS", default_value_t = NotificationConfig::default().worker_interval_secs)]
     pub worker_interval_secs: u64,
 
     /// Maximum number of concurrent push notification requests (also used as Redis poll limit)
-    #[arg(long, env = "OBSCURA_NOTIFICATIONS_WORKER_CONCURRENCY", default_value_t = NotificationConfig::default().worker_concurrency)]
+    #[arg(long = "notifications-worker-concurrency", env = "OBSCURA_NOTIFICATIONS_WORKER_CONCURRENCY", default_value_t = NotificationConfig::default().worker_concurrency)]
     pub worker_concurrency: usize,
 
     /// Redis key for the push notification job queue
-    #[arg(long, env = "OBSCURA_NOTIFICATIONS_PUSH_QUEUE_KEY", default_value_t = NotificationConfig::default().push_queue_key)]
+    #[arg(long = "notifications-push-queue-key", env = "OBSCURA_NOTIFICATIONS_PUSH_QUEUE_KEY", default_value_t = NotificationConfig::default().push_queue_key)]
     pub push_queue_key: String,
 
     /// Redis `PubSub` channel prefix for user notifications
-    #[arg(long, env = "OBSCURA_NOTIFICATIONS_CHANNEL_PREFIX", default_value_t = NotificationConfig::default().channel_prefix)]
+    #[arg(long = "notifications-channel-prefix", env = "OBSCURA_NOTIFICATIONS_CHANNEL_PREFIX", default_value_t = NotificationConfig::default().channel_prefix)]
     pub channel_prefix: String,
 
     /// How long a push job is leased by a worker in seconds
-    #[arg(long, env = "OBSCURA_NOTIFICATIONS_VISIBILITY_TIMEOUT_SECS", default_value_t = NotificationConfig::default().visibility_timeout_secs)]
+    #[arg(long = "notifications-visibility-timeout-secs", env = "OBSCURA_NOTIFICATIONS_VISIBILITY_TIMEOUT_SECS", default_value_t = NotificationConfig::default().visibility_timeout_secs)]
     pub visibility_timeout_secs: u64,
 
     /// How often the invalid token janitor flushes to the database in seconds
-    #[arg(long, env = "OBSCURA_NOTIFICATIONS_JANITOR_INTERVAL_SECS", default_value_t = NotificationConfig::default().janitor_interval_secs)]
+    #[arg(long = "notifications-janitor-interval-secs", env = "OBSCURA_NOTIFICATIONS_JANITOR_INTERVAL_SECS", default_value_t = NotificationConfig::default().janitor_interval_secs)]
     pub janitor_interval_secs: u64,
 
     /// Maximum number of invalid tokens to delete in a single batch
-    #[arg(long, env = "OBSCURA_NOTIFICATIONS_JANITOR_BATCH_SIZE", default_value_t = NotificationConfig::default().janitor_batch_size)]
+    #[arg(long = "notifications-janitor-batch-size", env = "OBSCURA_NOTIFICATIONS_JANITOR_BATCH_SIZE", default_value_t = NotificationConfig::default().janitor_batch_size)]
     pub janitor_batch_size: usize,
 
     /// Capacity of the invalid token janitor channel
-    #[arg(long, env = "OBSCURA_NOTIFICATIONS_JANITOR_CHANNEL_CAPACITY", default_value_t = NotificationConfig::default().janitor_channel_capacity)]
+    #[arg(long = "notifications-janitor-channel-capacity", env = "OBSCURA_NOTIFICATIONS_JANITOR_CHANNEL_CAPACITY", default_value_t = NotificationConfig::default().janitor_channel_capacity)]
     pub janitor_channel_capacity: usize,
 }
 
@@ -437,75 +445,165 @@ impl Default for WsConfig {
 }
 
 #[derive(Clone, Debug, Args)]
-pub struct StorageConfig {
-    /// Storage bucket name
-    #[arg(long = "storage-bucket", env = "OBSCURA_STORAGE_BUCKET", default_value_t = StorageConfig::default().bucket)]
-    pub bucket: String,
-
-    /// Storage region
-    #[arg(long = "storage-region", env = "OBSCURA_STORAGE_REGION", default_value_t = StorageConfig::default().region)]
-    pub region: String,
-
-    /// Custom storage endpoint (useful for `MinIO` or other S3-compatible services)
-    #[arg(long = "storage-endpoint", env = "OBSCURA_STORAGE_ENDPOINT")]
-    pub endpoint: Option<String>,
-
-    /// Storage access key
-    #[arg(long = "storage-access-key", env = "OBSCURA_STORAGE_ACCESS_KEY")]
-    pub access_key: Option<String>,
-
-    /// Storage secret key
-    #[arg(long = "storage-secret-key", env = "OBSCURA_STORAGE_SECRET_KEY")]
-    pub secret_key: Option<String>,
-
-    /// Force path style (required for many `MinIO` setups: <http://host/bucket/key>)
-    #[arg(long = "storage-force-path-style", env = "OBSCURA_STORAGE_FORCE_PATH_STYLE", default_value_t = StorageConfig::default().force_path_style)]
-    pub force_path_style: bool,
-
-    /// Max attachment size in bytes (Default: 50MB)
-    #[arg(long = "storage-max-size-bytes", env = "OBSCURA_STORAGE_MAX_SIZE_BYTES", default_value_t = StorageConfig::default().attachment_max_size_bytes)]
-    pub attachment_max_size_bytes: usize,
-
-    /// S3 prefix for logical namespacing of attachments.
-    #[arg(long = "storage-attachment-prefix", env = "OBSCURA_STORAGE_ATTACHMENT_PREFIX", default_value_t = StorageConfig::default().attachment_prefix)]
-    pub attachment_prefix: String,
-
+pub struct BackupConfig {
     /// S3 prefix for logical namespacing of backups.
-    #[arg(long = "storage-backup-prefix", env = "OBSCURA_STORAGE_BACKUP_PREFIX", default_value_t = StorageConfig::default().backup_prefix)]
-    pub backup_prefix: String,
+    #[arg(
+        long = "backup-prefix",
+        id = "backup_prefix",
+        env = "OBSCURA_BACKUP_PREFIX",
+        default_value_t = BackupConfig::default().prefix
+    )]
+    pub prefix: String,
 
     /// Max backup size in bytes (Default: 2MB)
-    #[arg(long = "storage-backup-max-size-bytes", env = "OBSCURA_BACKUP_MAX_SIZE_BYTES", default_value_t = StorageConfig::default().backup_max_size_bytes)]
-    pub backup_max_size_bytes: usize,
+    #[arg(
+        long = "backup-max-size-bytes",
+        id = "backup_max_size_bytes",
+        env = "OBSCURA_BACKUP_MAX_SIZE_BYTES",
+        default_value_t = BackupConfig::default().max_size_bytes
+    )]
+    pub max_size_bytes: usize,
 
     /// Min backup size in bytes (Default: 32 bytes)
-    #[arg(long = "storage-backup-min-size-bytes", env = "OBSCURA_BACKUP_MIN_SIZE_BYTES", default_value_t = StorageConfig::default().backup_min_size_bytes)]
-    pub backup_min_size_bytes: usize,
+    #[arg(
+        long = "backup-min-size-bytes",
+        id = "backup_min_size_bytes",
+        env = "OBSCURA_BACKUP_MIN_SIZE_BYTES",
+        default_value_t = BackupConfig::default().min_size_bytes
+    )]
+    pub min_size_bytes: usize,
 
     /// S3 streaming timeout in seconds
-    #[arg(long = "storage-backup-upload-timeout-secs", env = "OBSCURA_BACKUP_UPLOAD_TIMEOUT_SECS", default_value_t = StorageConfig::default().backup_upload_timeout_secs)]
-    pub backup_upload_timeout_secs: u64,
+    #[arg(
+        long = "backup-upload-timeout-secs",
+        id = "backup_upload_timeout_secs",
+        env = "OBSCURA_BACKUP_UPLOAD_TIMEOUT_SECS",
+        default_value_t = BackupConfig::default().upload_timeout_secs
+    )]
+    pub upload_timeout_secs: u64,
 
     /// Grace period for "UPLOADING" state before Janitor cleanup in minutes
-    #[arg(long = "storage-backup-stale-threshold-mins", env = "OBSCURA_BACKUP_STALE_THRESHOLD_MINS", default_value_t = StorageConfig::default().backup_stale_threshold_mins)]
-    pub backup_stale_threshold_mins: i64,
+    #[arg(
+        long = "backup-stale-threshold-mins",
+        id = "backup_stale_threshold_mins",
+        env = "OBSCURA_BACKUP_STALE_THRESHOLD_MINS",
+        default_value_t = BackupConfig::default().stale_threshold_mins
+    )]
+    pub stale_threshold_mins: i64,
 
     /// Frequency of background cleanup worker cycles in seconds
-    #[arg(long = "storage-backup-janitor-interval-secs", env = "OBSCURA_BACKUP_JANITOR_INTERVAL_SECS", default_value_t = StorageConfig::default().backup_janitor_interval_secs)]
-    pub backup_janitor_interval_secs: u64,
+    #[arg(
+        long = "backup-janitor-interval-secs",
+        id = "backup_janitor_interval_secs",
+        env = "OBSCURA_BACKUP_JANITOR_INTERVAL_SECS",
+        default_value_t = BackupConfig::default().janitor_interval_secs
+    )]
+    pub janitor_interval_secs: u64,
+}
+
+impl Default for BackupConfig {
+    fn default() -> Self {
+        Self {
+            prefix: "backups/".to_string(),
+            max_size_bytes: 2_097_152,
+            min_size_bytes: 32,
+            upload_timeout_secs: 60,
+            stale_threshold_mins: 30,
+            janitor_interval_secs: 300,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Args)]
+pub struct AttachmentConfig {
+    /// Max attachment size in bytes (Default: 50MB)
+    #[arg(
+        long = "attachment-max-size-bytes",
+        id = "attachment_max_size_bytes",
+        env = "OBSCURA_ATTACHMENT_MAX_SIZE_BYTES",
+        default_value_t = AttachmentConfig::default().max_size_bytes
+    )]
+    pub max_size_bytes: usize,
+
+    /// S3 prefix for logical namespacing of attachments.
+    #[arg(
+        long = "attachment-prefix",
+        id = "attachment_prefix",
+        env = "OBSCURA_ATTACHMENT_PREFIX",
+        default_value_t = AttachmentConfig::default().prefix
+    )]
+    pub prefix: String,
 
     /// How often to run the attachment cleanup task in seconds
     #[arg(
-        long = "storage-cleanup-interval-secs",
-        id = "storage_cleanup_interval_secs",
-        env = "OBSCURA_STORAGE_CLEANUP_INTERVAL_SECS",
-        default_value_t = StorageConfig::default().cleanup_interval_secs
+        long = "attachment-cleanup-interval-secs",
+        id = "attachment_cleanup_interval_secs",
+        env = "OBSCURA_ATTACHMENT_CLEANUP_INTERVAL_SECS",
+        default_value_t = AttachmentConfig::default().cleanup_interval_secs
     )]
     pub cleanup_interval_secs: u64,
 
     /// Maximum number of attachments to delete in a single batch
-    #[arg(long = "storage-cleanup-batch-size", env = "OBSCURA_STORAGE_CLEANUP_BATCH_SIZE", default_value_t = StorageConfig::default().cleanup_batch_size)]
+    #[arg(
+        long = "attachment-cleanup-batch-size",
+        id = "attachment_cleanup_batch_size",
+        env = "OBSCURA_ATTACHMENT_CLEANUP_BATCH_SIZE",
+        default_value_t = AttachmentConfig::default().cleanup_batch_size
+    )]
     pub cleanup_batch_size: u64,
+}
+
+impl Default for AttachmentConfig {
+    fn default() -> Self {
+        Self {
+            max_size_bytes: 52_428_800,
+            prefix: "attachments/".to_string(),
+            cleanup_interval_secs: 3600,
+            cleanup_batch_size: 100,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Args)]
+pub struct StorageConfig {
+    /// Storage bucket name
+    #[arg(
+        long = "storage-bucket",
+        id = "storage_bucket",
+        env = "OBSCURA_STORAGE_BUCKET",
+        default_value_t = StorageConfig::default().bucket
+    )]
+    pub bucket: String,
+
+    /// Storage region
+    #[arg(
+        long = "storage-region",
+        id = "storage_region",
+        env = "OBSCURA_STORAGE_REGION",
+        default_value_t = StorageConfig::default().region
+    )]
+    pub region: String,
+
+    /// Custom storage endpoint (useful for `MinIO` or other S3-compatible services)
+    #[arg(long = "storage-endpoint", id = "storage_endpoint", env = "OBSCURA_STORAGE_ENDPOINT")]
+    pub endpoint: Option<String>,
+
+    /// Storage access key
+    #[arg(long = "storage-access-key", id = "storage_access_key", env = "OBSCURA_STORAGE_ACCESS_KEY")]
+    pub access_key: Option<String>,
+
+    /// Storage secret key
+    #[arg(long = "storage-secret-key", id = "storage_secret_key", env = "OBSCURA_STORAGE_SECRET_KEY")]
+    pub secret_key: Option<String>,
+
+    /// Force path style (required for many `MinIO` setups: <http://host/bucket/key>)
+    #[arg(
+        long = "storage-force-path-style",
+        id = "storage_force_path_style",
+        env = "OBSCURA_STORAGE_FORCE_PATH_STYLE",
+        default_value_t = StorageConfig::default().force_path_style
+    )]
+    pub force_path_style: bool,
 }
 
 impl Default for StorageConfig {
@@ -517,16 +615,6 @@ impl Default for StorageConfig {
             access_key: None,
             secret_key: None,
             force_path_style: false,
-            attachment_max_size_bytes: 52_428_800,
-            attachment_prefix: "attachments/".to_string(),
-            backup_prefix: "backups/".to_string(),
-            backup_max_size_bytes: 2_097_152,
-            backup_min_size_bytes: 32,
-            backup_upload_timeout_secs: 60,
-            backup_stale_threshold_mins: 30,
-            backup_janitor_interval_secs: 300,
-            cleanup_interval_secs: 3600,
-            cleanup_batch_size: 100,
         }
     }
 }
@@ -534,15 +622,30 @@ impl Default for StorageConfig {
 #[derive(Clone, Debug, Args)]
 pub struct HealthConfig {
     /// Timeout for database health check in milliseconds
-    #[arg(long, env = "OBSCURA_HEALTH_DB_TIMEOUT_MS", default_value_t = HealthConfig::default().db_timeout_ms)]
+    #[arg(
+        long = "health-db-timeout-ms",
+        id = "health_db_timeout_ms",
+        env = "OBSCURA_HEALTH_DB_TIMEOUT_MS",
+        default_value_t = HealthConfig::default().db_timeout_ms
+    )]
     pub db_timeout_ms: u64,
 
     /// Timeout for storage health check in milliseconds
-    #[arg(long = "storage-timeout-ms", env = "OBSCURA_HEALTH_STORAGE_TIMEOUT_MS", default_value_t = HealthConfig::default().storage_timeout_ms)]
+    #[arg(
+        long = "health-storage-timeout-ms",
+        id = "health_storage_timeout_ms",
+        env = "OBSCURA_HEALTH_STORAGE_TIMEOUT_MS",
+        default_value_t = HealthConfig::default().storage_timeout_ms
+    )]
     pub storage_timeout_ms: u64,
 
     /// Timeout for pubsub health check in milliseconds
-    #[arg(long = "pubsub-timeout-ms", env = "OBSCURA_HEALTH_PUBSUB_TIMEOUT_MS", default_value_t = HealthConfig::default().pubsub_timeout_ms)]
+    #[arg(
+        long = "health-pubsub-timeout-ms",
+        id = "health_pubsub_timeout_ms",
+        env = "OBSCURA_HEALTH_PUBSUB_TIMEOUT_MS",
+        default_value_t = HealthConfig::default().pubsub_timeout_ms
+    )]
     pub pubsub_timeout_ms: u64,
 }
 

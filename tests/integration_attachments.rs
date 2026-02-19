@@ -7,7 +7,7 @@ mod common;
 async fn test_attachment_lifecycle() {
     let mut config = common::get_test_config();
     config.storage.bucket = format!("test-bucket-{}", &Uuid::new_v4().to_string()[..8]);
-    config.storage.attachment_max_size_bytes = 100; // Small but enough for "hello"
+    config.attachment.max_size_bytes = 100; // Small but enough for "hello"
 
     let app = common::TestApp::spawn_with_config(config.clone()).await;
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;

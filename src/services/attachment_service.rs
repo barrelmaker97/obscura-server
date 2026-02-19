@@ -1,7 +1,7 @@
 use crate::adapters::database::DbPool;
 use crate::adapters::database::attachment_repo::AttachmentRepository;
 use crate::adapters::storage::ObjectStorage;
-use crate::config::StorageConfig;
+use crate::config::AttachmentConfig;
 use crate::error::{AppError, Result};
 use aws_sdk_s3::primitives::ByteStream;
 use axum::body::Body;
@@ -40,7 +40,7 @@ pub struct AttachmentService {
     pool: DbPool,
     repo: AttachmentRepository,
     storage: Arc<dyn ObjectStorage>,
-    config: StorageConfig,
+    attachment_config: AttachmentConfig,
     ttl_days: i64,
     metrics: Metrics,
 }
@@ -48,7 +48,7 @@ pub struct AttachmentService {
 impl std::fmt::Debug for AttachmentService {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AttachmentService")
-            .field("config", &self.config)
+            .field("attachment_config", &self.attachment_config)
             .field("ttl_days", &self.ttl_days)
             .field("metrics", &self.metrics)
             .finish_non_exhaustive()
@@ -61,10 +61,10 @@ impl AttachmentService {
         pool: DbPool,
         repo: AttachmentRepository,
         storage: Arc<dyn ObjectStorage>,
-        config: StorageConfig,
+        attachment_config: AttachmentConfig,
         ttl_days: i64,
     ) -> Self {
-        Self { pool, repo, storage, config, ttl_days, metrics: Metrics::new() }
+        Self { pool, repo, storage, attachment_config, ttl_days, metrics: Metrics::new() }
     }
 
     /// Uploads an attachment to S3 and records it in the database.
@@ -80,17 +80,17 @@ impl AttachmentService {
     pub(crate) async fn upload(&self, content_len: Option<usize>, body: Body) -> Result<(Uuid, i64)> {
         if let Some(len) = content_len {
             tracing::Span::current().record("attachment_size", len);
-            if len > self.config.attachment_max_size_bytes {
+            if len > self.attachment_config.max_size_bytes {
                 return Err(AppError::BadRequest("Attachment too large".into()));
             }
         }
 
         let id = Uuid::new_v4();
-        // New logic: Use the configured prefix
-        let key = format!("{}{}", self.config.attachment_prefix, id);
+        // Use the configured prefix
+        let key = format!("{}{}", self.attachment_config.prefix, id);
         tracing::Span::current().record("attachment_id", tracing::field::display(id));
 
-        self.storage.put(&key, body, content_len, self.config.attachment_max_size_bytes).await?;
+        self.storage.put(&key, body, content_len, self.attachment_config.max_size_bytes).await?;
 
         let expires_at = OffsetDateTime::now_utc() + Duration::days(self.ttl_days);
         let mut conn = self.pool.acquire().await?;
@@ -128,7 +128,7 @@ impl AttachmentService {
         }
 
         // 2. Stream from Storage
-        let key = format!("{}{}", self.config.attachment_prefix, id);
+        let key = format!("{}{}", self.attachment_config.prefix, id);
         let (content_length, body) = self.storage.get(&key).await?;
 
         tracing::Span::current().record("attachment_size", content_length);

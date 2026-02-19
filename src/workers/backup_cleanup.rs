@@ -1,7 +1,7 @@
 use crate::adapters::database::DbPool;
 use crate::adapters::database::backup_repo::BackupRepository;
 use crate::adapters::storage::ObjectStorage;
-use crate::config::StorageConfig;
+use crate::config::BackupConfig;
 use crate::error::{AppError, Result};
 use opentelemetry::{global, metrics::Counter};
 use std::sync::Arc;
@@ -32,14 +32,14 @@ pub struct BackupCleanupWorker {
     pool: DbPool,
     repo: BackupRepository,
     storage: Arc<dyn ObjectStorage>,
-    config: StorageConfig,
+    backup_config: BackupConfig,
     metrics: Metrics,
 }
 
 impl std::fmt::Debug for BackupCleanupWorker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BackupCleanupWorker")
-            .field("config", &self.config)
+            .field("backup_config", &self.backup_config)
             .field("metrics", &self.metrics)
             .finish_non_exhaustive()
     }
@@ -47,12 +47,17 @@ impl std::fmt::Debug for BackupCleanupWorker {
 
 impl BackupCleanupWorker {
     #[must_use]
-    pub fn new(pool: DbPool, repo: BackupRepository, storage: Arc<dyn ObjectStorage>, config: StorageConfig) -> Self {
-        Self { pool, repo, storage, config, metrics: Metrics::new() }
+    pub fn new(
+        pool: DbPool,
+        repo: BackupRepository,
+        storage: Arc<dyn ObjectStorage>,
+        backup_config: BackupConfig,
+    ) -> Self {
+        Self { pool, repo, storage, backup_config, metrics: Metrics::new() }
     }
 
     pub async fn run(self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
-        let mut interval = tokio::time::interval(StdDuration::from_secs(self.config.backup_janitor_interval_secs));
+        let mut interval = tokio::time::interval(StdDuration::from_secs(self.backup_config.janitor_interval_secs));
 
         while !*shutdown.borrow() {
             tokio::select! {
@@ -83,7 +88,7 @@ impl BackupCleanupWorker {
 
     async fn cleanup_stale(&self) -> Result<u64> {
         let mut total_cleaned = 0;
-        let threshold = OffsetDateTime::now_utc() - Duration::minutes(self.config.backup_stale_threshold_mins);
+        let threshold = OffsetDateTime::now_utc() - Duration::minutes(self.backup_config.stale_threshold_mins);
 
         loop {
             let mut conn = self.pool.acquire().await.map_err(AppError::Database)?;
@@ -98,7 +103,7 @@ impl BackupCleanupWorker {
                 let pending_version = backup.pending_version.unwrap_or(0);
 
                 if pending_version > 0 {
-                    let key = format!("{}{}/v{}", self.config.backup_prefix, user_id, pending_version);
+                    let key = format!("{}{}/v{}", self.backup_config.prefix, user_id, pending_version);
 
                     // Delete from storage
                     if let Err(e) = self.storage.delete(&key).await {
