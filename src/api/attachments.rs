@@ -25,8 +25,8 @@ pub async fn upload_attachment(
     let content_len =
         headers.get(header::CONTENT_LENGTH).and_then(|v| v.to_str().map_or(None, |s| s.parse::<usize>().ok()));
 
-    // Bridge Axum Body -> StorageStream
-    let stream = body.into_data_stream().map(|res| res.map_err(|_e| crate::error::AppError::Internal)).boxed();
+    // Bridge Axum Body -> StorageStream (using neutral std::io::Error)
+    let stream = body.into_data_stream().map(|res| res.map_err(|e| std::io::Error::other(e.to_string()))).boxed();
 
     let (id, expires_at) = state.attachment_service.upload(content_len, stream).await?;
 

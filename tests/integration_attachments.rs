@@ -81,3 +81,66 @@ async fn test_attachment_lifecycle() {
         .unwrap();
     assert_eq!(resp_404.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn test_attachment_janitor_cleanup() {
+    use obscura_server::adapters::database::attachment_repo::AttachmentRepository;
+    use obscura_server::adapters::storage::S3Storage;
+    use obscura_server::workers::AttachmentCleanupWorker;
+    use std::sync::Arc;
+    use time::{Duration, OffsetDateTime};
+
+    let mut config = common::get_test_config();
+    config.storage.bucket = format!("test-att-janitor-{}", &Uuid::new_v4().to_string()[..8]);
+
+    let app = common::TestApp::spawn_with_config(config.clone()).await;
+    common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
+
+    // 1. Seed Expired Attachment
+    let id = Uuid::new_v4();
+    let expires_at = OffsetDateTime::now_utc() - Duration::days(1);
+    {
+        sqlx::query("INSERT INTO attachments (id, expires_at) VALUES ($1, $2)")
+            .bind(id)
+            .bind(expires_at)
+            .execute(&app.pool)
+            .await
+            .unwrap();
+    }
+
+    // 2. Put file in S3
+    let key = format!("{}{}", config.attachment.prefix, id);
+    app.s3_client
+        .put_object()
+        .bucket(&config.storage.bucket)
+        .key(&key)
+        .body(aws_sdk_s3::primitives::ByteStream::from(b"expired data".to_vec()))
+        .send()
+        .await
+        .unwrap();
+
+    // 3. Instantiate Worker
+    let storage_adapter = Arc::new(S3Storage::new(app.s3_client.clone(), config.storage.bucket.clone()));
+    let worker = AttachmentCleanupWorker::new(
+        app.pool.clone(),
+        AttachmentRepository::new(),
+        storage_adapter,
+        config.attachment.clone(),
+    );
+
+    // 4. Execution
+    let deleted_count = worker.cleanup_batch().await.expect("Worker cleanup failed");
+    assert!(deleted_count >= 1);
+
+    // 5. Verification: DB State
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM attachments WHERE id = $1)")
+        .bind(id)
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+    assert!(!exists, "Attachment record should be deleted from DB");
+
+    // 6. Verification: S3 Object is GONE
+    let head_res = app.s3_client.head_object().bucket(&config.storage.bucket).key(&key).send().await;
+    assert!(head_res.is_err(), "Attachment object should be deleted from S3");
+}

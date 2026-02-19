@@ -1,6 +1,6 @@
 use crate::adapters::database::DbPool;
 use crate::adapters::database::attachment_repo::AttachmentRepository;
-use crate::adapters::storage::{ObjectStorage, StorageStream};
+use crate::adapters::storage::{ObjectStorage, StorageError, StorageStream};
 use crate::config::AttachmentConfig;
 use crate::error::{AppError, Result};
 use opentelemetry::{
@@ -83,7 +83,12 @@ impl AttachmentService {
         let key = format!("{}{}", self.attachment_config.prefix, id);
         tracing::Span::current().record("attachment_id", tracing::field::display(id));
 
-        self.storage.put(&key, stream, content_len, self.attachment_config.max_size_bytes).await?;
+        self.storage.put(&key, stream, content_len, self.attachment_config.max_size_bytes).await.map_err(
+            |e| match e {
+                StorageError::ExceedsLimit => AppError::BadRequest("Attachment too large".into()),
+                _ => AppError::Internal,
+            },
+        )?;
 
         let expires_at = OffsetDateTime::now_utc() + Duration::days(self.ttl_days);
         let mut conn = self.pool.acquire().await?;
@@ -119,7 +124,10 @@ impl AttachmentService {
 
         // 2. Stream from Storage
         let key = format!("{}{}", self.attachment_config.prefix, id);
-        let (content_length, stream) = self.storage.get(&key).await?;
+        let (content_length, stream) = self.storage.get(&key).await.map_err(|e| match e {
+            StorageError::NotFound => AppError::NotFound,
+            _ => AppError::Internal,
+        })?;
 
         tracing::Span::current().record("attachment_size", content_length);
 

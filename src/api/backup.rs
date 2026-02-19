@@ -33,8 +33,8 @@ pub async fn upload_backup(
     let content_len =
         headers.get(header::CONTENT_LENGTH).and_then(|v| v.to_str().ok().and_then(|s| s.parse::<usize>().ok()));
 
-    // Bridge Axum Body -> StorageStream
-    let stream = body.into_data_stream().map(|res| res.map_err(|_| AppError::Internal)).boxed();
+    // Bridge Axum Body -> StorageStream (using neutral std::io::Error)
+    let stream = body.into_data_stream().map(|res| res.map_err(|e| std::io::Error::other(e.to_string()))).boxed();
 
     state.backup_service.handle_upload(auth_user.user_id, if_match_version, content_len, stream).await?;
 

@@ -89,12 +89,16 @@ impl AttachmentCleanupWorker {
         tracing::info!("Attachment cleanup loop shutting down...");
     }
 
+    /// Runs a single batch of attachment cleanup.
+    ///
+    /// # Errors
+    /// Returns an error if the database or storage operations fail.
     #[tracing::instrument(
         err,
         skip(self),
         fields(total_deleted = tracing::field::Empty)
     )]
-    async fn cleanup_batch(&self) -> Result<u64> {
+    pub async fn cleanup_batch(&self) -> Result<u64> {
         let mut total_deleted = 0;
         loop {
             // Fetch expired attachments

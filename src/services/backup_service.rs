@@ -1,6 +1,6 @@
 use crate::adapters::database::DbPool;
 use crate::adapters::database::backup_repo::BackupRepository;
-use crate::adapters::storage::{ObjectStorage, StorageStream};
+use crate::adapters::storage::{ObjectStorage, StorageError, StorageStream};
 use crate::config::BackupConfig;
 use crate::domain::backup::BackupState;
 use crate::error::{AppError, Result};
@@ -36,10 +36,10 @@ impl BackupService {
     /// Handles the full backup upload workflow.
     ///
     /// # Errors
-    /// Returns `AppError::BadRequest` if the backup is too small.
-    /// Returns `AppError::PreconditionFailed` if the version is out of date.
-    /// Returns `AppError::Conflict` if an upload is already in progress.
-    /// Returns `AppError::Timeout` if the storage operation times out.
+    /// Returns `AppError::BadRequest` if the backup is too small or too large.
+    /// Returns `AppError::PreconditionFailed` if the version does not match.
+    /// Returns `AppError::Conflict` if another upload is in progress.
+    /// Returns `AppError::Timeout` if the upload takes too long.
     pub async fn handle_upload(
         &self,
         user_id: Uuid,
@@ -86,14 +86,15 @@ impl BackupService {
         let pending_version = backup.pending_version.ok_or(AppError::Internal)?;
         let key = format!("{}{}/v{}", self.backup_config.prefix, user_id, pending_version);
 
-        // Wrap storage put with timeout
         let put_future = self.storage.put(&key, stream, content_len, self.backup_config.max_size_bytes);
 
         match tokio::time::timeout(std::time::Duration::from_secs(self.backup_config.upload_timeout_secs), put_future)
             .await
         {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => return Err(e),
+            Ok(res) => res.map_err(|e| match e {
+                StorageError::ExceedsLimit => AppError::BadRequest("Backup too large".into()),
+                _ => AppError::Internal,
+            })?,
             Err(_) => return Err(AppError::Timeout),
         }
 
@@ -116,7 +117,7 @@ impl BackupService {
     /// Downloads the current backup for the user.
     ///
     /// # Errors
-    /// Returns `AppError::NotFound` if the backup does not exist or version is 0.
+    /// Returns `AppError::NotFound` if no backup exists or the current version is 0.
     pub async fn download(&self, user_id: Uuid) -> Result<(i32, u64, StorageStream)> {
         let mut conn = self.pool.acquire().await.map_err(AppError::Database)?;
         let backup = self.repo.find_by_user_id(&mut conn, user_id).await?;
@@ -127,7 +128,10 @@ impl BackupService {
             }
 
             let key = format!("{}{}/v{}", self.backup_config.prefix, user_id, backup.current_version);
-            let (len, stream) = self.storage.get(&key).await?;
+            let (len, stream) = self.storage.get(&key).await.map_err(|e| match e {
+                StorageError::NotFound => AppError::NotFound,
+                _ => AppError::Internal,
+            })?;
             Ok((backup.current_version, len, stream))
         } else {
             Err(AppError::NotFound)
@@ -137,7 +141,7 @@ impl BackupService {
     /// Checks for the existence of a backup.
     ///
     /// # Errors
-    /// Returns `AppError::NotFound` if the backup does not exist or version is 0.
+    /// Returns `AppError::NotFound` if no backup exists or the current version is 0.
     pub async fn head(&self, user_id: Uuid) -> Result<(i32, u64)> {
         let mut conn = self.pool.acquire().await.map_err(AppError::Database)?;
         let backup = self.repo.find_by_user_id(&mut conn, user_id).await?;
@@ -148,7 +152,10 @@ impl BackupService {
             }
 
             let key = format!("{}{}/v{}", self.backup_config.prefix, user_id, backup.current_version);
-            let len = self.storage.head(&key).await?;
+            let len = self.storage.head(&key).await.map_err(|e| match e {
+                StorageError::NotFound => AppError::NotFound,
+                _ => AppError::Internal,
+            })?;
             Ok((backup.current_version, len))
         } else {
             Err(AppError::NotFound)

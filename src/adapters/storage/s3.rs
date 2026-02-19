@@ -1,11 +1,11 @@
-use crate::adapters::storage::{ObjectStorage, StorageStream};
-use crate::error::{AppError, Result};
+use crate::adapters::storage::{ObjectStorage, StorageError, StorageResult, StorageStream};
 use async_trait::async_trait;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
 use futures::StreamExt;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use tokio::sync::mpsc;
@@ -24,9 +24,8 @@ impl S3Storage {
     }
 }
 
-type SyncBodyReceiver = mpsc::Receiver<std::result::Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>;
+type SyncBodyReceiver = mpsc::Receiver<Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>;
 
-// Wrapper to satisfy S3 SDK's Sync requirement for Body
 struct SyncBody {
     rx: Arc<Mutex<SyncBodyReceiver>>,
 }
@@ -38,7 +37,7 @@ impl http_body::Body for SyncBody {
     fn poll_frame(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Option<std::result::Result<http_body::Frame<Self::Data>, Self::Error>>> {
+    ) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
         let mut rx = self.rx.lock().expect("Failed to lock receiver mutex");
 
         match rx.poll_recv(cx) {
@@ -58,10 +57,12 @@ impl ObjectStorage for S3Storage {
         mut stream: StorageStream,
         content_len: Option<usize>,
         max_size: usize,
-    ) -> Result<()> {
+    ) -> StorageResult<()> {
         let (tx, rx) = mpsc::channel(2);
+        let limit_exceeded = Arc::new(AtomicBool::new(false));
 
         let mut total_bytes = 0;
+        let limit_signal = Arc::clone(&limit_exceeded);
 
         tokio::spawn(
             async move {
@@ -70,8 +71,12 @@ impl ObjectStorage for S3Storage {
                         Ok(bytes) => {
                             total_bytes += bytes.len();
                             if total_bytes > max_size {
-                                let err: Box<dyn std::error::Error + Send + Sync> =
-                                    Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, "Body too large"));
+                                // Signal that we hit the limit before closing the stream
+                                limit_signal.store(true, Ordering::SeqCst);
+                                let err: Box<dyn std::error::Error + Send + Sync> = Box::new(std::io::Error::new(
+                                    std::io::ErrorKind::InvalidData,
+                                    "size limit exceeded",
+                                ));
                                 let _ = tx.send(Err(err)).await;
                                 break;
                             }
@@ -80,8 +85,7 @@ impl ObjectStorage for S3Storage {
                             }
                         }
                         Err(e) => {
-                            let err: Box<dyn std::error::Error + Send + Sync> =
-                                Box::new(std::io::Error::other(e.to_string()));
+                            let err: Box<dyn std::error::Error + Send + Sync> = Box::new(e);
                             let _ = tx.send(Err(err)).await;
                             break;
                         }
@@ -94,39 +98,50 @@ impl ObjectStorage for S3Storage {
         let sync_body = SyncBody { rx: Arc::new(Mutex::new(rx)) };
         let byte_stream = ByteStream::from_body_1_x(sync_body);
 
-        self.client
+        let res = self
+            .client
             .put_object()
             .bucket(&self.bucket)
             .key(key)
             .set_content_length(content_len.map(|l| i64::try_from(l).unwrap_or(i64::MAX)))
             .body(byte_stream)
             .send()
-            .await
-            .map_err(|e| {
-                tracing::error!(error = ?e, key = %key, "S3 Upload failed");
-                AppError::Internal
-            })?;
+            .await;
 
-        Ok(())
+        match res {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                // Determine if failure was caused by our own internal size limit
+                if limit_exceeded.load(Ordering::SeqCst) {
+                    return Err(StorageError::ExceedsLimit);
+                }
+
+                tracing::error!(error = ?e, key = %key, "S3 Upload failed");
+                Err(StorageError::Internal(e.to_string()))
+            }
+        }
     }
 
-    async fn get(&self, key: &str) -> Result<(u64, StorageStream)> {
+    async fn get(&self, key: &str) -> StorageResult<(u64, StorageStream)> {
         let output = self.client.get_object().bucket(&self.bucket).key(key).send().await.map_err(|e| {
+            if let aws_sdk_s3::error::SdkError::ServiceError(ref err) = e
+                && err.err().is_no_such_key()
+            {
+                return StorageError::NotFound;
+            }
             tracing::error!(error = ?e, key = %key, "S3 Download failed");
-            AppError::NotFound
+            StorageError::Internal(e.to_string())
         })?;
 
         let content_length = output.content_length.unwrap_or(0);
 
-        // Convert ByteStream to our neutral StorageStream
-        // We use from_stream to ensure it implements Stream correctly
         let sdk_stream = output.body;
         let stream = futures::stream::unfold(sdk_stream, |mut s| async move {
             match s.next().await {
                 Some(Ok(bytes)) => Some((Ok(bytes), s)),
                 Some(Err(e)) => {
                     tracing::error!(error = ?e, "S3 Stream error");
-                    Some((Err(AppError::Internal), s))
+                    Some((Err(std::io::Error::other(e.to_string())), s))
                 }
                 None => None,
             }
@@ -136,19 +151,24 @@ impl ObjectStorage for S3Storage {
         Ok((u64::try_from(content_length).unwrap_or(0), stream))
     }
 
-    async fn head(&self, key: &str) -> Result<u64> {
+    async fn head(&self, key: &str) -> StorageResult<u64> {
         let output = self.client.head_object().bucket(&self.bucket).key(key).send().await.map_err(|e| {
+            if let aws_sdk_s3::error::SdkError::ServiceError(ref err) = e
+                && err.err().is_not_found()
+            {
+                return StorageError::NotFound;
+            }
             tracing::error!(error = ?e, key = %key, "S3 Head failed");
-            AppError::NotFound
+            StorageError::Internal(e.to_string())
         })?;
         let len = output.content_length.unwrap_or(0);
         Ok(u64::try_from(len).unwrap_or(0))
     }
 
-    async fn delete(&self, key: &str) -> Result<()> {
+    async fn delete(&self, key: &str) -> StorageResult<()> {
         self.client.delete_object().bucket(&self.bucket).key(key).send().await.map_err(|e| {
             tracing::error!(error = ?e, key = %key, "S3 Delete failed");
-            AppError::Internal
+            StorageError::Internal(e.to_string())
         })?;
         Ok(())
     }

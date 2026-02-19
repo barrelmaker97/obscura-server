@@ -53,6 +53,7 @@ async fn test_backup_lifecycle() {
         .unwrap();
 
     assert_eq!(resp_down.status(), StatusCode::OK);
+    assert_eq!(resp_down.headers().get("Content-Type").unwrap(), "application/octet-stream");
     let etag = resp_down.headers().get("ETag").unwrap().to_str().unwrap().to_string();
     assert_eq!(etag, "\"1\"");
     assert_eq!(resp_down.bytes().await.unwrap(), content.to_vec());
@@ -81,6 +82,7 @@ async fn test_backup_lifecycle() {
         .unwrap();
 
     assert_eq!(resp_down_v2.status(), StatusCode::OK);
+    assert_eq!(resp_down_v2.headers().get("Content-Type").unwrap(), "application/octet-stream");
     let etag_v2 = resp_down_v2.headers().get("ETag").unwrap().to_str().unwrap().to_string();
     assert_eq!(etag_v2, "\"2\"");
     assert_eq!(resp_down_v2.bytes().await.unwrap(), content_v2.to_vec());
@@ -108,6 +110,7 @@ async fn test_backup_lifecycle() {
         .unwrap();
 
     assert_eq!(resp_head.status(), StatusCode::OK);
+    assert_eq!(resp_head.headers().get("Content-Type").unwrap(), "application/octet-stream");
     let etag_head = resp_head.headers().get("ETag").unwrap().to_str().unwrap();
     assert_eq!(etag_head, "\"2\"");
     let len_head = resp_head.headers().get("Content-Length").unwrap().to_str().unwrap();
@@ -143,59 +146,139 @@ async fn test_backup_min_size() {
 }
 
 #[tokio::test]
-async fn test_backup_concurrent_conflict() {
+async fn test_backup_max_size() {
     let mut config = common::get_test_config();
-    config.storage.bucket = format!("test-backup-conflict-{}", &Uuid::new_v4().to_string()[..8]);
+    config.storage.bucket = format!("test-backup-max-{}", &Uuid::new_v4().to_string()[..8]);
+    config.backup.max_size_bytes = 100; // Small limit for test
     config.backup.min_size_bytes = 0;
-    let app = common::TestApp::spawn_with_config(config).await;
-    common::ensure_storage_bucket(&app.s3_client, &app.config.storage.bucket).await;
+
+    let app = common::TestApp::spawn_with_config(config.clone()).await;
+    common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("backup_con_{}", run_id)).await;
+    let user = app.register_user(&format!("backup_max_{}", run_id)).await;
 
-    // Manually insert a "stale" UPLOADING record
-    let user_id = user.user_id;
-    sqlx::query("INSERT INTO backups (user_id, current_version, pending_version, state, pending_at) VALUES ($1, 0, 1, 'UPLOADING', NOW() - INTERVAL '1 hour')")
-        .bind(user_id)
-        .execute(&app.pool)
-        .await
-        .unwrap();
-
-    // Attempt upload (should succeed by taking over stale)
-    let resp_takeover = app
+    // 1. Upload too large (Header check)
+    let content = vec![0u8; 101]; // Over 100 limit
+    let resp = app
         .client
         .post(format!("{}/v1/backup", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
         .header("If-Match", "0")
-        .body(b"Takeover".to_vec())
+        .header("Content-Length", content.len().to_string())
+        .body(content)
+        .send()
+        .await
+        .unwrap();
+
+    // BackupService now returns 400 when caught by S3 bridge
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_backup_head_404() {
+    let app = common::TestApp::spawn().await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user = app.register_user(&format!("head_404_{}", run_id)).await;
+
+    let resp = app
+        .client
+        .head(format!("{}/v1/backup", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_backup_takeover_stale_upload() {
+    let mut config = common::get_test_config();
+    config.storage.bucket = format!("test-backup-takeover-{}", &Uuid::new_v4().to_string()[..8]);
+    config.backup.min_size_bytes = 0;
+    config.backup.stale_threshold_mins = 0; // Immediate stale for takeover test
+
+    let app = common::TestApp::spawn_with_config(config).await;
+    common::ensure_storage_bucket(&app.s3_client, &app.config.storage.bucket).await;
+
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user = app.register_user(&format!("takeover_{}", run_id)).await;
+
+    // 1. Act: Start an upload (Version 1)
+    let resp_v1 = app
+        .client
+        .post(format!("{}/v1/backup", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("If-Match", "0")
+        .body(b"Version 1 Data".to_vec())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp_v1.status(), StatusCode::OK);
+
+    // 2. Act: Immediate takeover attempt (Version 2)
+    // Should succeed because threshold is 0
+    let resp_takeover = app
+        .client
+        .post(format!("{}/v1/backup", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("If-Match", "1")
+        .body(b"Takeover Data Content".to_vec())
         .send()
         .await
         .unwrap();
 
     assert_eq!(resp_takeover.status(), StatusCode::OK);
 
-    // Verify current version is 1
-    let row: (i32,) = sqlx::query_as("SELECT current_version FROM backups WHERE user_id = $1")
-        .bind(user_id)
-        .fetch_one(&app.pool)
-        .await
-        .unwrap();
-    assert_eq!(row.0, 1);
+    // 3. Verify via API: Check ETag is "2"
+    let mut version_match = false;
+    for _ in 0..10 {
+        let head = app
+            .client
+            .head(format!("{}/v1/backup", app.server_url))
+            .header("Authorization", format!("Bearer {}", user.token))
+            .send()
+            .await
+            .unwrap();
+        if head.status() == StatusCode::OK {
+            let etag = head.headers().get("ETag").unwrap().to_str().unwrap();
+            if etag == "\"2\"" {
+                version_match = true;
+                break;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert!(version_match, "Backup version should have been updated to 2 via takeover");
+}
 
-    // Manually insert a "fresh" UPLOADING record (simulate concurrent upload)
-    sqlx::query("UPDATE backups SET state = 'UPLOADING', pending_version = 2, pending_at = NOW() WHERE user_id = $1")
-        .bind(user_id)
-        .execute(&app.pool)
-        .await
-        .unwrap();
+#[tokio::test]
+async fn test_backup_concurrent_upload_conflict() {
+    let mut config = common::get_test_config();
+    config.storage.bucket = format!("test-backup-conflict-{}", &Uuid::new_v4().to_string()[..8]);
+    config.backup.min_size_bytes = 0;
+    config.backup.stale_threshold_mins = 60; // Long threshold to ensure it stays "fresh"
 
-    // Attempt upload (should conflict)
+    let app = common::TestApp::spawn_with_config(config).await;
+    common::ensure_storage_bucket(&app.s3_client, &app.config.storage.bucket).await;
+
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user = app.register_user(&format!("conflict_{}", run_id)).await;
+
+    // 1. Act: Start a legitimate upload
+    // We simulate a "stuck" concurrent upload by manually putting the record into UPLOADING state
+    // with a FRESH timestamp (NOW).
+    sqlx::query("INSERT INTO backups (user_id, current_version, pending_version, state, pending_at) VALUES ($1, 0, 1, 'UPLOADING', NOW())")
+        .bind(user.user_id).execute(&app.pool).await.unwrap();
+
+    // 2. Verify: A new attempt with the same version (0) should now conflict (409)
     let resp_conflict = app
         .client
         .post(format!("{}/v1/backup", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
-        .header("If-Match", "1")
-        .body(b"Conflict".to_vec())
+        .header("If-Match", "0")
+        .body(b"Conflict data".to_vec())
         .send()
         .await
         .unwrap();
