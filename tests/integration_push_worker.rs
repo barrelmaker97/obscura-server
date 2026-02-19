@@ -154,5 +154,9 @@ async fn test_push_worker_removes_job_when_user_has_no_token() {
     // If it's still in Redis, it will be returned by lease_due_jobs.
     let leased = notification_repo.lease_due_jobs(10, 0).await.unwrap();
 
-    assert!(leased.is_empty(), "Job should have been removed because user has no token, but it was still present: {:?}", leased);
+    assert!(
+        leased.is_empty(),
+        "Job should have been removed because user has no token, but it was still present: {:?}",
+        leased
+    );
 }
