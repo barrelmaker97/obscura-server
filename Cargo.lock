@@ -2300,7 +2300,7 @@ dependencies = [
 
 [[package]]
 name = "obscura-server"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "argon2",
