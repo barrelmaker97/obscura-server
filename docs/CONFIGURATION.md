@@ -86,14 +86,26 @@ Obscura Server is configured via command-line flags or environment variables usi
 | Flag | Environment Variable | Default | Description |
 |------|----------------------|---------|-------------|
 | `--storage-bucket` | `OBSCURA_STORAGE_BUCKET` | `obscura-attachments` | S3 bucket name for storing encrypted attachments. |
-| `--storage-region` | `OBSCURA_STORAGE_REGION" | `us-east-1` | S3 region where the bucket is located. |
+| `--storage-region` | `OBSCURA_STORAGE_REGION` | `us-east-1` | S3 region where the bucket is located. |
 | `--storage-endpoint` | `OBSCURA_STORAGE_ENDPOINT` | None | Custom endpoint URL for S3-compatible services like MinIO. |
 | `--storage-access-key` | `OBSCURA_STORAGE_ACCESS_KEY` | None | S3 access key ID. |
 | `--storage-secret-key` | `OBSCURA_STORAGE_SECRET_KEY` | None | S3 secret access key. |
 | `--storage-force-path-style` | `OBSCURA_STORAGE_FORCE_PATH_STYLE` | `false` | Whether to force path-style S3 URLs (required for MinIO). |
 | `--storage-max-size-bytes` | `OBSCURA_STORAGE_MAX_SIZE_BYTES` | `52428800` | Maximum allowed size for a single attachment in bytes (50MB). |
+| `--storage-attachment-prefix` | `OBSCURA_STORAGE_ATTACHMENT_PREFIX` | `attachments/` | S3 prefix for logical namespacing of attachments. |
+| `--storage-backup-prefix` | `OBSCURA_STORAGE_BACKUP_PREFIX` | `backups/` | S3 prefix for logical namespacing of backups. |
 | `--storage-cleanup-interval-secs` | `OBSCURA_STORAGE_CLEANUP_INTERVAL_SECS` | `3600` | How often to run the attachment cleanup task in seconds. |
 | `--storage-cleanup-batch-size` | `OBSCURA_STORAGE_CLEANUP_BATCH_SIZE` | `100` | Maximum number of attachments to delete in a single batch. |
+
+## Backups
+
+| Flag | Environment Variable | Default | Description |
+|------|----------------------|---------|-------------|
+| `--storage-backup-max-size-bytes` | `OBSCURA_BACKUP_MAX_SIZE_BYTES` | `2097152` | Max backup size in bytes (2MB). |
+| `--storage-backup-min-size-bytes` | `OBSCURA_BACKUP_MIN_SIZE_BYTES` | `32` | Min backup size in bytes to prevent accidental wipes. |
+| `--storage-backup-upload-timeout-secs` | `OBSCURA_BACKUP_UPLOAD_TIMEOUT_SECS` | `60` | S3 streaming timeout in seconds. |
+| `--storage-backup-stale-threshold-mins` | `OBSCURA_BACKUP_STALE_THRESHOLD_MINS` | `30` | Grace period for "UPLOADING" state before Janitor cleanup. |
+| `--storage-backup-janitor-interval-secs` | `OBSCURA_BACKUP_JANITOR_INTERVAL_SECS` | `300` | Frequency of background cleanup worker cycles. |
 
 ## WebSockets
 

@@ -318,6 +318,109 @@ paths:
         '429':
           $ref: '#/components/responses/TooManyRequestsError'
 
+  # --- Backups (Encrypted Identity Recovery) ---
+  /v1/backup:
+    get:
+      operationId: getBackup
+      summary: Download the latest backup.
+      description: |
+        Streams the latest encrypted backup blob.
+        Returns `ETag` header containing the version number.
+      tags: [Backup]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Binary backup stream.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/x-request-id'
+            ETag:
+              description: Current backup version.
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/TooManyRequestsError'
+
+    head:
+      operationId: headBackup
+      summary: Check for backup existence.
+      description: |
+        Returns metadata (Content-Length, ETag) without the body.
+        Useful for checking if a local backup is out of date.
+      tags: [Backup]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Backup exists.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/x-request-id'
+            ETag:
+              description: Current backup version.
+              schema:
+                type: string
+            Content-Length:
+              schema:
+                type: integer
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/TooManyRequestsError'
+
+    post:
+      operationId: uploadBackup
+      summary: Upload a new backup.
+      description: |
+        Uploads a new encrypted backup blob.
+        Uses Optimistic Locking via `If-Match` header to prevent concurrent overwrites.
+      tags: [Backup]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: If-Match
+          in: header
+          required: true
+          schema:
+            type: string
+          description: The current version of the backup on the client (or "0" if none).
+      requestBody:
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+              minLength: 32
+              maxLength: 2097152
+      responses:
+        '200':
+          description: Upload successful.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/x-request-id'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '412':
+          $ref: '#/components/responses/PreconditionFailedError'
+        '429':
+          $ref: '#/components/responses/TooManyRequestsError'
+
   # --- Push Notifications ---
   /v1/push-tokens:
     put:
@@ -386,6 +489,24 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
     NotFoundError:
       description: The requested resource was not found.
+      headers:
+        x-request-id:
+          $ref: '#/components/headers/x-request-id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ConflictError:
+      description: Conflict (e.g., concurrent upload).
+      headers:
+        x-request-id:
+          $ref: '#/components/headers/x-request-id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    PreconditionFailedError:
+      description: Precondition Failed (Version mismatch).
       headers:
         x-request-id:
           $ref: '#/components/headers/x-request-id'
