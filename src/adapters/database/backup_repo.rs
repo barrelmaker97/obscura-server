@@ -18,7 +18,8 @@ impl BackupRepository {
     ///
     /// # Errors
     /// Returns `sqlx::Error` if the query fails.
-    pub async fn find_by_user_id(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Option<Backup>> {
+    #[tracing::instrument(level = "debug", skip(self, conn), err)]
+    pub(crate) async fn find_by_user_id(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Option<Backup>> {
         let record = sqlx::query_as::<_, BackupRecord>("SELECT * FROM backups WHERE user_id = $1")
             .bind(user_id)
             .fetch_optional(conn)
@@ -31,7 +32,8 @@ impl BackupRepository {
     ///
     /// # Errors
     /// Returns `sqlx::Error` if the query fails.
-    pub async fn create_if_not_exists(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Backup> {
+    #[tracing::instrument(level = "debug", skip(self, conn), err)]
+    pub(crate) async fn create_if_not_exists(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Backup> {
         let record = sqlx::query_as::<_, BackupRecord>(
             r#"
             INSERT INTO backups (user_id)
@@ -52,7 +54,8 @@ impl BackupRepository {
     ///
     /// # Errors
     /// Returns `sqlx::Error` if the query fails.
-    pub async fn reserve_slot(
+    #[tracing::instrument(level = "debug", skip(self, conn), err)]
+    pub(crate) async fn reserve_slot(
         &self,
         conn: &mut PgConnection,
         user_id: Uuid,
@@ -81,7 +84,8 @@ impl BackupRepository {
     ///
     /// # Errors
     /// Returns `sqlx::Error` if the query fails.
-    pub async fn reserve_slot_force(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Backup> {
+    #[tracing::instrument(level = "debug", skip(self, conn), err)]
+    pub(crate) async fn reserve_slot_force(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Backup> {
         let record = sqlx::query_as::<_, BackupRecord>(
             r#"
             UPDATE backups
@@ -103,7 +107,13 @@ impl BackupRepository {
     ///
     /// # Errors
     /// Returns `sqlx::Error` if the query fails.
-    pub async fn commit_version(&self, conn: &mut PgConnection, user_id: Uuid, pending_version: i32) -> Result<()> {
+    #[tracing::instrument(level = "debug", skip(self, conn), err)]
+    pub(crate) async fn commit_version(
+        &self,
+        conn: &mut PgConnection,
+        user_id: Uuid,
+        pending_version: i32,
+    ) -> Result<()> {
         sqlx::query(
             r#"
             UPDATE backups
@@ -127,7 +137,8 @@ impl BackupRepository {
     ///
     /// # Errors
     /// Returns `sqlx::Error` if the query fails.
-    pub async fn fetch_stale_uploads(
+    #[tracing::instrument(level = "debug", skip(self, conn), err)]
+    pub(crate) async fn fetch_stale_uploads(
         &self,
         conn: &mut PgConnection,
         threshold: OffsetDateTime,
@@ -148,7 +159,8 @@ impl BackupRepository {
     ///
     /// # Errors
     /// Returns `sqlx::Error` if the query fails.
-    pub async fn reset_stale(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<()> {
+    #[tracing::instrument(level = "debug", skip(self, conn), err)]
+    pub(crate) async fn reset_stale(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<()> {
         sqlx::query(
             "UPDATE backups SET state = 'ACTIVE', pending_version = NULL, pending_at = NULL WHERE user_id = $1",
         )
