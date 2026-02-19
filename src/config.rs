@@ -413,11 +413,26 @@ pub struct WsConfig {
     /// How often to flush pending acknowledgments
     #[arg(long = "ws-ack-flush-interval-ms", env = "OBSCURA_WS_ACK_FLUSH_INTERVAL_MS", default_value_t = WsConfig::default().ack_flush_interval_ms)]
     pub ack_flush_interval_ms: u64,
+
+    /// How often to send a WebSocket ping frame in seconds (0 to disable)
+    #[arg(long = "ws-ping-interval-secs", env = "OBSCURA_WS_PING_INTERVAL_SECS", default_value_t = WsConfig::default().ping_interval_secs)]
+    pub ping_interval_secs: u64,
+
+    /// How long to wait for a pong response before closing the connection in seconds
+    #[arg(long = "ws-ping-timeout-secs", env = "OBSCURA_WS_PING_TIMEOUT_SECS", default_value_t = WsConfig::default().ping_timeout_secs)]
+    pub ping_timeout_secs: u64,
 }
 
 impl Default for WsConfig {
     fn default() -> Self {
-        Self { outbound_buffer_size: 32, ack_buffer_size: 1000, ack_batch_size: 100, ack_flush_interval_ms: 500 }
+        Self {
+            outbound_buffer_size: 32,
+            ack_buffer_size: 1000,
+            ack_batch_size: 100,
+            ack_flush_interval_ms: 500,
+            ping_interval_secs: 30,
+            ping_timeout_secs: 10,
+        }
     }
 }
 
