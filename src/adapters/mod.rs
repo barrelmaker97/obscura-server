@@ -2,3 +2,4 @@
 pub mod database;
 pub mod push;
 pub mod redis;
+pub mod storage;

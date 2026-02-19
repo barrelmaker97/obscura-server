@@ -25,16 +25,19 @@ pub mod telemetry;
 pub mod workers;
 
 use crate::adapters::database::attachment_repo::AttachmentRepository;
+use crate::adapters::database::backup_repo::BackupRepository;
 use crate::adapters::database::key_repo::KeyRepository;
 use crate::adapters::database::message_repo::MessageRepository;
 use crate::adapters::database::push_token_repo::PushTokenRepository;
 use crate::adapters::database::refresh_token_repo::RefreshTokenRepository;
 use crate::adapters::database::user_repo::UserRepository;
 use crate::adapters::push::PushProvider;
+use crate::adapters::storage::S3Storage;
 use crate::config::{Config, StorageConfig};
 use crate::services::account_service::AccountService;
 use crate::services::attachment_service::AttachmentService;
 use crate::services::auth_service::AuthService;
+use crate::services::backup_service::BackupService;
 use crate::services::crypto_service::CryptoService;
 use crate::services::gateway::GatewayService;
 use crate::services::health_service::HealthService;
@@ -43,7 +46,9 @@ use crate::services::message_service::MessageService;
 use crate::services::notification_service::NotificationService;
 use crate::services::push_token_service::PushTokenService;
 use crate::services::rate_limit_service::RateLimitService;
-use crate::workers::{AttachmentCleanupWorker, MessageCleanupWorker, NotificationWorker, PushNotificationWorker};
+use crate::workers::{
+    AttachmentCleanupWorker, BackupCleanupWorker, MessageCleanupWorker, NotificationWorker, PushNotificationWorker,
+};
 use std::sync::Arc;
 use tokio::sync::watch;
 
@@ -58,6 +63,7 @@ pub struct Resources {
 pub struct Services {
     pub key_service: KeyService,
     pub attachment_service: AttachmentService,
+    pub backup_service: BackupService,
     pub account_service: AccountService,
     pub auth_service: AuthService,
     pub message_service: MessageService,
@@ -79,6 +85,7 @@ pub struct App {
 pub struct Workers {
     pub message_worker: MessageCleanupWorker,
     pub attachment_worker: AttachmentCleanupWorker,
+    pub backup_worker: BackupCleanupWorker,
     pub push_worker: PushNotificationWorker,
     pub notification_worker: NotificationWorker,
 }
@@ -98,6 +105,12 @@ impl Workers {
         let attachment_rx = shutdown_rx.clone();
         tasks.push(tokio::spawn(async move {
             attachment_worker.run(attachment_rx).await;
+        }));
+
+        let backup_worker = self.backup_worker;
+        let backup_rx = shutdown_rx.clone();
+        tasks.push(tokio::spawn(async move {
+            backup_worker.run(backup_rx).await;
         }));
 
         let push_worker = self.push_worker;
@@ -192,9 +205,13 @@ impl AppBuilder {
         let user_repo = UserRepository::new();
         let refresh_repo = RefreshTokenRepository::new();
         let attachment_repo = AttachmentRepository::new();
+        let backup_repo = BackupRepository::new();
         let push_token_repo = PushTokenRepository::new();
         let notification_repo =
             Arc::new(adapters::redis::NotificationRepository::new(Arc::clone(&pubsub), &config.notifications));
+
+        // Initialize Storage Adapter
+        let s3_storage: Arc<dyn adapters::storage::ObjectStorage> = Arc::new(S3Storage::new(s3_client.clone(), config.storage.bucket.clone()));
 
         // Initialize Core Services
         let crypto_service = CryptoService::new();
@@ -226,14 +243,20 @@ impl AppBuilder {
         let attachment_service = AttachmentService::new(
             pool.clone(),
             attachment_repo.clone(),
-            s3_client.clone(),
+            Arc::clone(&s3_storage),
             config.storage.clone(),
             config.ttl_days,
+        );
+        let backup_service = BackupService::new(
+            pool.clone(),
+            backup_repo.clone(),
+            Arc::clone(&s3_storage),
+            config.storage.clone(),
         );
         let rate_limit_service = RateLimitService::new(config.server.trusted_proxies.clone());
         let health_service = HealthService::new(
             pool.clone(),
-            s3_client.clone(),
+            s3_client,
             Arc::clone(&pubsub),
             config.storage.bucket.clone(),
             config.health.clone(),
@@ -242,6 +265,7 @@ impl AppBuilder {
         let services = Services {
             key_service,
             attachment_service,
+            backup_service,
             account_service,
             auth_service,
             message_service,
@@ -256,7 +280,13 @@ impl AppBuilder {
             attachment_worker: AttachmentCleanupWorker::new(
                 pool.clone(),
                 attachment_repo,
-                s3_client,
+                Arc::clone(&s3_storage),
+                config.storage.clone(),
+            ),
+            backup_worker: BackupCleanupWorker::new(
+                pool.clone(),
+                backup_repo,
+                Arc::clone(&s3_storage),
                 config.storage.clone(),
             ),
             push_worker: PushNotificationWorker::new(

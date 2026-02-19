@@ -466,6 +466,34 @@ pub struct StorageConfig {
     #[arg(long = "storage-max-size-bytes", env = "OBSCURA_STORAGE_MAX_SIZE_BYTES", default_value_t = StorageConfig::default().attachment_max_size_bytes)]
     pub attachment_max_size_bytes: usize,
 
+    /// S3 prefix for logical namespacing of attachments.
+    #[arg(long = "storage-attachment-prefix", env = "OBSCURA_STORAGE_ATTACHMENT_PREFIX", default_value_t = StorageConfig::default().attachment_prefix)]
+    pub attachment_prefix: String,
+
+    /// S3 prefix for logical namespacing of backups.
+    #[arg(long = "storage-backup-prefix", env = "OBSCURA_STORAGE_BACKUP_PREFIX", default_value_t = StorageConfig::default().backup_prefix)]
+    pub backup_prefix: String,
+
+    /// Max backup size in bytes (Default: 2MB)
+    #[arg(long = "storage-backup-max-size-bytes", env = "OBSCURA_BACKUP_MAX_SIZE_BYTES", default_value_t = StorageConfig::default().backup_max_size_bytes)]
+    pub backup_max_size_bytes: usize,
+
+    /// Min backup size in bytes (Default: 32 bytes)
+    #[arg(long = "storage-backup-min-size-bytes", env = "OBSCURA_BACKUP_MIN_SIZE_BYTES", default_value_t = StorageConfig::default().backup_min_size_bytes)]
+    pub backup_min_size_bytes: usize,
+
+    /// S3 streaming timeout in seconds
+    #[arg(long = "storage-backup-upload-timeout-secs", env = "OBSCURA_BACKUP_UPLOAD_TIMEOUT_SECS", default_value_t = StorageConfig::default().backup_upload_timeout_secs)]
+    pub backup_upload_timeout_secs: u64,
+
+    /// Grace period for "UPLOADING" state before Janitor cleanup in minutes
+    #[arg(long = "storage-backup-stale-threshold-mins", env = "OBSCURA_BACKUP_STALE_THRESHOLD_MINS", default_value_t = StorageConfig::default().backup_stale_threshold_mins)]
+    pub backup_stale_threshold_mins: i64,
+
+    /// Frequency of background cleanup worker cycles in seconds
+    #[arg(long = "storage-backup-janitor-interval-secs", env = "OBSCURA_BACKUP_JANITOR_INTERVAL_SECS", default_value_t = StorageConfig::default().backup_janitor_interval_secs)]
+    pub backup_janitor_interval_secs: u64,
+
     /// How often to run the attachment cleanup task in seconds
     #[arg(
         long = "storage-cleanup-interval-secs",
@@ -490,6 +518,13 @@ impl Default for StorageConfig {
             secret_key: None,
             force_path_style: false,
             attachment_max_size_bytes: 52_428_800,
+            attachment_prefix: "attachments/".to_string(),
+            backup_prefix: "backups/".to_string(),
+            backup_max_size_bytes: 2_097_152,
+            backup_min_size_bytes: 32,
+            backup_upload_timeout_secs: 60,
+            backup_stale_threshold_mins: 30,
+            backup_janitor_interval_secs: 300,
             cleanup_interval_secs: 3600,
             cleanup_batch_size: 100,
         }

@@ -4,6 +4,7 @@ use crate::config::Config;
 use crate::services::account_service::AccountService;
 use crate::services::attachment_service::AttachmentService;
 use crate::services::auth_service::AuthService;
+use crate::services::backup_service::BackupService;
 use crate::services::gateway::GatewayService;
 use crate::services::health_service::HealthService;
 use crate::services::key_service::KeyService;
@@ -16,7 +17,7 @@ use axum::http::Request;
 use axum::{
     Router,
     middleware::from_fn_with_state,
-    routing::{delete, get, post, put},
+    routing::{delete, get, head, post, put},
 };
 use std::sync::Arc;
 use tower_governor::GovernorLayer;
@@ -26,6 +27,7 @@ use tower_http::trace::TraceLayer;
 
 pub mod attachments;
 pub mod auth;
+pub mod backup;
 pub mod docs;
 pub mod gateway;
 pub mod health;
@@ -41,6 +43,7 @@ pub struct AppState {
     pub config: Config,
     pub key_service: KeyService,
     pub attachment_service: AttachmentService,
+    pub backup_service: BackupService,
     pub account_service: AccountService,
     pub auth_service: AuthService,
     pub message_service: MessageService,
@@ -86,6 +89,7 @@ pub fn app_router(config: Config, services: Services, shutdown_rx: tokio::sync::
         config,
         key_service: services.key_service,
         attachment_service: services.attachment_service,
+        backup_service: services.backup_service,
         account_service: services.account_service,
         auth_service: services.auth_service,
         message_service: services.message_service,
@@ -112,6 +116,9 @@ pub fn app_router(config: Config, services: Services, shutdown_rx: tokio::sync::
         .route("/gateway", get(gateway::websocket_handler))
         .route("/attachments", post(attachments::upload_attachment))
         .route("/attachments/{id}", get(attachments::download_attachment))
+        .route("/backup", get(backup::download_backup))
+        .route("/backup", post(backup::upload_backup))
+        .route("/backup", head(backup::head_backup))
         .route("/push-tokens", put(push_tokens::register_token))
         .layer(GovernorLayer::new(standard_conf));
 
