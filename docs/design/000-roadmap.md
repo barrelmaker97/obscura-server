@@ -4,21 +4,16 @@ This document serves as the master index for planned work and architectural visi
 
 ## 🗺️ Feature Roadmap
 
-### 📊 Phase 1: Operational Maturity
-*Establishing a stable, measurable foundation before adding complexity.*
-- [x] **[006: Operational Hardening](006-operational-hardening.md)**: Request tracing, structured logging, and graceful shutdowns. (DONE)
-- [x] **[005: Observability](005-observability.md)**: OpenTelemetry-native pipeline for traces, metrics, and business KPIs. (DONE)
-
-### 📱 Phase 2: Mobile Essentials
+### 📱 Phase 1: Mobile Essentials
 *Features required for a functional mobile application experience.*
 - [ ] **[004: Push Notifications](004-push-notifications.md)**: Generic FCM/APNs alerts for offline delivery and "wake-up" functionality.
 - [ ] **[001: Encrypted Cloud Backup](001-encrypted-backup.md)**: Secure account recovery via client-side password encryption to prevent data loss.
 
-### 👤 Phase 3: Identity & Social
+### 👤 Phase 2: Identity & Social
 *Enhancing the user experience and social features.*
 - [ ] **[002: Profile Management](002-profile-management.md)**: Persistent avatars and encrypted profile metadata.
 
-### 🛡️ Phase 4: Privacy Evolution
+### 🛡️ Phase 3: Privacy Evolution
 *Advanced cryptographic privacy features.*
 - [ ] **[003: Sealed Sender](003-sealed-sender.md)**: Transitioning to Unidentified Delivery and capability-based blocking.
 
