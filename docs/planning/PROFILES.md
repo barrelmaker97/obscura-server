@@ -1,4 +1,4 @@
-# Design Doc 002: Profile Management
+# Profile Management
 
 ## 1. Overview
 Users need a way to share a display name and avatar with other users without exposing this data to the server in plaintext.

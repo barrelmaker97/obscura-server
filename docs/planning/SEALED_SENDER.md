@@ -1,4 +1,4 @@
-# Design Doc 003: Sealed Sender (Signal Protocol Standard)
+# Sealed Sender (Signal Protocol Standard)
 
 ## 1. Overview
 Sealed Sender (Unidentified Delivery) allows users to send messages without revealing their identity (`sender_id`) to the server. The server knows *where* the message is going, but not *who* sent it.
