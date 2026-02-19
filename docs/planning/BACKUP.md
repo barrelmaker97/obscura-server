@@ -43,7 +43,7 @@ When a client calls `POST /v1/backup`:
 1. **Reservation**:
     - Acquire DB connection.
     - `SELECT FOR UPDATE` on user's backup row.
-    - Verify `If-Match` version (Optimistic Locking).
+    - Verify `If-Match` version (Optimistic Locking). Return **`412 Precondition Failed`** on mismatch.
     - Set `state = 'UPLOADING'`, `pending_version = current + 1`, `pending_at = NOW()`.
     - **Release DB connection** back to the pool.
 2. **Streaming**:
@@ -73,16 +73,24 @@ Always use versioned keys (`backups/{user_id}/v{version}`) to ensure that a fail
 
 ## 5. API Endpoints
 
-#### `POST /v1/backup`
-- **Auth**: Required.
-- **Headers**: `If-Match: <version>`.
-- **Body**: Binary blob (2MB Max, 32b Min).
-- **Action**: Atomic swap orchestration.
-
 #### `GET /v1/backup`
 - **Auth**: Required.
 - **Response**: Streams `backups/{user_id}/v{current_version}` from S3.
 - **Headers**: `ETag` (contains `current_version`).
+
+#### `HEAD /v1/backup`
+- **Auth**: Required.
+- **Response**: `200 OK` (No body).
+- **Headers**: Returns the same `ETag` and `Content-Length` as `GET`.
+- **Use Case**: Lightweight check for existence and version mismatch without downloading data.
+
+#### `POST /v1/backup`
+- **Auth**: Required.
+- **Headers**: 
+    - `If-Match: <version>`: Mandatory. Return `412` on mismatch.
+    - `Expect: 100-continue`: (Recommended) Allows server to reject stale versions before client sends the body.
+- **Body**: Binary blob (2MB Max, 32b Min).
+- **Action**: Atomic swap orchestration.
 
 ## 6. Implementation Tasks
 
@@ -94,11 +102,13 @@ Always use versioned keys (`backups/{user_id}/v{version}`) to ensure that a fail
 
 ### Phase 2: Orchestration
 - [ ] Implement `BackupService` with the "Atomic Swap" logic.
+- [ ] Add `412 Precondition Failed` and `409 Conflict` error mapping.
 - [ ] Refactor `AttachmentService` to use the new `ObjectStorage` trait.
 - [ ] Add `BackupCleanupWorker` (The Janitor).
 
 ### Phase 3: API & Testing
-- [ ] Implement `POST /v1/backup` and `GET /v1/backup` endpoints.
+- [ ] Implement `GET`, `HEAD`, and `POST /v1/backup` endpoints.
+- [ ] Support `Expect: 100-continue` logic in the backup handler.
 - [ ] Integration test: Mock S3 failure during upload and verify DB state remains consistent.
-- [ ] Integration test: Verify `409 Conflict` on version mismatch.
+- [ ] Integration test: Verify `412` on version mismatch and `409` on concurrent upload.
 - [ ] Integration test: Verify Janitor cleans up stale `UPLOADING` records.
