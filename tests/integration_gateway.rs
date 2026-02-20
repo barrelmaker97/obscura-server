@@ -21,11 +21,11 @@ async fn test_server_sends_ping() {
     let mut received_ping = false;
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(5) {
-        if let Some(Ok(msg)) = client.receive_raw_timeout(Duration::from_millis(500)).await {
-            if matches!(msg, Message::Ping(_)) {
-                received_ping = true;
-                break;
-            }
+        if let Some(Ok(msg)) = client.receive_raw_timeout(Duration::from_millis(500)).await
+            && matches!(msg, Message::Ping(_))
+        {
+            received_ping = true;
+            break;
         }
     }
 

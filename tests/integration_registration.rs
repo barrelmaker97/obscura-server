@@ -79,7 +79,8 @@ async fn test_register_flow() {
     let resp_keys = app
         .client
         .get(format!("{}/v1/keys/{}", app.server_url, user_id))
-        .send() // No auth needed for key fetch
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
         .await
         .unwrap();
 

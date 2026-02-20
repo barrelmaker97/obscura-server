@@ -10,12 +10,19 @@ info:
     **Protobuf Definitions:**
     The WebSocket and Message schemas are defined in the [obscura-proto](https://github.com/barrelmaker97/obscura-proto/blob/main/obscura/v1/obscura.proto) repository.
   version: 0.0.0
+  license:
+    name: GPL-3.0-or-later
+    url: https://www.gnu.org/licenses/gpl-3.0.html
+security:
+  - bearerAuth: []
 paths:
   # --- Account & Identity ---
   /v1/users:
     post:
+      operationId: registerUser
       summary: Register a new user device.
       tags: [Account]
+      security: []
       requestBody:
         content:
           application/json:
@@ -49,8 +56,10 @@ paths:
 
   /v1/sessions:
     post:
+      operationId: login
       summary: Login and retrieve a session token.
       tags: [Account]
+      security: []
       requestBody:
         content:
           application/json:
@@ -74,6 +83,7 @@ paths:
           $ref: '#/components/responses/TooManyRequestsError'
 
     delete:
+      operationId: logout
       summary: Logout (Revoke Refresh Token).
       description: |
         Revokes the provided Refresh Token, effectively logging the user out of that session.
@@ -98,11 +108,13 @@ paths:
 
   /v1/sessions/refresh:
     post:
+      operationId: refreshToken
       summary: Refresh Access Token.
       description: |
         Exchanges a valid Refresh Token for a new pair (Access Token + Refresh Token).
         Implements Rotation: The old Refresh Token is invalidated immediately.
       tags: [Account]
+      security: []
       requestBody:
         content:
           application/json:
@@ -126,6 +138,7 @@ paths:
   # --- Keys (X3DH) ---
   /v1/keys:
     post:
+      operationId: uploadKeys
       summary: Upload PreKeys or Perform Device Takeover.
       description: |
         Uploads new Signed PreKeys and One-Time PreKeys.
@@ -163,6 +176,7 @@ paths:
 
   /v1/keys/{userId}:
     get:
+      operationId: getPreKeyBundle
       summary: Fetch PreKey Bundle.
       description: |
         Returns active PreKey bundle for the target user.
@@ -195,6 +209,7 @@ paths:
   # --- Messaging (REST Upstream) ---
   /v1/messages/{recipientId}:
     post:
+      operationId: sendMessage
       summary: Send an encrypted message (Push).
       description: |
         Pushes an encrypted envelope to the target device's queue.
@@ -242,6 +257,7 @@ paths:
   # --- WebSocket Gateway (Documentation Only) ---
   /v1/gateway:
     get:
+      operationId: connectGateway
       summary: Connect to the Message Stream.
       description: |
         **WebSocket Endpoint.**
@@ -252,6 +268,8 @@ paths:
         - **Welcome:** Upon successful connection, the server may immediately push a `PreKeyStatus` frame if the user's one-time pre-key count is below the configured threshold.
         - **Flow:** Server pushes `Envelope` frames. Client MUST respond with `AckMessage` frames. Server batches deletions based on ACKs.
       tags: [Messaging]
+      security:
+        - tokenAuth: []
       parameters:
         - name: token
           in: query
@@ -270,6 +288,7 @@ paths:
   # --- Attachments (Binary Storage) ---
   /v1/attachments:
     post:
+      operationId: uploadAttachment
       summary: Upload an attachment.
       description: |
         Uploads an encrypted binary blob to long-term storage.
@@ -310,6 +329,7 @@ paths:
 
   /v1/attachments/{id}:
     get:
+      operationId: downloadAttachment
       summary: Download an attachment.
       tags: [Attachments]
       security:
@@ -426,6 +446,7 @@ paths:
             Content-Length:
               schema:
                 type: integer
+                format: int32
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':
@@ -444,7 +465,7 @@ paths:
 
         **Flow:**
         1. **Initial Upload:** Client MUST send `If-None-Match: *`.
-        2. Client MUST send `If-Match` with the latest version number (as received in a previous `ETag`).
+        2. **Update:** Client MUST send `If-Match` with the latest version number (as received in a previous `ETag`).
         3. If the preconditions match and no other upload is in progress, the server accepts the stream.
         4. If the version does not match or resource already exists when `*` is used, server returns `412 Precondition Failed`.
         5. If another upload is already in progress, server returns `409 Conflict`.
@@ -463,7 +484,7 @@ paths:
           required: false
           schema:
             type: string
-          description: Set to "*" for the first upload to ensure no backup exists.
+          description: Set to "*" for the first upload to ensure no backup exists. Required for initial upload.
       requestBody:
         content:
           application/octet-stream:
@@ -498,6 +519,7 @@ paths:
   # --- Push Notifications ---
   /v1/push-tokens:
     put:
+      operationId: updatePushToken
       summary: Register or update a push notification token.
       description: |
         Associates an FCM or APNS token with the authenticated user device for wake-up signals.
@@ -532,6 +554,10 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    tokenAuth:
+      type: apiKey
+      in: query
+      name: token
 
   headers:
     x-request-id:
@@ -555,7 +581,7 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     BadRequestError:
-      description: Invalid input or malformed request (e.g. upload too small).
+      description: Invalid input, malformed request, or missing required headers (e.g. version or length).
       headers:
         x-request-id:
           $ref: '#/components/headers/x-request-id'
@@ -662,6 +688,7 @@ components:
           type: string
         password:
           type: string
+          minLength: 12
 
     LogoutRequest:
       type: object
@@ -699,12 +726,14 @@ components:
           type: string
         password:
           type: string
+          minLength: 12
         identityKey:
           type: string
           format: byte
           description: Base64 encoded public identity key.
         registrationId:
           type: integer
+          format: int32
         signedPreKey:
           $ref: '#/components/schemas/SignedPreKey'
         oneTimePreKeys:
@@ -724,6 +753,7 @@ components:
           description: Optional Base64 Identity Key. Triggers takeover if changed.
         registrationId:
           type: integer
+          format: int32
           description: Required if identityKey is provided.
         signedPreKey:
           description: Signed Pre-Key. ID must be strictly greater than the current stored ID.
@@ -739,12 +769,14 @@ components:
       properties:
         registrationId:
           type: integer
+          format: int32
         identityKey:
           type: string
           format: byte
         signedPreKey:
           $ref: '#/components/schemas/SignedPreKey'
         oneTimePreKey:
+          type: object
           nullable: true
           allOf:
             - $ref: '#/components/schemas/OneTimePreKey'
@@ -758,6 +790,7 @@ components:
       properties:
         keyId:
           type: integer
+          format: int32
         publicKey:
           type: string
           format: byte
@@ -775,6 +808,7 @@ components:
       properties:
         keyId:
           type: integer
+          format: int32
         publicKey:
           type: string
           format: byte
