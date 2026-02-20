@@ -376,7 +376,6 @@ paths:
         '429':
           $ref: '#/components/responses/TooManyRequestsError'
 
-
   # --- Backups (Encrypted Identity Recovery) ---
   /v1/backup:
     get:
@@ -731,7 +730,7 @@ components:
         identityKey:
           type: string
           format: byte
-          description: Base64 encoded public identity key (33 bytes).
+          description: Base64 encoded public identity key.
         registrationId:
           type: integer
           format: int32
@@ -751,7 +750,7 @@ components:
         identityKey:
           type: string
           format: byte
-          description: Optional Base64 Identity Key (33 bytes). Triggers takeover if changed.
+          description: Optional Base64 Identity Key. Triggers takeover if changed.
         registrationId:
           type: integer
           format: int32
@@ -795,11 +794,11 @@ components:
         publicKey:
           type: string
           format: byte
-          description: Base64 encoded public key (33 bytes)
+          description: Base64 encoded public key
         signature:
           type: string
           format: byte
-          description: Base64 encoded signature (64 bytes)
+          description: Base64 encoded signature
 
     OneTimePreKey:
       type: object
@@ -813,7 +812,7 @@ components:
         publicKey:
           type: string
           format: byte
-          description: Base64 encoded public key (33 bytes)
+          description: Base64 encoded public key
 
     AttachmentResponse:
       type: object
