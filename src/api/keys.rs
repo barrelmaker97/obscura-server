@@ -16,7 +16,11 @@ use uuid::Uuid;
 ///
 /// # Errors
 /// Returns `AppError::NotFound` if the user or their keys do not exist.
-pub async fn get_pre_key_bundle(State(state): State<AppState>, Path(user_id): Path<Uuid>) -> Result<impl IntoResponse> {
+pub async fn get_pre_key_bundle(
+    _auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(user_id): Path<Uuid>,
+) -> Result<impl IntoResponse> {
     let bundle = state.key_service.get_pre_key_bundle(user_id).await?;
 
     bundle.map_or_else(|| Err(AppError::NotFound), |b| Ok(Json(PreKeyBundleResponse::from(b))))
