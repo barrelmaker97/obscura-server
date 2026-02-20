@@ -40,7 +40,7 @@ async fn test_backup_upload_timeout() {
         .client
         .post(format!("{}/v1/backup", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
-        .header("If-Match", "0")
+        .header("If-None-Match", "*")
         .header("Content-Length", "40")
         .body(reqwest::Body::wrap_stream(delayed_stream))
         .send()

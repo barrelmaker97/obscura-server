@@ -21,15 +21,23 @@ pub async fn upload_backup(
     headers: HeaderMap,
     body: Body,
 ) -> Result<impl IntoResponse> {
-    let if_match_header = headers
-        .get("If-Match")
-        .ok_or(AppError::BadRequest("Missing If-Match header".into()))?
-        .to_str()
-        .map_err(|_| AppError::BadRequest("Invalid If-Match header".into()))?;
+    // 1. Determine target version using Optimistic Locking headers
+    let if_match_version = if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH) {
+        if if_none_match == "*" {
+            0 // Standard way to say "only if it doesn't exist"
+        } else {
+            return Err(AppError::BadRequest("Invalid If-None-Match header".into()));
+        }
+    } else {
+        let if_match_header = headers
+            .get(header::IF_MATCH)
+            .ok_or(AppError::BadRequest("Missing If-Match or If-None-Match header".into()))?
+            .to_str()
+            .map_err(|_| AppError::BadRequest("Invalid If-Match header".into()))?;
 
-    let if_match_str = if_match_header.trim_matches('"');
-    let if_match_version =
-        if_match_str.parse::<i32>().map_err(|_| AppError::BadRequest("Invalid version in If-Match header".into()))?;
+        let if_match_str = if_match_header.trim_matches('"');
+        if_match_str.parse::<i32>().map_err(|_| AppError::BadRequest("Invalid version in If-Match header".into()))?
+    };
 
     let content_len = headers
         .get(header::CONTENT_LENGTH)
@@ -49,7 +57,24 @@ pub async fn upload_backup(
 /// # Errors
 /// Returns `AppError::NotFound` if the backup does not exist.
 /// Returns `AppError::Internal` if there is an error during download.
-pub async fn download_backup(auth_user: AuthUser, State(state): State<AppState>) -> Result<impl IntoResponse> {
+pub async fn download_backup(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse> {
+    // 1. Check If-None-Match for caching optimization
+    if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH).and_then(|v| v.to_str().ok()) {
+        let if_none_match_version = if_none_match.trim_matches('"');
+        if let Ok(version) = if_none_match_version.parse::<i32>() {
+            // Fast-path: Check DB version before touching S3
+            if let Some(current_version) = state.backup_service.get_current_version(auth_user.user_id).await?
+                && current_version == version
+            {
+                return Ok(StatusCode::NOT_MODIFIED.into_response());
+            }
+        }
+    }
+
     let (version, len, stream) = state.backup_service.download(auth_user.user_id).await?;
 
     // Bridge StorageStream -> Axum Body

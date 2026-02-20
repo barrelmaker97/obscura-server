@@ -35,7 +35,7 @@ async fn test_backup_lifecycle() {
         .client
         .post(format!("{}/v1/backup", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
-        .header("If-Match", "0")
+        .header("If-None-Match", "*")
         .body(content.to_vec())
         .send()
         .await
@@ -135,7 +135,7 @@ async fn test_backup_min_size() {
         .client
         .post(format!("{}/v1/backup", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
-        .header("If-Match", "0")
+        .header("If-None-Match", "*")
         .header("Content-Length", content.len().to_string())
         .body(content.to_vec())
         .send()
@@ -164,7 +164,7 @@ async fn test_backup_max_size() {
         .client
         .post(format!("{}/v1/backup", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
-        .header("If-Match", "0")
+        .header("If-None-Match", "*")
         .header("Content-Length", content.len().to_string())
         .body(content)
         .send()
@@ -210,7 +210,7 @@ async fn test_backup_takeover_stale_upload() {
         .client
         .post(format!("{}/v1/backup", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
-        .header("If-Match", "0")
+        .header("If-None-Match", "*")
         .body(b"Version 1 Data".to_vec())
         .send()
         .await
@@ -277,7 +277,7 @@ async fn test_backup_concurrent_upload_conflict() {
         .client
         .post(format!("{}/v1/backup", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
-        .header("If-Match", "0")
+        .header("If-None-Match", "*")
         .body(b"Conflict data".to_vec())
         .send()
         .await
@@ -365,7 +365,7 @@ async fn test_backup_version_rotation_and_cleanup() {
         .client
         .post(format!("{}/v1/backup", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
-        .header("If-Match", "0")
+        .header("If-None-Match", "*")
         .body(content_v1.to_vec())
         .send()
         .await
@@ -436,7 +436,7 @@ async fn test_backup_stream_limits() {
         .client
         .post(format!("{}/v1/backup", app.server_url))
         .header("Authorization", format!("Bearer {}", user1.token))
-        .header("If-Match", "0")
+        .header("If-None-Match", "*")
         .body(reqwest::Body::wrap_stream(stream_small))
         .send()
         .await
@@ -449,7 +449,7 @@ async fn test_backup_stream_limits() {
         .client
         .post(format!("{}/v1/backup", app.server_url))
         .header("Authorization", format!("Bearer {}", user2.token))
-        .header("If-Match", "0")
+        .header("If-None-Match", "*")
         .header("Content-Length", "5") // Too small for config (min 10)
         .body(vec![0u8; 5])
         .send()
@@ -463,7 +463,7 @@ async fn test_backup_stream_limits() {
         .client
         .post(format!("{}/v1/backup", app.server_url))
         .header("Authorization", format!("Bearer {}", user3.token))
-        .header("If-Match", "0")
+        .header("If-None-Match", "*")
         .header("Content-Length", "25") // Too large for config (max 20)
         .body(vec![0u8; 25])
         .send()
@@ -478,11 +478,113 @@ async fn test_backup_stream_limits() {
         .client
         .post(format!("{}/v1/backup", app.server_url))
         .header("Authorization", format!("Bearer {}", user4.token))
-        .header("If-Match", "0")
+        .header("If-None-Match", "*")
         .header("Content-Length", "15")
         .body(reqwest::Body::wrap_stream(stream_ok))
         .send()
         .await
         .unwrap();
     assert_eq!(resp_ok.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_backup_conditional_download() {
+    let mut config = common::get_test_config();
+    config.storage.bucket = format!("test-backup-cond-{}", &Uuid::new_v4().to_string()[..8]);
+    config.backup.min_size_bytes = 0;
+
+    let app = common::TestApp::spawn_with_config(config.clone()).await;
+    common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
+
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user = app.register_user(&format!("cond_user_{}", run_id)).await;
+
+    // 1. Initial Upload
+    let content = b"Backup Data v1";
+    app.client
+        .post(format!("{}/v1/backup", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("If-None-Match", "*")
+        .header("Content-Length", content.len().to_string())
+        .body(content.to_vec())
+        .send()
+        .await
+        .unwrap();
+
+    // 2. Download with matching If-None-Match
+    let resp_304 = app
+        .client
+        .get(format!("{}/v1/backup", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("If-None-Match", "\"1\"")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp_304.status(), StatusCode::NOT_MODIFIED);
+
+    // 3. Download with non-matching If-None-Match
+    let resp_200 = app
+        .client
+        .get(format!("{}/v1/backup", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("If-None-Match", "\"0\"")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp_200.status(), StatusCode::OK);
+    assert_eq!(resp_200.bytes().await.unwrap(), content.to_vec());
+}
+
+#[tokio::test]
+async fn test_backup_header_conflicts() {
+    let mut config = common::get_test_config();
+    config.storage.bucket = format!("test-backup-headers-{}", &Uuid::new_v4().to_string()[..8]);
+    config.backup.min_size_bytes = 0;
+
+    let app = common::TestApp::spawn_with_config(config.clone()).await;
+    common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
+
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user = app.register_user(&format!("headers_user_{}", run_id)).await;
+
+    // 1. Both If-Match and If-None-Match (Standard Precedence check)
+    // Client sends both. RFC 7232 says If-None-Match takes precedence.
+    // Our implementation correctly ignores If-Match and uses If-None-Match: *
+    let resp_both = app
+        .client
+        .post(format!("{}/v1/backup", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("If-None-Match", "*")
+        .header("If-Match", "\"5\"") // This should be ignored
+        .header("Content-Length", "4")
+        .body(b"data".to_vec())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp_both.status(), StatusCode::OK);
+
+    // 2. Invalid If-None-Match (not *)
+    let resp_bad_none = app
+        .client
+        .post(format!("{}/v1/backup", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("If-None-Match", "\"1\"") // We only support * for upload
+        .header("Content-Length", "4")
+        .body(b"data".to_vec())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp_bad_none.status(), StatusCode::BAD_REQUEST);
+
+    // 3. Missing both headers
+    let resp_missing = app
+        .client
+        .post(format!("{}/v1/backup", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("Content-Length", "4")
+        .body(b"data".to_vec())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp_missing.status(), StatusCode::BAD_REQUEST);
 }

@@ -209,4 +209,14 @@ impl BackupService {
             Err(AppError::NotFound)
         }
     }
+
+    /// Returns the current version of the user's backup if it exists.
+    ///
+    /// # Errors
+    /// Returns `AppError::Database` if the query fails.
+    pub async fn get_current_version(&self, user_id: Uuid) -> Result<Option<i32>> {
+        let mut conn = self.pool.acquire().await.map_err(AppError::Database)?;
+        let backup = self.repo.find_by_user_id(&mut conn, user_id).await?;
+        Ok(backup.map(|b| b.current_version))
+    }
 }
