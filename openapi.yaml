@@ -501,14 +501,7 @@ paths:
             x-request-id:
               $ref: '#/components/headers/x-request-id'
         '400':
-          description: Bad Request (e.g. invalid version header).
-          headers:
-            x-request-id:
-              $ref: '#/components/headers/x-request-id'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
+          $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '408':
@@ -589,7 +582,7 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
     BadRequestError:
-      description: Invalid input or malformed request (e.g. upload too small).
+      description: Invalid input, malformed request, or missing required headers (e.g. version or length).
       headers:
         x-request-id:
           $ref: '#/components/headers/x-request-id'
