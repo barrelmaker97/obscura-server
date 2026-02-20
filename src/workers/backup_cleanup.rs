@@ -90,6 +90,11 @@ impl BackupCleanupWorker {
     ///
     /// # Errors
     /// Returns an error if the database or storage operations fail.
+    #[tracing::instrument(
+        err,
+        skip(self),
+        fields(total_cleaned = tracing::field::Empty)
+    )]
     pub async fn cleanup_stale(&self) -> Result<u64> {
         let mut total_cleaned = 0;
         let threshold = OffsetDateTime::now_utc() - Duration::minutes(self.backup_config.stale_threshold_mins);
@@ -121,6 +126,10 @@ impl BackupCleanupWorker {
                     total_cleaned += 1;
                 }
             }
+        }
+
+        if total_cleaned > 0 {
+            tracing::Span::current().record("total_cleaned", total_cleaned);
         }
 
         Ok(total_cleaned)

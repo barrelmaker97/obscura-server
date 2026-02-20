@@ -83,12 +83,13 @@ impl AttachmentService {
         let key = format!("{}{}", self.attachment_config.prefix, id);
         tracing::Span::current().record("attachment_id", tracing::field::display(id));
 
-        self.storage.put(&key, stream, content_len, self.attachment_config.max_size_bytes).await.map_err(
-            |e| match e {
-                StorageError::ExceedsLimit => AppError::BadRequest("Attachment too large".into()),
-                _ => AppError::Internal,
-            },
-        )?;
+        let actual_len =
+            self.storage.put(&key, stream, content_len, 0, self.attachment_config.max_size_bytes).await.map_err(
+                |e| match e {
+                    StorageError::ExceedsLimit => AppError::BadRequest("Attachment too large".into()),
+                    _ => AppError::Internal,
+                },
+            )?;
 
         let expires_at = OffsetDateTime::now_utc() + Duration::days(self.ttl_days);
         let mut conn = self.pool.acquire().await?;
@@ -96,10 +97,8 @@ impl AttachmentService {
 
         tracing::debug!(attachment_id = %id, expires_at = %expires_at, "Attachment uploaded");
 
-        if let Some(len) = content_len {
-            self.metrics.uploaded_bytes.add(len as u64, &[]);
-            self.metrics.upload_size_bytes.record(len as u64, &[]);
-        }
+        self.metrics.uploaded_bytes.add(actual_len, &[]);
+        self.metrics.upload_size_bytes.record(actual_len, &[]);
 
         Ok((id, expires_at.unix_timestamp()))
     }

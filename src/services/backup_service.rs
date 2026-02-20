@@ -40,6 +40,11 @@ impl BackupService {
     /// Returns `AppError::PreconditionFailed` if the version does not match.
     /// Returns `AppError::Conflict` if another upload is in progress.
     /// Returns `AppError::Timeout` if the upload takes too long.
+    #[tracing::instrument(
+        err(level = "warn"),
+        skip(self, stream),
+        fields(user_id = %user_id, version = %if_match_version)
+    )]
     pub async fn handle_upload(
         &self,
         user_id: Uuid,
@@ -47,10 +52,13 @@ impl BackupService {
         content_len: Option<usize>,
         stream: StorageStream,
     ) -> Result<()> {
-        if let Some(len) = content_len
-            && len < self.backup_config.min_size_bytes
-        {
-            return Err(AppError::BadRequest("Backup too small".into()));
+        if let Some(len) = content_len {
+            if len < self.backup_config.min_size_bytes {
+                return Err(AppError::BadRequest("Backup too small".into()));
+            }
+            if len > self.backup_config.max_size_bytes {
+                return Err(AppError::BadRequest("Backup too large".into()));
+            }
         }
 
         let mut conn = self.pool.acquire().await.map_err(AppError::Database)?;
@@ -86,7 +94,13 @@ impl BackupService {
         let pending_version = backup.pending_version.ok_or(AppError::Internal)?;
         let key = format!("{}{}/v{}", self.backup_config.prefix, user_id, pending_version);
 
-        let put_future = self.storage.put(&key, stream, content_len, self.backup_config.max_size_bytes);
+        let put_future = self.storage.put(
+            &key,
+            stream,
+            content_len,
+            self.backup_config.min_size_bytes,
+            self.backup_config.max_size_bytes,
+        );
 
         match tokio::time::timeout(std::time::Duration::from_secs(self.backup_config.upload_timeout_secs), put_future)
             .await
@@ -96,7 +110,7 @@ impl BackupService {
                 _ => AppError::Internal,
             })?,
             Err(_) => return Err(AppError::Timeout),
-        }
+        };
 
         let mut conn = self.pool.acquire().await.map_err(AppError::Database)?;
         self.repo.commit_version(&mut conn, user_id, pending_version).await?;
@@ -118,6 +132,7 @@ impl BackupService {
     ///
     /// # Errors
     /// Returns `AppError::NotFound` if no backup exists or the current version is 0.
+    #[tracing::instrument(err(level = "warn"), skip(self), fields(user_id = %user_id))]
     pub async fn download(&self, user_id: Uuid) -> Result<(i32, u64, StorageStream)> {
         let mut conn = self.pool.acquire().await.map_err(AppError::Database)?;
         let backup = self.repo.find_by_user_id(&mut conn, user_id).await?;
@@ -132,6 +147,7 @@ impl BackupService {
                 StorageError::NotFound => AppError::NotFound,
                 _ => AppError::Internal,
             })?;
+            tracing::debug!(version = %backup.current_version, size = %len, "Backup download started");
             Ok((backup.current_version, len, stream))
         } else {
             Err(AppError::NotFound)
@@ -142,6 +158,7 @@ impl BackupService {
     ///
     /// # Errors
     /// Returns `AppError::NotFound` if no backup exists or the current version is 0.
+    #[tracing::instrument(err(level = "warn"), skip(self), fields(user_id = %user_id))]
     pub async fn head(&self, user_id: Uuid) -> Result<(i32, u64)> {
         let mut conn = self.pool.acquire().await.map_err(AppError::Database)?;
         let backup = self.repo.find_by_user_id(&mut conn, user_id).await?;
@@ -156,6 +173,7 @@ impl BackupService {
                 StorageError::NotFound => AppError::NotFound,
                 _ => AppError::Internal,
             })?;
+            tracing::debug!(version = %backup.current_version, size = %len, "Backup metadata retrieved");
             Ok((backup.current_version, len))
         } else {
             Err(AppError::NotFound)

@@ -105,7 +105,7 @@ Obscura Server is configured via command-line flags or environment variables usi
 
 | Flag | Environment Variable | Default | Description |
 |------|----------------------|---------|-------------|
-| `--storage-bucket` | `OBSCURA_STORAGE_BUCKET` | `obscura-attachments` | S3 bucket name for object storage. |
+| `--storage-bucket` | `OBSCURA_STORAGE_BUCKET` | `obscura-storage` | S3 bucket name for object storage. |
 | `--storage-region` | `OBSCURA_STORAGE_REGION` | `us-east-1` | S3 region where the bucket is located. |
 | `--storage-endpoint` | `OBSCURA_STORAGE_ENDPOINT` | None | Custom endpoint URL for S3-compatible services like MinIO. |
 | `--storage-access-key` | `OBSCURA_STORAGE_ACCESS_KEY` | None | S3 access key ID. |

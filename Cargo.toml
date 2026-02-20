@@ -55,6 +55,7 @@ opentelemetry-semantic-conventions = "0.31"
 redis = { version = "1.0.3", features = ["tokio-comp", "connection-manager"] }
 async-trait = "0.1.89"
 backon = "1.6.0"
+tokio-stream = { version = "0.1.18", features = ["sync"] }
 
 [build-dependencies]
 prost-build = "0.14.1"

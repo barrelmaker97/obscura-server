@@ -22,7 +22,7 @@ async fn test_s3_storage_faulty_stream_resilience() {
 
     // 2. Attempt 'put'
     let key = "faulty-test-key";
-    let res = storage.put(key, faulty_stream, None, 1024).await;
+    let res = storage.put(key, faulty_stream, None, 0, 1024).await;
 
     // 3. Verify it failed
     assert!(res.is_err(), "Storage 'put' should fail on faulty stream");
@@ -49,7 +49,7 @@ async fn test_s3_storage_max_size_enforcement() {
 
     // 2. Attempt 'put'
     let key = "too-large-key";
-    let res = storage.put(key, stream, None, 100).await;
+    let res = storage.put(key, stream, None, 0, 100).await;
 
     // 3. Verify it failed
     assert!(res.is_err(), "Storage 'put' should fail when exceeding max size");

@@ -609,7 +609,7 @@ pub struct StorageConfig {
 impl Default for StorageConfig {
     fn default() -> Self {
         Self {
-            bucket: "obscura-attachments".to_string(),
+            bucket: "obscura-storage".to_string(),
             region: "us-east-1".to_string(),
             endpoint: None,
             access_key: None,

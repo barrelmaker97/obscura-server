@@ -2,12 +2,10 @@ use crate::adapters::storage::{ObjectStorage, StorageError, StorageResult, Stora
 use async_trait::async_trait;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::primitives::ByteStream;
-use bytes::Bytes;
 use futures::StreamExt;
-use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll};
+use http_body_util::StreamBody;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tokio::sync::mpsc;
 use tracing::Instrument;
 
@@ -24,54 +22,37 @@ impl S3Storage {
     }
 }
 
-type SyncBodyReceiver = mpsc::Receiver<Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>;
-
-struct SyncBody {
-    rx: Arc<Mutex<SyncBodyReceiver>>,
-}
-
-impl http_body::Body for SyncBody {
-    type Data = Bytes;
-    type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
-
-    fn poll_frame(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
-        let mut rx = self.rx.lock().expect("Failed to lock receiver mutex");
-
-        match rx.poll_recv(cx) {
-            Poll::Ready(Some(Ok(bytes))) => Poll::Ready(Some(Ok(http_body::Frame::data(bytes)))),
-            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e))),
-            Poll::Ready(None) => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
 #[async_trait]
 impl ObjectStorage for S3Storage {
+    #[tracing::instrument(
+        level = "debug",
+        err,
+        skip(self, stream),
+        fields(key = %key, bucket = %self.bucket)
+    )]
     async fn put(
         &self,
         key: &str,
         mut stream: StorageStream,
         content_len: Option<usize>,
+        min_size: usize,
         max_size: usize,
-    ) -> StorageResult<()> {
+    ) -> StorageResult<u64> {
         let (tx, rx) = mpsc::channel(2);
         let limit_exceeded = Arc::new(AtomicBool::new(false));
+        let total_uploaded = Arc::new(AtomicU64::new(0));
 
-        let mut total_bytes = 0;
         let limit_signal = Arc::clone(&limit_exceeded);
+        let total_signal = Arc::clone(&total_uploaded);
 
         tokio::spawn(
             async move {
+                let mut current_total = 0;
                 while let Some(item) = stream.next().await {
                     match item {
                         Ok(bytes) => {
-                            total_bytes += bytes.len();
-                            if total_bytes > max_size {
-                                // Signal that we hit the limit before closing the stream
+                            current_total += u64::try_from(bytes.len()).unwrap_or(0);
+                            if current_total > u64::try_from(max_size).unwrap_or(u64::MAX) {
                                 limit_signal.store(true, Ordering::SeqCst);
                                 let err: Box<dyn std::error::Error + Send + Sync> = Box::new(std::io::Error::new(
                                     std::io::ErrorKind::InvalidData,
@@ -80,7 +61,8 @@ impl ObjectStorage for S3Storage {
                                 let _ = tx.send(Err(err)).await;
                                 break;
                             }
-                            if tx.send(Ok(bytes)).await.is_err() {
+                            total_signal.store(current_total, Ordering::SeqCst);
+                            if tx.send(Ok(http_body::Frame::data(bytes))).await.is_err() {
                                 break;
                             }
                         }
@@ -95,8 +77,8 @@ impl ObjectStorage for S3Storage {
             .instrument(tracing::info_span!("s3_upload_bridge")),
         );
 
-        let sync_body = SyncBody { rx: Arc::new(Mutex::new(rx)) };
-        let byte_stream = ByteStream::from_body_1_x(sync_body);
+        let stream_body = StreamBody::new(tokio_stream::wrappers::ReceiverStream::new(rx));
+        let byte_stream = ByteStream::from_body_1_x(stream_body);
 
         let res = self
             .client
@@ -109,9 +91,16 @@ impl ObjectStorage for S3Storage {
             .await;
 
         match res {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                let final_total = total_uploaded.load(Ordering::SeqCst);
+                if final_total < u64::try_from(min_size).unwrap_or(0) {
+                    // Cleanup failed upload
+                    let _ = self.delete(key).await;
+                    return Err(StorageError::Internal("Upload too small".into()));
+                }
+                Ok(final_total)
+            }
             Err(e) => {
-                // Determine if failure was caused by our own internal size limit
                 if limit_exceeded.load(Ordering::SeqCst) {
                     return Err(StorageError::ExceedsLimit);
                 }
@@ -122,6 +111,12 @@ impl ObjectStorage for S3Storage {
         }
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        err,
+        skip(self),
+        fields(key = %key, bucket = %self.bucket)
+    )]
     async fn get(&self, key: &str) -> StorageResult<(u64, StorageStream)> {
         let output = self.client.get_object().bucket(&self.bucket).key(key).send().await.map_err(|e| {
             if let aws_sdk_s3::error::SdkError::ServiceError(ref err) = e
@@ -129,7 +124,6 @@ impl ObjectStorage for S3Storage {
             {
                 return StorageError::NotFound;
             }
-            tracing::error!(error = ?e, key = %key, "S3 Download failed");
             StorageError::Internal(e.to_string())
         })?;
 
@@ -151,6 +145,12 @@ impl ObjectStorage for S3Storage {
         Ok((u64::try_from(content_length).unwrap_or(0), stream))
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        err,
+        skip(self),
+        fields(key = %key, bucket = %self.bucket)
+    )]
     async fn head(&self, key: &str) -> StorageResult<u64> {
         let output = self.client.head_object().bucket(&self.bucket).key(key).send().await.map_err(|e| {
             if let aws_sdk_s3::error::SdkError::ServiceError(ref err) = e
@@ -158,18 +158,26 @@ impl ObjectStorage for S3Storage {
             {
                 return StorageError::NotFound;
             }
-            tracing::error!(error = ?e, key = %key, "S3 Head failed");
             StorageError::Internal(e.to_string())
         })?;
         let len = output.content_length.unwrap_or(0);
         Ok(u64::try_from(len).unwrap_or(0))
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        err,
+        skip(self),
+        fields(key = %key, bucket = %self.bucket)
+    )]
     async fn delete(&self, key: &str) -> StorageResult<()> {
-        self.client.delete_object().bucket(&self.bucket).key(key).send().await.map_err(|e| {
-            tracing::error!(error = ?e, key = %key, "S3 Delete failed");
-            StorageError::Internal(e.to_string())
-        })?;
+        self.client
+            .delete_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .send()
+            .await
+            .map_err(|e| StorageError::Internal(e.to_string()))?;
         Ok(())
     }
 }
