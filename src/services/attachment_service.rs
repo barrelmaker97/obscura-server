@@ -66,6 +66,11 @@ impl AttachmentService {
     }
 
     /// Uploads an attachment to storage.
+    ///
+    /// # Errors
+    /// Returns `AppError::BadRequest` if the attachment is too small.
+    /// Returns `AppError::PayloadTooLarge` if the attachment is too large.
+    /// Returns `AppError::Internal` if there is an error during upload or database operation.
     #[tracing::instrument(
         err(level = "warn"),
         skip(self, stream),

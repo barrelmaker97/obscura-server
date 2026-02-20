@@ -13,6 +13,7 @@ use futures::StreamExt;
 ///
 /// # Errors
 /// Returns `AppError::BadRequest` if headers are invalid.
+/// Returns `AppError::LengthRequired` if the Content-Length header is missing.
 /// Returns `AppError::Internal` if the upload fails.
 pub async fn upload_backup(
     auth_user: AuthUser,

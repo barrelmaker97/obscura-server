@@ -66,10 +66,10 @@ impl BackupService {
     /// Handles the full backup upload workflow.
     ///
     /// # Errors
-    /// Returns `AppError::BadRequest` if the backup is too small or too large.
+    /// Returns `AppError::BadRequest` if the backup is too small.
+    /// Returns `AppError::PayloadTooLarge` if the backup is too large.
     /// Returns `AppError::PreconditionFailed` if the version does not match.
     /// Returns `AppError::Conflict` if another upload is in progress.
-    /// Returns `AppError::Timeout` if the upload takes too long.
     #[tracing::instrument(
         err(level = "warn"),
         skip(self, stream),

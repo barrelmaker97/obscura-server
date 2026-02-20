@@ -15,6 +15,7 @@ use uuid::Uuid;
 /// Uploads an attachment to storage.
 ///
 /// # Errors
+/// Returns `AppError::LengthRequired` if the Content-Length header is missing.
 /// Returns `AppError::Internal` if there is an error during upload.
 pub async fn upload_attachment(
     _auth_user: AuthUser,
