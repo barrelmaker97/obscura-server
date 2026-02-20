@@ -74,8 +74,11 @@ impl AttachmentService {
     pub(crate) async fn upload(&self, content_len: Option<usize>, stream: StorageStream) -> Result<(Uuid, i64)> {
         if let Some(len) = content_len {
             tracing::Span::current().record("attachment_size", len);
+            if len < self.attachment_config.min_size_bytes {
+                return Err(AppError::BadRequest("Attachment too small".into()));
+            }
             if len > self.attachment_config.max_size_bytes {
-                return Err(AppError::BadRequest("Attachment too large".into()));
+                return Err(AppError::PayloadTooLarge);
             }
         }
 
@@ -83,13 +86,20 @@ impl AttachmentService {
         let key = format!("{}{}", self.attachment_config.prefix, id);
         tracing::Span::current().record("attachment_id", tracing::field::display(id));
 
-        let actual_len =
-            self.storage.put(&key, stream, content_len, 0, self.attachment_config.max_size_bytes).await.map_err(
-                |e| match e {
-                    StorageError::ExceedsLimit => AppError::BadRequest("Attachment too large".into()),
-                    _ => AppError::Internal,
-                },
-            )?;
+        let actual_len = self
+            .storage
+            .put(
+                &key,
+                stream,
+                content_len,
+                self.attachment_config.min_size_bytes,
+                self.attachment_config.max_size_bytes,
+            )
+            .await
+            .map_err(|e| match e {
+                StorageError::ExceedsLimit => AppError::PayloadTooLarge,
+                _ => AppError::Internal,
+            })?;
 
         let expires_at = OffsetDateTime::now_utc() + Duration::days(self.ttl_days);
         let mut conn = self.pool.acquire().await?;

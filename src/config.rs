@@ -525,6 +525,15 @@ pub struct AttachmentConfig {
     )]
     pub max_size_bytes: usize,
 
+    /// Min attachment size in bytes (Default: 1 byte)
+    #[arg(
+        long = "attachment-min-size-bytes",
+        id = "attachment_min_size_bytes",
+        env = "OBSCURA_ATTACHMENT_MIN_SIZE_BYTES",
+        default_value_t = AttachmentConfig::default().min_size_bytes
+    )]
+    pub min_size_bytes: usize,
+
     /// S3 prefix for logical namespacing of attachments.
     #[arg(
         long = "attachment-prefix",
@@ -557,6 +566,7 @@ impl Default for AttachmentConfig {
     fn default() -> Self {
         Self {
             max_size_bytes: 52_428_800,
+            min_size_bytes: 1,
             prefix: "attachments/".to_string(),
             cleanup_interval_secs: 3600,
             cleanup_batch_size: 100,

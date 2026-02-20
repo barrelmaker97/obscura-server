@@ -45,7 +45,7 @@ impl ObjectStorage for S3Storage {
         let limit_signal = Arc::clone(&limit_exceeded);
         let total_signal = Arc::clone(&total_uploaded);
 
-        tokio::spawn(
+        let bridge_handle = tokio::spawn(
             async move {
                 let mut current_total = 0;
                 while let Some(item) = stream.next().await {
@@ -53,12 +53,8 @@ impl ObjectStorage for S3Storage {
                         Ok(bytes) => {
                             current_total += u64::try_from(bytes.len()).unwrap_or(0);
                             if current_total > u64::try_from(max_size).unwrap_or(u64::MAX) {
+                                tracing::warn!(current_total = %current_total, max_size = %max_size, "Size limit exceeded in bridge task");
                                 limit_signal.store(true, Ordering::SeqCst);
-                                let err: Box<dyn std::error::Error + Send + Sync> = Box::new(std::io::Error::new(
-                                    std::io::ErrorKind::InvalidData,
-                                    "size limit exceeded",
-                                ));
-                                let _ = tx.send(Err(err)).await;
                                 break;
                             }
                             total_signal.store(current_total, Ordering::SeqCst);
@@ -90,6 +86,11 @@ impl ObjectStorage for S3Storage {
             .send()
             .await;
 
+        // PRIORITIZE: Check if we manually triggered a size limit abortion
+        if limit_exceeded.load(Ordering::SeqCst) {
+            return Err(StorageError::ExceedsLimit);
+        }
+
         match res {
             Ok(_) => {
                 let final_total = total_uploaded.load(Ordering::SeqCst);
@@ -101,8 +102,12 @@ impl ObjectStorage for S3Storage {
                 Ok(final_total)
             }
             Err(e) => {
-                if limit_exceeded.load(Ordering::SeqCst) {
-                    return Err(StorageError::ExceedsLimit);
+                // If S3 failed but our flag wasn't set yet, wait a tiny bit for the bridge task to finish its check
+                if !bridge_handle.is_finished() {
+                    let _ = bridge_handle.await;
+                    if limit_exceeded.load(Ordering::SeqCst) {
+                        return Err(StorageError::ExceedsLimit);
+                    }
                 }
 
                 tracing::error!(error = ?e, key = %key, "S3 Upload failed");

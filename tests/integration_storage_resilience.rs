@@ -56,6 +56,31 @@ async fn test_s3_storage_max_size_enforcement() {
 
     // 4. Verify no partial object committed
     let head_res = app.s3_client.head_object().bucket(&config.storage.bucket).key(key).send().await;
-
     assert!(head_res.is_err(), "No object should have been committed to S3 when exceeding size limit");
+}
+
+#[tokio::test]
+async fn test_s3_storage_min_size_enforcement() {
+    let mut config = common::get_test_config();
+    config.storage.bucket = format!("test-min-size-{}", &Uuid::new_v4().to_string()[..8]);
+
+    let app = common::TestApp::spawn_with_config(config.clone()).await;
+    common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
+
+    let storage = Arc::new(S3Storage::new(app.s3_client.clone(), config.storage.bucket.clone()));
+
+    // 1. Create a small stream (5 bytes) with a 10 byte minimum
+    let small_data = vec![0u8; 5];
+    let stream = stream::iter(vec![Ok(bytes::Bytes::from(small_data))]).boxed();
+
+    // 2. Attempt 'put'
+    let key = "too-small-key";
+    let res = storage.put(key, stream, None, 10, 100).await;
+
+    // 3. Verify it failed with Internal error (min_size violation is mapped to Internal in storage)
+    assert!(res.is_err(), "Storage 'put' should fail when below min size");
+
+    // 4. Verify no partial object committed (should have been deleted)
+    let head_res = app.s3_client.head_object().bucket(&config.storage.bucket).key(key).send().await;
+    assert!(head_res.is_err(), "No object should remain in S3 when below min size");
 }

@@ -1,7 +1,7 @@
 use crate::api::AppState;
 use crate::api::middleware::AuthUser;
 use crate::api::schemas::attachments::AttachmentResponse;
-use crate::error::Result;
+use crate::error::{AppError, Result};
 use axum::{
     Json,
     body::Body,
@@ -22,13 +22,15 @@ pub async fn upload_attachment(
     headers: HeaderMap,
     body: Body,
 ) -> Result<impl IntoResponse> {
-    let content_len =
-        headers.get(header::CONTENT_LENGTH).and_then(|v| v.to_str().map_or(None, |s| s.parse::<usize>().ok()));
+    let content_len = headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok().and_then(|s| s.parse::<usize>().ok()))
+        .ok_or(AppError::LengthRequired)?;
 
     // Bridge Axum Body -> StorageStream (using neutral std::io::Error)
     let stream = body.into_data_stream().map(|res| res.map_err(|e| std::io::Error::other(e.to_string()))).boxed();
 
-    let (id, expires_at) = state.attachment_service.upload(content_len, stream).await?;
+    let (id, expires_at) = state.attachment_service.upload(Some(content_len), stream).await?;
 
     Ok((StatusCode::CREATED, Json(AttachmentResponse { id, expires_at })))
 }

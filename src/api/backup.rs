@@ -30,13 +30,15 @@ pub async fn upload_backup(
     let if_match_version =
         if_match_str.parse::<i32>().map_err(|_| AppError::BadRequest("Invalid version in If-Match header".into()))?;
 
-    let content_len =
-        headers.get(header::CONTENT_LENGTH).and_then(|v| v.to_str().ok().and_then(|s| s.parse::<usize>().ok()));
+    let content_len = headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok().and_then(|s| s.parse::<usize>().ok()))
+        .ok_or(AppError::LengthRequired)?;
 
     // Bridge Axum Body -> StorageStream (using neutral std::io::Error)
     let stream = body.into_data_stream().map(|res| res.map_err(|e| std::io::Error::other(e.to_string()))).boxed();
 
-    state.backup_service.handle_upload(auth_user.user_id, if_match_version, content_len, stream).await?;
+    state.backup_service.handle_upload(auth_user.user_id, if_match_version, Some(content_len), stream).await?;
 
     Ok(StatusCode::OK)
 }

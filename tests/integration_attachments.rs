@@ -53,7 +53,7 @@ async fn test_attachment_lifecycle() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp_big_header.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(resp_big_header.status(), StatusCode::PAYLOAD_TOO_LARGE);
 
     // 4. Upload Failure (Size Limit - Stream check)
     let stream_data = vec![0u8; 150];
@@ -67,9 +67,8 @@ async fn test_attachment_lifecycle() {
         .await
         .unwrap();
 
-    // Server should hit the Limited body wrapper and return 413 or 500 depending on exactly where it fails
-    // In current impl it returns 500 because the S3 upload task fails due to early stream termination
-    assert_eq!(resp_big_stream.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    // Server should reject missing Content-Length with 411
+    assert_eq!(resp_big_stream.status(), StatusCode::LENGTH_REQUIRED);
 
     // 5. Download Not Found
     let resp_404 = app
@@ -143,4 +142,41 @@ async fn test_attachment_janitor_cleanup() {
     // 6. Verification: S3 Object is GONE
     let head_res = app.s3_client.head_object().bucket(&config.storage.bucket).key(&key).send().await;
     assert!(head_res.is_err(), "Attachment object should be deleted from S3");
+}
+
+#[tokio::test]
+async fn test_attachment_min_size() {
+    let mut config = common::get_test_config();
+    config.storage.bucket = format!("test-att-min-{}", &Uuid::new_v4().to_string()[..8]);
+    config.attachment.min_size_bytes = 5;
+
+    let app = common::TestApp::spawn_with_config(config.clone()).await;
+    common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
+
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user = app.register_user(&format!("att_min_{}", run_id)).await;
+
+    // 1. Upload too small (Header check)
+    let resp = app
+        .client
+        .post(format!("{}/v1/attachments", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("Content-Length", "4")
+        .body(vec![0u8; 4])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    // 2. Upload just enough (Header check)
+    let resp_ok = app
+        .client
+        .post(format!("{}/v1/attachments", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("Content-Length", "5")
+        .body(vec![0u8; 5])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp_ok.status(), StatusCode::CREATED);
 }

@@ -258,9 +258,9 @@ paths:
     post:
       summary: Upload an attachment.
       description: |
-        Uploads an encrypted binary blob to long-term storage (S3).
-        Blob will be auto-deleted after the configured TTL.
-        Max size is enforced via the `storage-max-size-bytes` configuration.
+        Uploads an encrypted binary blob to long-term storage.
+        Blobs are automatically deleted after a configured period.
+        Maximum and minimum size limits are enforced by the server.
       tags: [Attachments]
       security:
         - bearerAuth: []
@@ -270,6 +270,7 @@ paths:
             schema:
               type: string
               format: binary
+              minLength: 1
       responses:
         '201':
           description: Upload successful.
@@ -284,6 +285,10 @@ paths:
           $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '411':
+          $ref: '#/components/responses/LengthRequiredError'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeError'
         '429':
           $ref: '#/components/responses/TooManyRequestsError'
 
@@ -416,8 +421,12 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '409':
           $ref: '#/components/responses/ConflictError'
+        '411':
+          $ref: '#/components/responses/LengthRequiredError'
         '412':
           $ref: '#/components/responses/PreconditionFailedError'
+        '413':
+          $ref: '#/components/responses/PayloadTooLargeError'
         '429':
           $ref: '#/components/responses/TooManyRequestsError'
 
@@ -507,6 +516,24 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
     PreconditionFailedError:
       description: Precondition Failed (Version mismatch).
+      headers:
+        x-request-id:
+          $ref: '#/components/headers/x-request-id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    LengthRequiredError:
+      description: Length Required (Content-Length header missing).
+      headers:
+        x-request-id:
+          $ref: '#/components/headers/x-request-id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    PayloadTooLargeError:
+      description: Payload Too Large (Upload exceeds maximum size limit).
       headers:
         x-request-id:
           $ref: '#/components/headers/x-request-id'

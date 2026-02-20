@@ -171,8 +171,8 @@ async fn test_backup_max_size() {
         .await
         .unwrap();
 
-    // BackupService now returns 400 when caught by S3 bridge
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    // BackupService now returns 413
+    assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }
 
 #[tokio::test]
@@ -415,4 +415,74 @@ async fn test_backup_version_rotation_and_cleanup() {
         .await
         .unwrap();
     assert_eq!(version.0, 2);
+}
+
+#[tokio::test]
+async fn test_backup_stream_limits() {
+    let mut config = common::get_test_config();
+    config.storage.bucket = format!("test-backup-stream-{}", &Uuid::new_v4().to_string()[..8]);
+    config.backup.min_size_bytes = 10;
+    config.backup.max_size_bytes = 20;
+
+    let app = common::TestApp::spawn_with_config(config.clone()).await;
+    common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
+
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+
+    // 1. Chunked Upload - Rejected (Missing Content-Length)
+    let user1 = app.register_user(&format!("backup_stream_1_{}", run_id)).await;
+    let stream_small = futures::stream::iter(vec![Ok::<_, std::io::Error>(axum::body::Bytes::from(vec![0u8; 5]))]);
+    let resp_rejected = app
+        .client
+        .post(format!("{}/v1/backup", app.server_url))
+        .header("Authorization", format!("Bearer {}", user1.token))
+        .header("If-Match", "0")
+        .body(reqwest::Body::wrap_stream(stream_small))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp_rejected.status(), StatusCode::LENGTH_REQUIRED);
+
+    // 2. Upload - Too Small (Header check)
+    let user2 = app.register_user(&format!("backup_stream_2_{}", run_id)).await;
+    let resp_small = app
+        .client
+        .post(format!("{}/v1/backup", app.server_url))
+        .header("Authorization", format!("Bearer {}", user2.token))
+        .header("If-Match", "0")
+        .header("Content-Length", "5") // Too small for config (min 10)
+        .body(vec![0u8; 5])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp_small.status(), StatusCode::BAD_REQUEST);
+
+    // 3. Upload - Too Large (Header check)
+    let user3 = app.register_user(&format!("backup_stream_3_{}", run_id)).await;
+    let resp_large = app
+        .client
+        .post(format!("{}/v1/backup", app.server_url))
+        .header("Authorization", format!("Bearer {}", user3.token))
+        .header("If-Match", "0")
+        .header("Content-Length", "25") // Too large for config (max 20)
+        .body(vec![0u8; 25])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp_large.status(), StatusCode::PAYLOAD_TOO_LARGE);
+
+    // 4. Stream Upload - OK
+    let user4 = app.register_user(&format!("backup_stream_4_{}", run_id)).await;
+    let stream_ok = futures::stream::iter(vec![Ok::<_, std::io::Error>(axum::body::Bytes::from(vec![0u8; 15]))]);
+    let resp_ok = app
+        .client
+        .post(format!("{}/v1/backup", app.server_url))
+        .header("Authorization", format!("Bearer {}", user4.token))
+        .header("If-Match", "0")
+        .header("Content-Length", "15")
+        .body(reqwest::Body::wrap_stream(stream_ok))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp_ok.status(), StatusCode::OK);
 }

@@ -57,7 +57,7 @@ impl BackupService {
                 return Err(AppError::BadRequest("Backup too small".into()));
             }
             if len > self.backup_config.max_size_bytes {
-                return Err(AppError::BadRequest("Backup too large".into()));
+                return Err(AppError::PayloadTooLarge);
             }
         }
 
@@ -106,7 +106,7 @@ impl BackupService {
             .await
         {
             Ok(res) => res.map_err(|e| match e {
-                StorageError::ExceedsLimit => AppError::BadRequest("Backup too large".into()),
+                StorageError::ExceedsLimit => AppError::PayloadTooLarge,
                 _ => AppError::Internal,
             })?,
             Err(_) => return Err(AppError::Timeout),
