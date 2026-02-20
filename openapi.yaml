@@ -321,17 +321,32 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: If-None-Match
+          in: header
+          required: false
+          schema:
+            type: string
+          description: The unique identifier for this attachment (from ETag).
       responses:
         '200':
           description: Binary file stream.
           headers:
             x-request-id:
               $ref: '#/components/headers/x-request-id'
+            ETag:
+              description: The unique identifier for this attachment version.
+              schema:
+                type: string
           content:
             application/octet-stream:
               schema:
                 type: string
                 format: binary
+        '304':
+          description: Attachment not modified (client already has the latest version).
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/x-request-id'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '404':

@@ -46,8 +46,17 @@ pub async fn upload_attachment(
 pub async fn download_attachment(
     _auth_user: AuthUser,
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse> {
+    // 1. Immutable Caching Shortcut: If ID matches ETag, it's definitely the same file.
+    if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH).and_then(|v| v.to_str().ok()) {
+        let if_none_match_id = if_none_match.trim_matches('"');
+        if if_none_match_id == id.to_string() {
+            return Ok(StatusCode::NOT_MODIFIED.into_response());
+        }
+    }
+
     let (content_length, stream) = state.attachment_service.download(id).await?;
 
     // Bridge StorageStream -> Axum Body
@@ -59,6 +68,10 @@ pub async fn download_attachment(
         header::CONTENT_LENGTH,
         HeaderValue::from_str(&content_length.to_string()).map_err(|_| AppError::Internal)?,
     );
+    // Use the ID as the ETag for caching
+    response
+        .headers_mut()
+        .insert(header::ETAG, HeaderValue::from_str(&format!("\"{id}\"")).map_err(|_| AppError::Internal)?);
 
     Ok(response)
 }

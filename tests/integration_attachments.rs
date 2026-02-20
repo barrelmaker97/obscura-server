@@ -180,3 +180,52 @@ async fn test_attachment_min_size() {
         .unwrap();
     assert_eq!(resp_ok.status(), StatusCode::CREATED);
 }
+
+#[tokio::test]
+async fn test_attachment_conditional_download() {
+    let mut config = common::get_test_config();
+    config.storage.bucket = format!("test-att-cond-{}", &Uuid::new_v4().to_string()[..8]);
+
+    let app = common::TestApp::spawn_with_config(config.clone()).await;
+    common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
+
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user = app.register_user(&format!("att_cond_{}", run_id)).await;
+
+    // 1. Initial Upload
+    let content = b"Attachment Data";
+    let resp_up = app
+        .client
+        .post(format!("{}/v1/attachments", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("Content-Length", content.len().to_string())
+        .body(content.to_vec())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp_up.status(), StatusCode::CREATED);
+    let id: String = resp_up.json::<serde_json::Value>().await.unwrap()["id"].as_str().unwrap().to_string();
+
+    // 2. Download with matching If-None-Match
+    let resp_304 = app
+        .client
+        .get(format!("{}/v1/attachments/{}", app.server_url, id))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("If-None-Match", format!("\"{}\"", id))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp_304.status(), StatusCode::NOT_MODIFIED);
+
+    // 3. Download with non-matching If-None-Match
+    let resp_200 = app
+        .client
+        .get(format!("{}/v1/attachments/{}", app.server_url, id))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("If-None-Match", "\"different-id\"")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp_200.status(), StatusCode::OK);
+    assert_eq!(resp_200.bytes().await.unwrap(), content.to_vec());
+}
