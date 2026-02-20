@@ -1,6 +1,6 @@
+use futures::stream;
 use reqwest::StatusCode;
 use std::time::Duration;
-use futures::stream;
 use uuid::Uuid;
 
 mod common;
@@ -10,7 +10,7 @@ async fn test_standard_request_timeout() {
     let mut config = common::get_test_config();
     // Set standard request timeout to 1s
     config.server.request_timeout_secs = 1;
-    
+
     let _app = common::TestApp::spawn_with_config(config).await;
 }
 
@@ -18,7 +18,7 @@ async fn test_standard_request_timeout() {
 async fn test_backup_upload_timeout() {
     let mut config = common::get_test_config();
     config.backup.request_timeout_secs = 1; // 1 second limit
-    
+
     let app = common::TestApp::spawn_with_config(config.clone()).await;
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
@@ -36,7 +36,8 @@ async fn test_backup_upload_timeout() {
         }
     });
 
-    let resp = app.client
+    let resp = app
+        .client
         .post(format!("{}/v1/backup", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
         .header("If-Match", "0")
@@ -53,7 +54,7 @@ async fn test_backup_upload_timeout() {
 async fn test_attachment_upload_timeout() {
     let mut config = common::get_test_config();
     config.attachment.request_timeout_secs = 1; // 1 second limit
-    
+
     let app = common::TestApp::spawn_with_config(config.clone()).await;
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
@@ -70,7 +71,8 @@ async fn test_attachment_upload_timeout() {
         }
     });
 
-    let resp = app.client
+    let resp = app
+        .client
         .post(format!("{}/v1/attachments", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
         .header("Content-Length", "8")
@@ -87,15 +89,16 @@ async fn test_global_safety_timeout() {
     let mut config = common::get_test_config();
     config.server.global_timeout_secs = 1; // Hard cap at 1s
     // Make standard timeout longer so only global trips
-    config.server.request_timeout_secs = 30; 
-    
+    config.server.request_timeout_secs = 30;
+
     let app = common::TestApp::spawn_with_config(config).await;
     let username = format!("timeout_global_{}", &Uuid::new_v4().to_string()[..8]);
     let user = app.register_user(&username).await;
 
     // 1. Upload something small first
     let content = b"data";
-    let _resp_up = app.client
+    let _resp_up = app
+        .client
         .post(format!("{}/v1/attachments", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
         .header("Content-Length", content.len().to_string())

@@ -6,7 +6,7 @@ use axum::{
     Json,
     body::Body,
     extract::{Path, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use futures::StreamExt;
@@ -53,15 +53,11 @@ pub async fn download_attachment(
     let body = Body::from_stream(stream);
     let mut response = Response::new(body);
 
-    response
-        .headers_mut()
-        .insert(header::CONTENT_TYPE, "application/octet-stream".parse().expect("Valid Content-Type"));
-
-    if content_length > 0
-        && let Ok(val) = content_length.to_string().parse()
-    {
-        response.headers_mut().insert(header::CONTENT_LENGTH, val);
-    }
+    response.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"));
+    response.headers_mut().insert(
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(&content_length.to_string()).map_err(|_| AppError::Internal)?,
+    );
 
     Ok(response)
 }
