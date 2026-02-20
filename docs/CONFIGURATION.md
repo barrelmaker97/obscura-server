@@ -70,7 +70,7 @@ Obscura Server is configured via command-line flags or environment variables usi
 
 | Flag | Environment Variable | Default | Description |
 |------|----------------------|---------|-------------|
-| `--notifications-gc-interval-secs` | `OBSCURA_NOTIFICATIONS_GC_INTERVAL_SECS` | `60` | How often to run the notification channel garbage collection. |
+| `--notifications-cleanup-interval-secs` | `OBSCURA_NOTIFICATIONS_CLEANUP_INTERVAL_SECS` | `60` | How often to run the notification channel cleanup. |
 | `--notifications-global-channel-capacity` | `OBSCURA_NOTIFICATIONS_GLOBAL_CHANNEL_CAPACITY` | `1024` | Capacity of the global notification dispatcher channel. |
 | `--notifications-user-channel-capacity` | `OBSCURA_NOTIFICATIONS_USER_CHANNEL_CAPACITY` | `64` | Capacity of the per-user notification channel. |
 | `--notifications-push-delay-secs` | `OBSCURA_NOTIFICATIONS_PUSH_DELAY_SECS` | `2` | Delay in seconds before a push notification is sent as a fallback. |
@@ -79,9 +79,9 @@ Obscura Server is configured via command-line flags or environment variables usi
 | `--notifications-push-queue-key` | `OBSCURA_NOTIFICATIONS_PUSH_QUEUE_KEY` | `jobs:push_notifications` | Redis key for the push notification job queue. |
 | `--notifications-channel-prefix` | `OBSCURA_NOTIFICATIONS_CHANNEL_PREFIX` | `user:` | Redis PubSub channel prefix for user notifications. |
 | `--notifications-visibility-timeout-secs` | `OBSCURA_NOTIFICATIONS_VISIBILITY_TIMEOUT_SECS` | `30` | How long a push job is leased by a worker in seconds. |
-| `--notifications-janitor-interval-secs` | `OBSCURA_NOTIFICATIONS_JANITOR_INTERVAL_SECS` | `5` | How often the invalid token janitor flushes to the database. |
-| `--notifications-janitor-batch-size` | `OBSCURA_NOTIFICATIONS_JANITOR_BATCH_SIZE` | `50` | Maximum number of invalid tokens to delete in a single batch. |
-| `--notifications-janitor-channel-capacity` | `OBSCURA_NOTIFICATIONS_JANITOR_CHANNEL_CAPACITY` | `256` | Capacity of the invalid token janitor channel. |
+| `--notifications-invalid-token-cleanup-interval-secs` | `OBSCURA_NOTIFICATIONS_INVALID_TOKEN_CLEANUP_INTERVAL_SECS` | `5` | How often invalid tokens are flushed to the database. |
+| `--notifications-invalid-token-cleanup-batch-size` | `OBSCURA_NOTIFICATIONS_INVALID_TOKEN_CLEANUP_BATCH_SIZE` | `50` | Maximum number of invalid tokens to delete in a single batch. |
+| `--notifications-invalid-token-cleanup-channel-capacity` | `OBSCURA_NOTIFICATIONS_INVALID_TOKEN_CLEANUP_CHANNEL_CAPACITY` | `256` | Capacity of the invalid token cleanup channel. |
 
 ## Attachments
 
@@ -102,8 +102,8 @@ Obscura Server is configured via command-line flags or environment variables usi
 | `--backup-max-size-bytes` | `OBSCURA_BACKUP_MAX_SIZE_BYTES` | `2097152` | Max backup size in bytes (2MB). |
 | `--backup-min-size-bytes` | `OBSCURA_BACKUP_MIN_SIZE_BYTES` | `32` | Min backup size in bytes to prevent accidental wipes. |
 | `--backup-timeout-secs` | `OBSCURA_BACKUP_TIMEOUT_SECS` | `60` | S3 streaming timeout in seconds. |
-| `--backup-stale-threshold-mins` | `OBSCURA_BACKUP_STALE_THRESHOLD_MINS` | `30` | Grace period for "UPLOADING" state before Janitor cleanup. |
-| `--backup-janitor-interval-secs` | `OBSCURA_BACKUP_JANITOR_INTERVAL_SECS` | `300` | Frequency of background cleanup worker cycles. |
+| `--backup-stale-threshold-mins` | `OBSCURA_BACKUP_STALE_THRESHOLD_MINS` | `30` | Grace period for "UPLOADING" state before cleanup. |
+| `--backup-cleanup-interval-secs` | `OBSCURA_BACKUP_CLEANUP_INTERVAL_SECS` | `300` | Frequency of background cleanup worker cycles. |
 
 ## Storage (S3 Infrastructure)
 

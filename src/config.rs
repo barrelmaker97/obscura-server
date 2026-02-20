@@ -346,9 +346,9 @@ impl Default for MessagingConfig {
 
 #[derive(Clone, Debug, Args)]
 pub struct NotificationConfig {
-    /// How often to run the notification garbage collection
-    #[arg(long = "notifications-gc-interval-secs", env = "OBSCURA_NOTIFICATIONS_GC_INTERVAL_SECS", default_value_t = NotificationConfig::default().gc_interval_secs)]
-    pub gc_interval_secs: u64,
+    /// How often to run the notification cleanup
+    #[arg(long = "notifications-cleanup-interval-secs", env = "OBSCURA_NOTIFICATIONS_CLEANUP_INTERVAL_SECS", default_value_t = NotificationConfig::default().cleanup_interval_secs)]
+    pub cleanup_interval_secs: u64,
 
     /// Capacity of the global notification dispatcher channel
     #[arg(long = "notifications-global-channel-capacity", env = "OBSCURA_NOTIFICATIONS_GLOBAL_CHANNEL_CAPACITY", default_value_t = NotificationConfig::default().global_channel_capacity)]
@@ -382,23 +382,23 @@ pub struct NotificationConfig {
     #[arg(long = "notifications-visibility-timeout-secs", env = "OBSCURA_NOTIFICATIONS_VISIBILITY_TIMEOUT_SECS", default_value_t = NotificationConfig::default().visibility_timeout_secs)]
     pub visibility_timeout_secs: u64,
 
-    /// How often the invalid token janitor flushes to the database in seconds
-    #[arg(long = "notifications-janitor-interval-secs", env = "OBSCURA_NOTIFICATIONS_JANITOR_INTERVAL_SECS", default_value_t = NotificationConfig::default().janitor_interval_secs)]
-    pub janitor_interval_secs: u64,
+    /// How often the invalid token cleanup flushes to the database in seconds
+    #[arg(long = "notifications-invalid-token-cleanup-interval-secs", env = "OBSCURA_NOTIFICATIONS_INVALID_TOKEN_CLEANUP_INTERVAL_SECS", default_value_t = NotificationConfig::default().invalid_token_cleanup_interval_secs)]
+    pub invalid_token_cleanup_interval_secs: u64,
 
     /// Maximum number of invalid tokens to delete in a single batch
-    #[arg(long = "notifications-janitor-batch-size", env = "OBSCURA_NOTIFICATIONS_JANITOR_BATCH_SIZE", default_value_t = NotificationConfig::default().janitor_batch_size)]
-    pub janitor_batch_size: usize,
+    #[arg(long = "notifications-invalid-token-cleanup-batch-size", env = "OBSCURA_NOTIFICATIONS_INVALID_TOKEN_CLEANUP_BATCH_SIZE", default_value_t = NotificationConfig::default().invalid_token_cleanup_batch_size)]
+    pub invalid_token_cleanup_batch_size: usize,
 
-    /// Capacity of the invalid token janitor channel
-    #[arg(long = "notifications-janitor-channel-capacity", env = "OBSCURA_NOTIFICATIONS_JANITOR_CHANNEL_CAPACITY", default_value_t = NotificationConfig::default().janitor_channel_capacity)]
-    pub janitor_channel_capacity: usize,
+    /// Capacity of the invalid token cleanup channel
+    #[arg(long = "notifications-invalid-token-cleanup-channel-capacity", env = "OBSCURA_NOTIFICATIONS_INVALID_TOKEN_CLEANUP_CHANNEL_CAPACITY", default_value_t = NotificationConfig::default().invalid_token_cleanup_channel_capacity)]
+    pub invalid_token_cleanup_channel_capacity: usize,
 }
 
 impl Default for NotificationConfig {
     fn default() -> Self {
         Self {
-            gc_interval_secs: 60,
+            cleanup_interval_secs: 60,
             global_channel_capacity: 1024,
             user_channel_capacity: 64,
             push_delay_secs: 2,
@@ -407,9 +407,9 @@ impl Default for NotificationConfig {
             push_queue_key: "jobs:push_notifications".to_string(),
             channel_prefix: "user:".to_string(),
             visibility_timeout_secs: 30,
-            janitor_interval_secs: 5,
-            janitor_batch_size: 50,
-            janitor_channel_capacity: 256,
+            invalid_token_cleanup_interval_secs: 5,
+            invalid_token_cleanup_batch_size: 50,
+            invalid_token_cleanup_channel_capacity: 256,
         }
     }
 }
@@ -492,7 +492,7 @@ pub struct BackupConfig {
     )]
     pub request_timeout_secs: u64,
 
-    /// Grace period for "UPLOADING" state before Janitor cleanup in minutes
+    /// Grace period for "UPLOADING" state before cleanup in minutes
     #[arg(
         long = "backup-stale-threshold-mins",
         id = "backup_stale_threshold_mins",
@@ -503,12 +503,12 @@ pub struct BackupConfig {
 
     /// Frequency of background cleanup worker cycles in seconds
     #[arg(
-        long = "backup-janitor-interval-secs",
-        id = "backup_janitor_interval_secs",
-        env = "OBSCURA_BACKUP_JANITOR_INTERVAL_SECS",
-        default_value_t = BackupConfig::default().janitor_interval_secs
+        long = "backup-cleanup-interval-secs",
+        id = "backup_cleanup_interval_secs",
+        env = "OBSCURA_BACKUP_CLEANUP_INTERVAL_SECS",
+        default_value_t = BackupConfig::default().cleanup_interval_secs
     )]
-    pub janitor_interval_secs: u64,
+    pub cleanup_interval_secs: u64,
 }
 
 impl Default for BackupConfig {
@@ -519,7 +519,7 @@ impl Default for BackupConfig {
             min_size_bytes: 32,
             request_timeout_secs: 60,
             stale_threshold_mins: 30,
-            janitor_interval_secs: 300,
+            cleanup_interval_secs: 300,
         }
     }
 }

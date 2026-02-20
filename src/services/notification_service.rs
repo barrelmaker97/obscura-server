@@ -16,8 +16,8 @@ struct Metrics {
     received_total: Counter<u64>,
     unrouted_total: Counter<u64>,
     active_channels: UpDownCounter<i64>,
-    gc_duration_seconds: Histogram<f64>,
-    gc_reclaimed_total: Counter<u64>,
+    cleanup_duration_seconds: Histogram<f64>,
+    cleanup_reclaimed_total: Counter<u64>,
 }
 
 impl Metrics {
@@ -40,13 +40,13 @@ impl Metrics {
                 .i64_up_down_counter("obscura_notification_channels")
                 .with_description("Number of active local notification channels")
                 .build(),
-            gc_duration_seconds: meter
-                .f64_histogram("obscura_notification_gc_duration_seconds")
-                .with_description("Time taken to perform a single GC iteration")
+            cleanup_duration_seconds: meter
+                .f64_histogram("obscura_notification_cleanup_duration_seconds")
+                .with_description("Time taken to perform a single cleanup iteration")
                 .build(),
-            gc_reclaimed_total: meter
+            cleanup_reclaimed_total: meter
                 .u64_counter("obscura_notification_channels_reclaimed_total")
-                .with_description("Total number of stale channels reclaimed by GC")
+                .with_description("Total number of stale channels reclaimed by cleanup")
                 .build(),
         }
     }
@@ -91,10 +91,10 @@ impl NotificationService {
         }
     }
 
-    /// Performs a garbage collection cycle to reclaim stale notification channels.
-    pub fn perform_gc(&self) {
+    /// Performs a cleanup cycle to reclaim stale notification channels.
+    pub fn perform_cleanup(&self) {
         let start = std::time::Instant::now();
-        tracing::debug!("Starting notification channel GC cycle");
+        tracing::debug!("Starting notification channel cleanup cycle");
         let mut reclaimed_this_cycle = 0;
 
         self.channels.retain(|_, sender| {
@@ -107,13 +107,13 @@ impl NotificationService {
         });
 
         let duration = start.elapsed().as_secs_f64();
-        self.metrics.gc_duration_seconds.record(duration, &[]);
+        self.metrics.cleanup_duration_seconds.record(duration, &[]);
 
         if reclaimed_this_cycle > 0 {
-            self.metrics.gc_reclaimed_total.add(reclaimed_this_cycle, &[]);
-            tracing::info!(reclaimed = reclaimed_this_cycle, "Notification channel GC reclaimed stale channels");
+            self.metrics.cleanup_reclaimed_total.add(reclaimed_this_cycle, &[]);
+            tracing::info!(reclaimed = reclaimed_this_cycle, "Notification channel cleanup reclaimed stale channels");
         }
-        tracing::debug!(duration_secs = %duration, "Notification channel GC cycle completed");
+        tracing::debug!(duration_secs = %duration, "Notification channel cleanup cycle completed");
     }
 
     #[tracing::instrument(skip(self), fields(user_id = %user_id))]
@@ -166,7 +166,7 @@ mod tests {
     use tokio::sync::watch;
 
     #[tokio::test]
-    async fn test_run_gc_reclaims_stale_channels() {
+    async fn test_run_cleanup_reclaims_stale_channels() {
         crate::telemetry::init_test_telemetry();
 
         let (_shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -196,11 +196,11 @@ mod tests {
         // Check initial state
         assert_eq!(service.channels.len(), 2);
 
-        // 3. Perform GC
-        service.perform_gc();
+        // 3. Perform cleanup
+        service.perform_cleanup();
 
         // 4. Verify results
-        assert_eq!(service.channels.len(), 1, "GC should have reclaimed exactly 1 channel");
+        assert_eq!(service.channels.len(), 1, "Cleanup should have reclaimed exactly 1 channel");
         assert!(service.channels.contains_key(&user_id_active), "Active channel should remain");
         assert!(!service.channels.contains_key(&user_id_stale), "Stale channel should be gone");
     }

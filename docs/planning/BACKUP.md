@@ -55,7 +55,7 @@ To prevent database connection pool starvation and ensure transactional integrit
 | `pending_version` | INT (Null) | The version currently being uploaded. |
 | `state` | VARCHAR | `ACTIVE` or `UPLOADING`. |
 | `updated_at` | TIMESTAMPTZ | Last successful commit. |
-| `pending_at` | TIMESTAMPTZ | When the current upload started (for Janitor). |
+| `pending_at` | TIMESTAMPTZ | When the current upload started (for cleanup). |
 
 ### 4.3 The Atomic Swap Workflow (Server-Side)
 When a client calls `POST /v1/backup`:
@@ -78,7 +78,7 @@ When a client calls `POST /v1/backup`:
 
 ## 5. Reliability & Edge Cases
 
-### 5.1 The "Janitor" Task
+### 5.1 The "Cleanup" Task
 A background worker runs every 5–10 minutes to clean up "Zombie" uploads (S3 success but DB failure, or abandoned uploads).
 - **Query**: Find rows where `state = 'UPLOADING'` and `pending_at < (NOW() - 30 minutes)`.
 - **Action**: Delete the `pending_version` file from S3 and reset the DB row to `ACTIVE`.
@@ -121,8 +121,8 @@ Always use versioned keys (`backups/{user_id}/v{version}`) to ensure that a fail
 | `OBSCURA_BACKUP_MAX_SIZE_BYTES` | `2097152` | Max backup size (2MB). |
 | `OBSCURA_BACKUP_MIN_SIZE_BYTES` | `32` | Min backup size to prevent accidental wipes. |
 | `OBSCURA_BACKUP_UPLOAD_TIMEOUT_SECS` | `60` | S3 streaming timeout. |
-| `OBSCURA_BACKUP_STALE_THRESHOLD_MINS` | `30` | Grace period for "UPLOADING" state before Janitor cleanup. |
-| `OBSCURA_BACKUP_JANITOR_INTERVAL_SECS` | `300` | Frequency of background cleanup worker cycles. |
+| `OBSCURA_BACKUP_STALE_THRESHOLD_MINS` | `30` | Grace period for "UPLOADING" state before cleanup. |
+| `OBSCURA_BACKUP_CLEANUP_INTERVAL_SECS` | `300` | Frequency of background cleanup worker cycles. |
 
 ## 8. Implementation Tasks
 
@@ -139,7 +139,7 @@ Always use versioned keys (`backups/{user_id}/v{version}`) to ensure that a fail
 - [ ] Implement `BackupService` with the "Atomic Swap" logic.
 - [ ] Add `412 Precondition Failed` and `409 Conflict` error mapping.
 - [ ] Refactor `AttachmentService` to use the new `ObjectStorage` trait.
-- [ ] Add `BackupCleanupWorker` (The Janitor).
+- [ ] Add `BackupCleanupWorker` (The Cleanup Worker).
 
 ### Phase 3: API & Testing
 - [ ] Implement `GET`, `HEAD`, and `POST /v1/backup` endpoints.
@@ -147,4 +147,4 @@ Always use versioned keys (`backups/{user_id}/v{version}`) to ensure that a fail
 - [ ] Integration test: Verify `attachments/` and `backups/` are correctly namespaced in S3.
 - [ ] Integration test: Mock S3 failure during upload and verify DB state remains consistent.
 - [ ] Integration test: Verify `412` on version mismatch and `409` on concurrent upload.
-- [ ] Integration test: Verify Janitor cleans up stale `UPLOADING` records.
+- [ ] Integration test: Verify cleanup worker cleans up stale `UPLOADING` records.

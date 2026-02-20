@@ -82,7 +82,7 @@ async fn test_attachment_lifecycle() {
 }
 
 #[tokio::test]
-async fn test_attachment_janitor_cleanup() {
+async fn test_attachment_cleanup() {
     use obscura_server::adapters::database::attachment_repo::AttachmentRepository;
     use obscura_server::adapters::storage::S3Storage;
     use obscura_server::workers::AttachmentCleanupWorker;
@@ -90,7 +90,7 @@ async fn test_attachment_janitor_cleanup() {
     use time::{Duration, OffsetDateTime};
 
     let mut config = common::get_test_config();
-    config.storage.bucket = format!("test-att-janitor-{}", &Uuid::new_v4().to_string()[..8]);
+    config.storage.bucket = format!("test-att-cleanup-{}", &Uuid::new_v4().to_string()[..8]);
 
     let app = common::TestApp::spawn_with_config(config.clone()).await;
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
