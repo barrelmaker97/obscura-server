@@ -90,9 +90,9 @@ Obscura Server is configured via command-line flags or environment variables usi
 | `--attachment-prefix` | `OBSCURA_ATTACHMENT_PREFIX` | `attachments/` | S3 prefix for logical namespacing of attachments. |
 | `--attachment-max-size-bytes` | `OBSCURA_ATTACHMENT_MAX_SIZE_BYTES` | `52428800` | Maximum allowed size for a single attachment in bytes (50MB). |
 | `--attachment-min-size-bytes` | `OBSCURA_ATTACHMENT_MIN_SIZE_BYTES` | `1` | Minimum allowed size for a single attachment in bytes. |
+| `--attachment-upload-timeout-secs` | `OBSCURA_ATTACHMENT_UPLOAD_TIMEOUT_SECS` | `120` | S3 streaming timeout for attachments in seconds. |
 | `--attachment-cleanup-interval-secs` | `OBSCURA_ATTACHMENT_CLEANUP_INTERVAL_SECS` | `3600` | How often to run the attachment cleanup task in seconds. |
 | `--attachment-cleanup-batch-size` | `OBSCURA_ATTACHMENT_CLEANUP_BATCH_SIZE` | `100` | Maximum number of attachments to delete in a single batch. |
-| `--attachment-upload-timeout-secs` | `OBSCURA_ATTACHMENT_UPLOAD_TIMEOUT_SECS` | `120` | S3 streaming timeout for attachments in seconds. |
 
 ## Backups
 
