@@ -107,6 +107,7 @@ impl BackupService {
         {
             Ok(res) => res.map_err(|e| match e {
                 StorageError::ExceedsLimit => AppError::PayloadTooLarge,
+                StorageError::BelowMinSize => AppError::BadRequest("Backup too small".into()),
                 _ => AppError::Internal,
             })?,
             Err(_) => return Err(AppError::Timeout),

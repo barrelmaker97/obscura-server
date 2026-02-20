@@ -77,7 +77,7 @@ async fn test_s3_storage_min_size_enforcement() {
     let key = "too-small-key";
     let res = storage.put(key, stream, None, 10, 100).await;
 
-    // 3. Verify it failed with Internal error (min_size violation is mapped to Internal in storage)
+    // 3. Verify it failed (min_size violation returns error)
     assert!(res.is_err(), "Storage 'put' should fail when below min size");
 
     // 4. Verify no partial object committed (should have been deleted)

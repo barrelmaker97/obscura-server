@@ -443,7 +443,7 @@ async fn test_backup_stream_limits() {
         .unwrap();
     assert_eq!(resp_rejected.status(), StatusCode::LENGTH_REQUIRED);
 
-    // 2. Upload - Too Small (Header check)
+    // 2. Upload - Too Small (Header fast-fail)
     let user2 = app.register_user(&format!("backup_stream_2_{}", run_id)).await;
     let resp_small = app
         .client
@@ -457,7 +457,7 @@ async fn test_backup_stream_limits() {
         .unwrap();
     assert_eq!(resp_small.status(), StatusCode::BAD_REQUEST);
 
-    // 3. Upload - Too Large (Header check)
+    // 3. Upload - Too Large (Header fast-fail)
     let user3 = app.register_user(&format!("backup_stream_3_{}", run_id)).await;
     let resp_large = app
         .client

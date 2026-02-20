@@ -98,6 +98,7 @@ impl AttachmentService {
             .await
             .map_err(|e| match e {
                 StorageError::ExceedsLimit => AppError::PayloadTooLarge,
+                StorageError::BelowMinSize => AppError::BadRequest("Attachment too small".into()),
                 _ => AppError::Internal,
             })?;
 

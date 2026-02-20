@@ -11,6 +11,8 @@ pub use s3::S3Storage;
 pub enum StorageError {
     #[error("Storage limit exceeded")]
     ExceedsLimit,
+    #[error("Upload size below minimum required")]
+    BelowMinSize,
     #[error("Object not found")]
     NotFound,
     #[error("Internal storage error: {0}")]

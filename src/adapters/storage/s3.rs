@@ -97,7 +97,7 @@ impl ObjectStorage for S3Storage {
                 if final_total < u64::try_from(min_size).unwrap_or(0) {
                     // Cleanup failed upload
                     let _ = self.delete(key).await;
-                    return Err(StorageError::Internal("Upload too small".into()));
+                    return Err(StorageError::BelowMinSize);
                 }
                 Ok(final_total)
             }
