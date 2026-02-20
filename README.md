@@ -65,7 +65,7 @@ Obscura can be configured via command-line flags or environment variables. **Ess
 | `--db-url` | `OBSCURA_DATABASE_URL` | `postgres://user:password@localhost/signal_server` |
 | `--pubsub-url` | `OBSCURA_PUBSUB_URL` | `redis://localhost:6379` |
 | `--jwt-secret` | `OBSCURA_AUTH_JWT_SECRET` | `change_me_in_production` |
-| `--storage-bucket` | `OBSCURA_STORAGE_BUCKET` | `obscura-attachments` |
+| `--storage-bucket` | `OBSCURA_STORAGE_BUCKET` | `obscura-storage` |
 
 See [**docs/CONFIGURATION.md**](./docs/CONFIGURATION.md) for the full list of over 50 configuration options.
 

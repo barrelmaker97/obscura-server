@@ -81,7 +81,7 @@ impl RedisClient {
             async move {
                 Self::run_pattern_listener(client, pattern_str, tx, shutdown, subscriptions, config, ready_tx).await;
             }
-            .instrument(tracing::info_span!("pubsub_listener", pattern = %pattern)),
+            .instrument(tracing::debug_span!("pubsub_listener", pattern = %pattern)),
         );
 
         // Wait for the listener to be ready (psubscribed)
@@ -141,10 +141,13 @@ impl RedisClient {
                     _ = shutdown.changed() => return,
                     msg = message_stream.next() => {
                         if let Some(msg) = msg {
-                            let pubsub_msg = PubSubMessage {
-                                channel: msg.get_channel_name().to_string(),
+                            let channel = msg.get_channel_name().to_string();
+                            let span = tracing::info_span!("pubsub_receive", %channel);
+
+                            let pubsub_msg = span.in_scope(|| PubSubMessage {
+                                channel,
                                 payload: msg.get_payload().unwrap_or_default(),
-                            };
+                            });
                             if tx.send(pubsub_msg).is_err() {
                                 // If no one is listening, we could potentially stop the listener,
                                 // but for simplicity we'll keep it running until shutdown.

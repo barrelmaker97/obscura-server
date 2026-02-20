@@ -14,8 +14,10 @@ Obscura Server is configured via command-line flags or environment variables usi
 |------|----------------------|---------|-------------|
 | `--server-host` | `OBSCURA_SERVER_HOST` | `0.0.0.0` | Interface to bind the server to. |
 | `--server-port` | `OBSCURA_SERVER_PORT` | `3000` | Primary port for API and WebSockets. |
-| `--mgmt-port` | `OBSCURA_SERVER_MGMT_PORT` | `9090` | Management port for health checks and metrics. |
-| `--shutdown-timeout-secs` | `OBSCURA_SERVER_SHUTDOWN_TIMEOUT_SECS` | `5` | How long to wait for background tasks to finish during shutdown in seconds. |
+| `--server-mgmt-port` | `OBSCURA_SERVER_MGMT_PORT` | `9090` | Management port for health checks and metrics. |
+| `--server-shutdown-timeout-secs` | `OBSCURA_SERVER_SHUTDOWN_TIMEOUT_SECS` | `5` | How long to wait for background tasks to finish during shutdown in seconds. |
+| `--server-request-timeout-secs` | `OBSCURA_SERVER_REQUEST_TIMEOUT_SECS` | `30` | Timeout for standard API requests in seconds. |
+| `--server-global-timeout-secs` | `OBSCURA_SERVER_GLOBAL_TIMEOUT_SECS` | `600` | Global catch-all safety timeout for all requests in seconds. |
 | `--trusted-proxies` | `OBSCURA_SERVER_TRUSTED_PROXIES` | `10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.1/32` | Comma-separated list of CIDRs to trust for X-Forwarded-For IP extraction. |
 
 ## Database (PostgreSQL)
@@ -41,9 +43,9 @@ Obscura Server is configured via command-line flags or environment variables usi
 
 | Flag | Environment Variable | Default | Description |
 |------|----------------------|---------|-------------|
-| `--jwt-secret` | `OBSCURA_AUTH_JWT_SECRET` | `change_me_in_production` | Secret key for signing JWT access tokens. |
-| `--access-token-ttl-secs` | `OBSCURA_AUTH_TOKEN_TTL_SECS` | `900` | Access token time-to-live in seconds. |
-| `--refresh-token-ttl-days` | `OBSCURA_AUTH_REFRESH_TOKEN_TTL_DAYS` | `30` | Refresh token time-to-live in days. |
+| `--auth-jwt-secret` | `OBSCURA_AUTH_JWT_SECRET` | `change_me_in_production` | Secret key for signing JWT access tokens. |
+| `--auth-token-ttl-secs` | `OBSCURA_AUTH_TOKEN_TTL_SECS` | `900` | Access token time-to-live in seconds. |
+| `--auth-refresh-token-ttl-days` | `OBSCURA_AUTH_REFRESH_TOKEN_TTL_DAYS` | `30` | Refresh token time-to-live in days. |
 
 ## Rate Limiting
 
@@ -58,42 +60,61 @@ Obscura Server is configured via command-line flags or environment variables usi
 
 | Flag | Environment Variable | Default | Description |
 |------|----------------------|---------|-------------|
-| `--max-inbox-size` | `OBSCURA_MESSAGING_INBOX_MAX_SIZE` | `1000` | Maximum number of pending messages per user before pruning. |
+| `--messaging-inbox-max-size` | `OBSCURA_MESSAGING_INBOX_MAX_SIZE` | `1000` | Maximum number of pending messages per user before pruning. |
 | `--messaging-cleanup-interval-secs` | `OBSCURA_MESSAGING_CLEANUP_INTERVAL_SECS` | `300` | How often to run the message cleanup task in seconds. |
-| `--batch-limit` | `OBSCURA_MESSAGING_BATCH_LIMIT` | `50` | Maximum number of messages processed in a single DB fetch loop. |
+| `--messaging-batch-limit` | `OBSCURA_MESSAGING_BATCH_LIMIT` | `50` | Maximum number of messages processed in a single DB fetch loop. |
 | `--pre-key-refill-threshold` | `OBSCURA_PRE_KEY_REFILL_THRESHOLD` | `20` | Threshold of one-time prekeys to trigger a refill notification. |
-| `--max-pre-keys` | `OBSCURA_PRE_KEYS_MAX` | `100` | Maximum number of one-time prekeys allowed per user. |
+| `--pre-keys-max` | `OBSCURA_PRE_KEYS_MAX` | `100` | Maximum number of one-time prekeys allowed per user. |
 
 ## Notifications
 
 | Flag | Environment Variable | Default | Description |
 |------|----------------------|---------|-------------|
-| `--gc-interval-secs` | `OBSCURA_NOTIFICATIONS_GC_INTERVAL_SECS` | `60` | How often to run the notification channel garbage collection. |
-| `--global-channel-capacity` | `OBSCURA_NOTIFICATIONS_GLOBAL_CHANNEL_CAPACITY` | `1024` | Capacity of the global notification dispatcher channel. |
-| `--user-channel-capacity` | `OBSCURA_NOTIFICATIONS_USER_CHANNEL_CAPACITY` | `64` | Capacity of the per-user notification channel. |
-| `--push-delay-secs` | `OBSCURA_NOTIFICATIONS_PUSH_DELAY_SECS` | `2` | Delay in seconds before a push notification is sent as a fallback. |
-| `--worker-interval-secs` | `OBSCURA_NOTIFICATIONS_WORKER_INTERVAL_SECS` | `1` | Interval in seconds for the notification worker to poll for jobs. |
-| `--worker-concurrency` | `OBSCURA_NOTIFICATIONS_WORKER_CONCURRENCY` | `100` | Maximum concurrent push delivery tasks. |
-| `--push-queue-key` | `OBSCURA_NOTIFICATIONS_PUSH_QUEUE_KEY` | `jobs:push_notifications` | Redis key for the push notification job queue. |
-| `--channel-prefix` | `OBSCURA_NOTIFICATIONS_CHANNEL_PREFIX` | `user:` | Redis PubSub channel prefix for user notifications. |
-| `--visibility-timeout-secs` | `OBSCURA_NOTIFICATIONS_VISIBILITY_TIMEOUT_SECS` | `30` | How long a push job is leased by a worker in seconds. |
-| `--janitor-interval-secs` | `OBSCURA_NOTIFICATIONS_JANITOR_INTERVAL_SECS` | `5` | How often the invalid token janitor flushes to the database. |
-| `--janitor-batch-size` | `OBSCURA_NOTIFICATIONS_JANITOR_BATCH_SIZE` | `50` | Maximum number of invalid tokens to delete in a single batch. |
-| `--janitor-channel-capacity` | `OBSCURA_NOTIFICATIONS_JANITOR_CHANNEL_CAPACITY` | `256` | Capacity of the invalid token janitor channel. |
+| `--notifications-gc-interval-secs` | `OBSCURA_NOTIFICATIONS_GC_INTERVAL_SECS` | `60` | How often to run the notification channel garbage collection. |
+| `--notifications-global-channel-capacity` | `OBSCURA_NOTIFICATIONS_GLOBAL_CHANNEL_CAPACITY` | `1024` | Capacity of the global notification dispatcher channel. |
+| `--notifications-user-channel-capacity` | `OBSCURA_NOTIFICATIONS_USER_CHANNEL_CAPACITY` | `64` | Capacity of the per-user notification channel. |
+| `--notifications-push-delay-secs` | `OBSCURA_NOTIFICATIONS_PUSH_DELAY_SECS` | `2` | Delay in seconds before a push notification is sent as a fallback. |
+| `--notifications-worker-interval-secs` | `OBSCURA_NOTIFICATIONS_WORKER_INTERVAL_SECS` | `1` | Interval in seconds for the notification worker to poll for jobs. |
+| `--notifications-worker-concurrency` | `OBSCURA_NOTIFICATIONS_WORKER_CONCURRENCY` | `100` | Maximum concurrent push delivery tasks. |
+| `--notifications-push-queue-key` | `OBSCURA_NOTIFICATIONS_PUSH_QUEUE_KEY` | `jobs:push_notifications` | Redis key for the push notification job queue. |
+| `--notifications-channel-prefix` | `OBSCURA_NOTIFICATIONS_CHANNEL_PREFIX` | `user:` | Redis PubSub channel prefix for user notifications. |
+| `--notifications-visibility-timeout-secs` | `OBSCURA_NOTIFICATIONS_VISIBILITY_TIMEOUT_SECS` | `30` | How long a push job is leased by a worker in seconds. |
+| `--notifications-janitor-interval-secs` | `OBSCURA_NOTIFICATIONS_JANITOR_INTERVAL_SECS` | `5` | How often the invalid token janitor flushes to the database. |
+| `--notifications-janitor-batch-size` | `OBSCURA_NOTIFICATIONS_JANITOR_BATCH_SIZE` | `50` | Maximum number of invalid tokens to delete in a single batch. |
+| `--notifications-janitor-channel-capacity` | `OBSCURA_NOTIFICATIONS_JANITOR_CHANNEL_CAPACITY` | `256` | Capacity of the invalid token janitor channel. |
 
-## Storage (S3)
+## Attachments
 
 | Flag | Environment Variable | Default | Description |
 |------|----------------------|---------|-------------|
-| `--storage-bucket` | `OBSCURA_STORAGE_BUCKET` | `obscura-attachments` | S3 bucket name for storing encrypted attachments. |
-| `--storage-region` | `OBSCURA_STORAGE_REGION" | `us-east-1` | S3 region where the bucket is located. |
+| `--attachment-prefix` | `OBSCURA_ATTACHMENT_PREFIX` | `attachments/` | S3 prefix for logical namespacing of attachments. |
+| `--attachment-max-size-bytes` | `OBSCURA_ATTACHMENT_MAX_SIZE_BYTES` | `52428800` | Maximum allowed size for a single attachment in bytes (50MB). |
+| `--attachment-min-size-bytes` | `OBSCURA_ATTACHMENT_MIN_SIZE_BYTES` | `1` | Minimum allowed size for a single attachment in bytes. |
+| `--attachment-timeout-secs` | `OBSCURA_ATTACHMENT_TIMEOUT_SECS` | `120` | S3 streaming timeout for attachments in seconds. |
+| `--attachment-cleanup-interval-secs` | `OBSCURA_ATTACHMENT_CLEANUP_INTERVAL_SECS` | `3600` | How often to run the attachment cleanup task in seconds. |
+| `--attachment-cleanup-batch-size` | `OBSCURA_ATTACHMENT_CLEANUP_BATCH_SIZE` | `100` | Maximum number of attachments to delete in a single batch. |
+
+## Backups
+
+| Flag | Environment Variable | Default | Description |
+|------|----------------------|---------|-------------|
+| `--backup-prefix` | `OBSCURA_BACKUP_PREFIX` | `backups/` | S3 prefix for logical namespacing of backups. |
+| `--backup-max-size-bytes` | `OBSCURA_BACKUP_MAX_SIZE_BYTES` | `2097152` | Max backup size in bytes (2MB). |
+| `--backup-min-size-bytes` | `OBSCURA_BACKUP_MIN_SIZE_BYTES` | `32` | Min backup size in bytes to prevent accidental wipes. |
+| `--backup-timeout-secs` | `OBSCURA_BACKUP_TIMEOUT_SECS` | `60` | S3 streaming timeout in seconds. |
+| `--backup-stale-threshold-mins` | `OBSCURA_BACKUP_STALE_THRESHOLD_MINS` | `30` | Grace period for "UPLOADING" state before Janitor cleanup. |
+| `--backup-janitor-interval-secs` | `OBSCURA_BACKUP_JANITOR_INTERVAL_SECS` | `300` | Frequency of background cleanup worker cycles. |
+
+## Storage (S3 Infrastructure)
+
+| Flag | Environment Variable | Default | Description |
+|------|----------------------|---------|-------------|
+| `--storage-bucket` | `OBSCURA_STORAGE_BUCKET` | `obscura-storage` | S3 bucket name for object storage. |
+| `--storage-region` | `OBSCURA_STORAGE_REGION` | `us-east-1` | S3 region where the bucket is located. |
 | `--storage-endpoint` | `OBSCURA_STORAGE_ENDPOINT` | None | Custom endpoint URL for S3-compatible services like MinIO. |
 | `--storage-access-key` | `OBSCURA_STORAGE_ACCESS_KEY` | None | S3 access key ID. |
 | `--storage-secret-key` | `OBSCURA_STORAGE_SECRET_KEY` | None | S3 secret access key. |
 | `--storage-force-path-style` | `OBSCURA_STORAGE_FORCE_PATH_STYLE` | `false` | Whether to force path-style S3 URLs (required for MinIO). |
-| `--storage-max-size-bytes` | `OBSCURA_STORAGE_MAX_SIZE_BYTES` | `52428800` | Maximum allowed size for a single attachment in bytes (50MB). |
-| `--storage-cleanup-interval-secs` | `OBSCURA_STORAGE_CLEANUP_INTERVAL_SECS` | `3600` | How often to run the attachment cleanup task in seconds. |
-| `--storage-cleanup-batch-size` | `OBSCURA_STORAGE_CLEANUP_BATCH_SIZE` | `100` | Maximum number of attachments to delete in a single batch. |
 
 ## WebSockets
 
@@ -110,16 +131,16 @@ Obscura Server is configured via command-line flags or environment variables usi
 
 | Flag | Environment Variable | Default | Description |
 |------|----------------------|---------|-------------|
-| `--db-timeout-ms` | `OBSCURA_HEALTH_DB_TIMEOUT_MS` | `2000` | Timeout for the database health check in milliseconds. |
-| `--storage-timeout-ms` | `OBSCURA_HEALTH_STORAGE_TIMEOUT_MS` | `2000` | Timeout for the storage health check in milliseconds. |
-| `--pubsub-timeout-ms` | `OBSCURA_HEALTH_PUBSUB_TIMEOUT_MS` | `2000` | Timeout for the PubSub health check in milliseconds. |
+| `--health-db-timeout-ms` | `OBSCURA_HEALTH_DB_TIMEOUT_MS` | `2000` | Timeout for the database health check in milliseconds. |
+| `--health-storage-timeout-ms` | `OBSCURA_HEALTH_STORAGE_TIMEOUT_MS` | `2000` | Timeout for the storage health check in milliseconds. |
+| `--health-pubsub-timeout-ms` | `OBSCURA_HEALTH_PUBSUB_TIMEOUT_MS` | `2000` | Timeout for the PubSub health check in milliseconds. |
 
 ## Telemetry
 
 | Flag | Environment Variable | Default | Description |
 |------|----------------------|---------|-------------|
-| `--otlp-endpoint` | `OBSCURA_TELEMETRY_OTLP_ENDPOINT` | None | OTLP gRPC endpoint for exporting traces and metrics. |
-| `--log-format` | `OBSCURA_TELEMETRY_LOG_FORMAT` | `text` | Log output format: `text` or `json`. |
-| `--trace-sampling-ratio` | `OBSCURA_TELEMETRY_TRACE_SAMPLING_RATIO` | `1.0` | Ratio of traces to sample (1.0 = 100%). |
-| `--metrics-export-interval-secs` | `OBSCURA_TELEMETRY_METRICS_EXPORT_INTERVAL_SECS` | `60` | Frequency of OTLP metric exports in seconds. |
-| `--export-timeout-secs` | `OBSCURA_TELEMETRY_EXPORT_TIMEOUT_SECS` | `10` | Timeout for OTLP export requests in seconds. |
+| `--telemetry-otlp-endpoint` | `OBSCURA_TELEMETRY_OTLP_ENDPOINT` | None | OTLP gRPC endpoint for exporting traces and metrics. |
+| `--telemetry-log-format` | `OBSCURA_TELEMETRY_LOG_FORMAT` | `text` | Log output format: `text` or `json`. |
+| `--telemetry-trace-sampling-ratio` | `OBSCURA_TELEMETRY_TRACE_SAMPLING_RATIO` | `1.0` | Ratio of traces to sample (1.0 = 100%). |
+| `--telemetry-metrics-export-interval-secs` | `OBSCURA_TELEMETRY_METRICS_EXPORT_INTERVAL_SECS` | `60` | Frequency of OTLP metric exports in seconds. |
+| `--telemetry-export-timeout-secs` | `OBSCURA_TELEMETRY_EXPORT_TIMEOUT_SECS` | `10` | Timeout for OTLP export requests in seconds. |

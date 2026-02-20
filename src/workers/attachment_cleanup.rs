@@ -1,9 +1,10 @@
 use crate::adapters::database::DbPool;
 use crate::adapters::database::attachment_repo::AttachmentRepository;
-use crate::config::StorageConfig;
+use crate::adapters::storage::ObjectStorage;
+use crate::config::AttachmentConfig;
 use crate::error::Result;
-use aws_sdk_s3::Client;
 use opentelemetry::{global, metrics::Counter};
+use std::sync::Arc;
 use std::time::Duration as StdDuration;
 use tracing::Instrument;
 
@@ -29,23 +30,37 @@ impl Metrics {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct AttachmentCleanupWorker {
     pool: DbPool,
     repo: AttachmentRepository,
-    s3_client: Client,
-    config: StorageConfig,
+    storage: Arc<dyn ObjectStorage>,
+    attachment_config: AttachmentConfig,
     metrics: Metrics,
+}
+
+impl std::fmt::Debug for AttachmentCleanupWorker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AttachmentCleanupWorker")
+            .field("attachment_config", &self.attachment_config)
+            .field("metrics", &self.metrics)
+            .finish_non_exhaustive()
+    }
 }
 
 impl AttachmentCleanupWorker {
     #[must_use]
-    pub fn new(pool: DbPool, repo: AttachmentRepository, s3_client: Client, config: StorageConfig) -> Self {
-        Self { pool, repo, s3_client, config, metrics: Metrics::new() }
+    pub fn new(
+        pool: DbPool,
+        repo: AttachmentRepository,
+        storage: Arc<dyn ObjectStorage>,
+        attachment_config: AttachmentConfig,
+    ) -> Self {
+        Self { pool, repo, storage, attachment_config, metrics: Metrics::new() }
     }
 
     pub async fn run(self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
-        let mut interval = tokio::time::interval(StdDuration::from_secs(self.config.cleanup_interval_secs));
+        let mut interval = tokio::time::interval(StdDuration::from_secs(self.attachment_config.cleanup_interval_secs));
 
         while !*shutdown.borrow() {
             tokio::select! {
@@ -74,19 +89,23 @@ impl AttachmentCleanupWorker {
         tracing::info!("Attachment cleanup loop shutting down...");
     }
 
+    /// Runs a single batch of attachment cleanup.
+    ///
+    /// # Errors
+    /// Returns an error if the database or storage operations fail.
     #[tracing::instrument(
         err,
         skip(self),
         fields(total_deleted = tracing::field::Empty)
     )]
-    async fn cleanup_batch(&self) -> Result<u64> {
+    pub async fn cleanup_batch(&self) -> Result<u64> {
         let mut total_deleted = 0;
         loop {
             // Fetch expired attachments
             let mut conn = self.pool.acquire().await?;
             let ids = self
                 .repo
-                .fetch_expired(&mut conn, i64::try_from(self.config.cleanup_batch_size).unwrap_or(i64::MAX))
+                .fetch_expired(&mut conn, i64::try_from(self.attachment_config.cleanup_batch_size).unwrap_or(i64::MAX))
                 .await?;
 
             if ids.is_empty() {
@@ -97,24 +116,17 @@ impl AttachmentCleanupWorker {
 
             let count = ids.len();
             for id in ids {
-                let key = id.to_string();
+                let key = format!("{}{}", self.attachment_config.prefix, id);
                 let res: Result<bool> = async {
-                    // Delete object from S3 first to avoid orphaned files
-                    let res = self.s3_client.delete_object().bucket(&self.config.bucket).key(&key).send().await;
+                    // Delete object from Storage first to avoid orphaned files
+                    let res = self.storage.delete(&key).await;
 
-                    match res {
-                        Ok(_) => {}
-                        Err(aws_sdk_s3::error::SdkError::ServiceError(e)) => {
-                            tracing::warn!(error = ?e, key = %key, "S3 delete error");
-                            return Ok(false); // Skip DB delete if S3 failed
-                        }
-                        Err(e) => {
-                            tracing::error!(error = ?e, key = %key, "S3 network/transport error");
-                            return Ok(false);
-                        }
+                    if let Err(e) = res {
+                        tracing::warn!(error = ?e, key = %key, "Storage delete error");
+                        return Ok(false); // Skip DB delete if storage failed
                     }
 
-                    // Only delete from DB if S3 deletion was successful
+                    // Only delete from DB if storage deletion was successful
                     let mut conn = self.pool.acquire().await?;
                     self.repo.delete(&mut conn, id).await?;
                     Ok(true)
