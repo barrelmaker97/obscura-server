@@ -4,9 +4,35 @@ use crate::adapters::storage::{ObjectStorage, StorageError, StorageStream};
 use crate::config::BackupConfig;
 use crate::domain::backup::BackupState;
 use crate::error::{AppError, Result};
+use opentelemetry::{
+    global,
+    metrics::{Counter, Histogram},
+};
 use std::sync::Arc;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
+
+#[derive(Clone, Debug)]
+pub(crate) struct Metrics {
+    pub(crate) uploaded_bytes: Counter<u64>,
+    pub(crate) upload_size_bytes: Histogram<u64>,
+}
+
+impl Metrics {
+    fn new() -> Self {
+        let meter = global::meter("obscura-server");
+        Self {
+            uploaded_bytes: meter
+                .u64_counter("obscura_backup_upload_bytes_total")
+                .with_description("Total bytes of backups uploaded")
+                .build(),
+            upload_size_bytes: meter
+                .u64_histogram("obscura_backup_upload_size_bytes")
+                .with_description("Distribution of backup upload sizes")
+                .build(),
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct BackupService {
@@ -14,11 +40,15 @@ pub struct BackupService {
     repo: BackupRepository,
     storage: Arc<dyn ObjectStorage>,
     backup_config: BackupConfig,
+    metrics: Metrics,
 }
 
 impl std::fmt::Debug for BackupService {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BackupService").field("backup_config", &self.backup_config).finish_non_exhaustive()
+        f.debug_struct("BackupService")
+            .field("backup_config", &self.backup_config)
+            .field("metrics", &self.metrics)
+            .finish_non_exhaustive()
     }
 }
 
@@ -30,7 +60,7 @@ impl BackupService {
         storage: Arc<dyn ObjectStorage>,
         backup_config: BackupConfig,
     ) -> Self {
-        Self { pool, repo, storage, backup_config }
+        Self { pool, repo, storage, backup_config, metrics: Metrics::new() }
     }
 
     /// Handles the full backup upload workflow.
@@ -102,8 +132,11 @@ impl BackupService {
             self.backup_config.max_size_bytes,
         );
 
-        match tokio::time::timeout(std::time::Duration::from_secs(self.backup_config.upload_timeout_secs), put_future)
-            .await
+        let actual_len = match tokio::time::timeout(
+            std::time::Duration::from_secs(self.backup_config.upload_timeout_secs),
+            put_future,
+        )
+        .await
         {
             Ok(res) => res.map_err(|e| match e {
                 StorageError::ExceedsLimit => AppError::PayloadTooLarge,
@@ -115,6 +148,10 @@ impl BackupService {
 
         let mut conn = self.pool.acquire().await.map_err(AppError::Database)?;
         self.repo.commit_version(&mut conn, user_id, pending_version).await?;
+
+        // Record metrics
+        self.metrics.uploaded_bytes.add(actual_len, &[]);
+        self.metrics.upload_size_bytes.record(actual_len, &[]);
 
         // Cleanup old version
         let old_version = backup.current_version;
