@@ -86,21 +86,19 @@ impl AttachmentService {
         let key = format!("{}{}", self.attachment_config.prefix, id);
         tracing::Span::current().record("attachment_id", tracing::field::display(id));
 
-        let actual_len = self
-            .storage
-            .put(
-                &key,
-                stream,
-                content_len,
-                self.attachment_config.min_size_bytes,
-                self.attachment_config.max_size_bytes,
-            )
-            .await
-            .map_err(|e| match e {
-                StorageError::ExceedsLimit => AppError::PayloadTooLarge,
-                StorageError::BelowMinSize => AppError::BadRequest("Attachment too small".into()),
-                _ => AppError::Internal,
-            })?;
+        let put_future = self.storage.put(
+            &key,
+            stream,
+            content_len,
+            self.attachment_config.min_size_bytes,
+            self.attachment_config.max_size_bytes,
+        );
+
+        let actual_len = put_future.await.map_err(|e| match e {
+            StorageError::ExceedsLimit => AppError::PayloadTooLarge,
+            StorageError::BelowMinSize => AppError::BadRequest("Attachment too small".into()),
+            _ => AppError::Internal,
+        })?;
 
         let expires_at = OffsetDateTime::now_utc() + Duration::days(self.ttl_days);
         let mut conn = self.pool.acquire().await?;

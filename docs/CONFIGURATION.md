@@ -16,6 +16,8 @@ Obscura Server is configured via command-line flags or environment variables usi
 | `--server-port` | `OBSCURA_SERVER_PORT` | `3000` | Primary port for API and WebSockets. |
 | `--server-mgmt-port` | `OBSCURA_SERVER_MGMT_PORT` | `9090` | Management port for health checks and metrics. |
 | `--server-shutdown-timeout-secs` | `OBSCURA_SERVER_SHUTDOWN_TIMEOUT_SECS` | `5` | How long to wait for background tasks to finish during shutdown in seconds. |
+| `--server-request-timeout-secs` | `OBSCURA_SERVER_REQUEST_TIMEOUT_SECS` | `30` | Timeout for standard API requests in seconds. |
+| `--server-global-timeout-secs` | `OBSCURA_SERVER_GLOBAL_TIMEOUT_SECS` | `600` | Global catch-all safety timeout for all requests in seconds. |
 | `--trusted-proxies` | `OBSCURA_SERVER_TRUSTED_PROXIES` | `10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.1/32` | Comma-separated list of CIDRs to trust for X-Forwarded-For IP extraction. |
 
 ## Database (PostgreSQL)
@@ -90,6 +92,7 @@ Obscura Server is configured via command-line flags or environment variables usi
 | `--attachment-min-size-bytes` | `OBSCURA_ATTACHMENT_MIN_SIZE_BYTES` | `1` | Minimum allowed size for a single attachment in bytes. |
 | `--attachment-cleanup-interval-secs` | `OBSCURA_ATTACHMENT_CLEANUP_INTERVAL_SECS` | `3600` | How often to run the attachment cleanup task in seconds. |
 | `--attachment-cleanup-batch-size` | `OBSCURA_ATTACHMENT_CLEANUP_BATCH_SIZE` | `100` | Maximum number of attachments to delete in a single batch. |
+| `--attachment-upload-timeout-secs` | `OBSCURA_ATTACHMENT_UPLOAD_TIMEOUT_SECS` | `120` | S3 streaming timeout for attachments in seconds. |
 
 ## Backups
 

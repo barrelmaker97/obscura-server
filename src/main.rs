@@ -59,7 +59,7 @@ async fn main() -> anyhow::Result<()> {
             .await?;
 
         // Phase 3: Runtime Setup (Listeners and Routers)
-        let app_router = obscura_server::api::app_router(config.clone(), app.services, shutdown_rx.clone());
+        let app_router = obscura_server::api::app_router(&config, app.services, shutdown_rx.clone());
         let mgmt_app = obscura_server::api::mgmt_router(MgmtState { health_service: app.health_service });
 
         let api_addr: SocketAddr = format!("{}:{}", config.server.host, config.server.port).parse()?;

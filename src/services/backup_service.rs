@@ -132,19 +132,11 @@ impl BackupService {
             self.backup_config.max_size_bytes,
         );
 
-        let actual_len = match tokio::time::timeout(
-            std::time::Duration::from_secs(self.backup_config.upload_timeout_secs),
-            put_future,
-        )
-        .await
-        {
-            Ok(res) => res.map_err(|e| match e {
-                StorageError::ExceedsLimit => AppError::PayloadTooLarge,
-                StorageError::BelowMinSize => AppError::BadRequest("Backup too small".into()),
-                _ => AppError::Internal,
-            })?,
-            Err(_) => return Err(AppError::Timeout),
-        };
+        let actual_len = put_future.await.map_err(|e| match e {
+            StorageError::ExceedsLimit => AppError::PayloadTooLarge,
+            StorageError::BelowMinSize => AppError::BadRequest("Backup too small".into()),
+            _ => AppError::Internal,
+        })?;
 
         let mut conn = self.pool.acquire().await.map_err(AppError::Database)?;
         self.repo.commit_version(&mut conn, user_id, pending_version).await?;

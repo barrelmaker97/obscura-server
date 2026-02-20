@@ -217,6 +217,14 @@ pub struct ServerConfig {
     #[arg(long = "server-shutdown-timeout-secs", env = "OBSCURA_SERVER_SHUTDOWN_TIMEOUT_SECS", default_value_t = ServerConfig::default().shutdown_timeout_secs)]
     pub shutdown_timeout_secs: u64,
 
+    /// Timeout for standard requests in seconds
+    #[arg(long = "server-request-timeout-secs", env = "OBSCURA_SERVER_REQUEST_TIMEOUT_SECS", default_value_t = ServerConfig::default().request_timeout_secs)]
+    pub request_timeout_secs: u64,
+
+    /// Global catch-all safety timeout in seconds
+    #[arg(long = "server-global-timeout-secs", env = "OBSCURA_SERVER_GLOBAL_TIMEOUT_SECS", default_value_t = ServerConfig::default().global_timeout_secs)]
+    pub global_timeout_secs: u64,
+
     /// Comma-separated list of CIDRs to trust for X-Forwarded-For IP extraction
     #[arg(
         long,
@@ -234,6 +242,8 @@ impl Default for ServerConfig {
             port: 3000,
             mgmt_port: 9090,
             shutdown_timeout_secs: 5,
+            request_timeout_secs: 30,
+            global_timeout_secs: 600,
             trusted_proxies: vec![
                 "10.0.0.0/8".parse().expect("Invalid default CIDR for private network"),
                 "172.16.0.0/12".parse().expect("Invalid default CIDR for private network"),
@@ -560,6 +570,15 @@ pub struct AttachmentConfig {
         default_value_t = AttachmentConfig::default().cleanup_batch_size
     )]
     pub cleanup_batch_size: u64,
+
+    /// S3 streaming timeout in seconds
+    #[arg(
+        long = "attachment-upload-timeout-secs",
+        id = "attachment_upload_timeout_secs",
+        env = "OBSCURA_ATTACHMENT_UPLOAD_TIMEOUT_SECS",
+        default_value_t = AttachmentConfig::default().upload_timeout_secs
+    )]
+    pub upload_timeout_secs: u64,
 }
 
 impl Default for AttachmentConfig {
@@ -570,6 +589,7 @@ impl Default for AttachmentConfig {
             prefix: "attachments/".to_string(),
             cleanup_interval_secs: 3600,
             cleanup_batch_size: 100,
+            upload_timeout_secs: 120,
         }
     }
 }

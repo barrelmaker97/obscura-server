@@ -7,7 +7,7 @@ use obscura_server::{
     adapters,
     adapters::push::{PushError, PushProvider},
     api::app_router,
-    config::{AuthConfig, Config, PubSubConfig, RateLimitConfig, ServerConfig, StorageConfig},
+    config::{AuthConfig, Config, NotificationConfig, PubSubConfig, RateLimitConfig, ServerConfig, StorageConfig},
     proto::obscura::v1::{
         AckMessage, EncryptedMessage, Envelope, PreKeyStatus, WebSocketFrame, web_socket_frame::Payload,
     },
@@ -83,8 +83,7 @@ pub async fn get_test_pool() -> PgPool {
     let database_url = std::env::var("OBSCURA_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://user:password@localhost/signal_server".to_string());
 
-    let mut config = obscura_server::config::DatabaseConfig::default();
-    config.url = database_url;
+    let config = obscura_server::config::DatabaseConfig { url: database_url, ..Default::default() };
 
     let pool = adapters::database::init_pool(&config).await.expect("Failed to connect to DB. Is Postgres running?");
 
@@ -101,7 +100,10 @@ pub fn get_test_config() -> Config {
     let database_url = std::env::var("OBSCURA_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://user:password@localhost/signal_server".to_string());
 
-    let mut config = Config {
+    // Test Isolation
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+
+    Config {
         ttl_days: 30,
         database: obscura_server::config::DatabaseConfig { url: database_url, ..Default::default() },
         server: ServerConfig {
@@ -126,15 +128,13 @@ pub fn get_test_config() -> Config {
             url: std::env::var("OBSCURA_PUBSUB_URL").unwrap_or_else(|_| "redis://localhost:6379".to_string()),
             ..Default::default()
         },
+        notifications: NotificationConfig {
+            push_queue_key: format!("jobs:test:{}", run_id),
+            channel_prefix: format!("test:{}:", run_id),
+            ..Default::default()
+        },
         ..Default::default()
-    };
-
-    // Test Isolation
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    config.notifications.push_queue_key = format!("jobs:test:{}", run_id);
-    config.notifications.channel_prefix = format!("test:{}:", run_id);
-
-    config
+    }
 }
 
 pub fn generate_signing_key() -> [u8; 32] {
@@ -276,7 +276,7 @@ impl TestApp {
         let _worker_tasks = app.workers.spawn_all(shutdown_rx.clone());
 
         let notifier = app.services.notification_service.clone();
-        let app_router = app_router(config.clone(), app.services, shutdown_rx.clone());
+        let app_router = app_router(&config, app.services, shutdown_rx.clone());
         let mgmt_app =
             obscura_server::api::mgmt_router(obscura_server::api::MgmtState { health_service: app.health_service });
 
