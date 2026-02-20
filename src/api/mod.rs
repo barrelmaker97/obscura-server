@@ -137,14 +137,18 @@ pub fn app_router(config: &Config, services: Services, shutdown_rx: tokio::sync:
         Duration::from_secs(config.backup.request_timeout_secs),
     );
 
-    let storage_routes = Router::new()
+    let attachment_routes = Router::new()
         .route("/attachments", post(attachments::upload_attachment))
         .route("/attachments/{id}", get(attachments::download_attachment))
-        .layer(attachment_timeout)
+        .layer(attachment_timeout);
+
+    let backup_routes = Router::new()
         .route("/backup", get(backup::download_backup))
         .route("/backup", post(backup::upload_backup))
         .route("/backup", head(backup::head_backup))
         .layer(backup_timeout);
+
+    let storage_routes = attachment_routes.merge(backup_routes);
 
     Router::new()
         .route("/openapi.yaml", get(docs::openapi_yaml))
