@@ -485,12 +485,12 @@ pub struct BackupConfig {
 
     /// S3 streaming timeout in seconds
     #[arg(
-        long = "backup-upload-timeout-secs",
-        id = "backup_upload_timeout_secs",
-        env = "OBSCURA_BACKUP_UPLOAD_TIMEOUT_SECS",
-        default_value_t = BackupConfig::default().upload_timeout_secs
+        long = "backup-timeout-secs",
+        id = "backup_timeout_secs",
+        env = "OBSCURA_BACKUP_TIMEOUT_SECS",
+        default_value_t = BackupConfig::default().request_timeout_secs
     )]
-    pub upload_timeout_secs: u64,
+    pub request_timeout_secs: u64,
 
     /// Grace period for "UPLOADING" state before Janitor cleanup in minutes
     #[arg(
@@ -517,7 +517,7 @@ impl Default for BackupConfig {
             prefix: "backups/".to_string(),
             max_size_bytes: 2_097_152,
             min_size_bytes: 32,
-            upload_timeout_secs: 60,
+            request_timeout_secs: 60,
             stale_threshold_mins: 30,
             janitor_interval_secs: 300,
         }
@@ -573,12 +573,12 @@ pub struct AttachmentConfig {
 
     /// S3 streaming timeout in seconds
     #[arg(
-        long = "attachment-upload-timeout-secs",
-        id = "attachment_upload_timeout_secs",
-        env = "OBSCURA_ATTACHMENT_UPLOAD_TIMEOUT_SECS",
-        default_value_t = AttachmentConfig::default().upload_timeout_secs
+        long = "attachment-timeout-secs",
+        id = "attachment_timeout_secs",
+        env = "OBSCURA_ATTACHMENT_TIMEOUT_SECS",
+        default_value_t = AttachmentConfig::default().request_timeout_secs
     )]
-    pub upload_timeout_secs: u64,
+    pub request_timeout_secs: u64,
 }
 
 impl Default for AttachmentConfig {
@@ -589,7 +589,7 @@ impl Default for AttachmentConfig {
             prefix: "attachments/".to_string(),
             cleanup_interval_secs: 3600,
             cleanup_batch_size: 100,
-            upload_timeout_secs: 120,
+            request_timeout_secs: 120,
         }
     }
 }

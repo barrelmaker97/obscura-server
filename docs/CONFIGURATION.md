@@ -90,7 +90,7 @@ Obscura Server is configured via command-line flags or environment variables usi
 | `--attachment-prefix` | `OBSCURA_ATTACHMENT_PREFIX` | `attachments/` | S3 prefix for logical namespacing of attachments. |
 | `--attachment-max-size-bytes` | `OBSCURA_ATTACHMENT_MAX_SIZE_BYTES` | `52428800` | Maximum allowed size for a single attachment in bytes (50MB). |
 | `--attachment-min-size-bytes` | `OBSCURA_ATTACHMENT_MIN_SIZE_BYTES` | `1` | Minimum allowed size for a single attachment in bytes. |
-| `--attachment-upload-timeout-secs` | `OBSCURA_ATTACHMENT_UPLOAD_TIMEOUT_SECS` | `120` | S3 streaming timeout for attachments in seconds. |
+| `--attachment-timeout-secs` | `OBSCURA_ATTACHMENT_TIMEOUT_SECS` | `120` | S3 streaming timeout for attachments in seconds. |
 | `--attachment-cleanup-interval-secs` | `OBSCURA_ATTACHMENT_CLEANUP_INTERVAL_SECS` | `3600` | How often to run the attachment cleanup task in seconds. |
 | `--attachment-cleanup-batch-size` | `OBSCURA_ATTACHMENT_CLEANUP_BATCH_SIZE` | `100` | Maximum number of attachments to delete in a single batch. |
 
@@ -101,7 +101,7 @@ Obscura Server is configured via command-line flags or environment variables usi
 | `--backup-prefix` | `OBSCURA_BACKUP_PREFIX` | `backups/` | S3 prefix for logical namespacing of backups. |
 | `--backup-max-size-bytes` | `OBSCURA_BACKUP_MAX_SIZE_BYTES` | `2097152` | Max backup size in bytes (2MB). |
 | `--backup-min-size-bytes` | `OBSCURA_BACKUP_MIN_SIZE_BYTES` | `32` | Min backup size in bytes to prevent accidental wipes. |
-| `--backup-upload-timeout-secs` | `OBSCURA_BACKUP_UPLOAD_TIMEOUT_SECS` | `60` | S3 streaming timeout in seconds. |
+| `--backup-timeout-secs` | `OBSCURA_BACKUP_TIMEOUT_SECS` | `60` | S3 streaming timeout in seconds. |
 | `--backup-stale-threshold-mins` | `OBSCURA_BACKUP_STALE_THRESHOLD_MINS` | `30` | Grace period for "UPLOADING" state before Janitor cleanup. |
 | `--backup-janitor-interval-secs` | `OBSCURA_BACKUP_JANITOR_INTERVAL_SECS` | `300` | Frequency of background cleanup worker cycles. |
 

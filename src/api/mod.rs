@@ -130,19 +130,21 @@ pub fn app_router(config: &Config, services: Services, shutdown_rx: tokio::sync:
     // Storage routes (attachments and backups have their own service-level timeouts)
     let attachment_timeout = TimeoutLayer::with_status_code(
         StatusCode::REQUEST_TIMEOUT,
-        Duration::from_secs(config.attachment.upload_timeout_secs),
+        Duration::from_secs(config.attachment.request_timeout_secs),
     );
     let backup_timeout = TimeoutLayer::with_status_code(
         StatusCode::REQUEST_TIMEOUT,
-        Duration::from_secs(config.backup.upload_timeout_secs),
+        Duration::from_secs(config.backup.request_timeout_secs),
     );
 
     let storage_routes = Router::new()
-        .route("/attachments", post(attachments::upload_attachment).layer(attachment_timeout))
+        .route("/attachments", post(attachments::upload_attachment))
         .route("/attachments/{id}", get(attachments::download_attachment))
+        .layer(attachment_timeout)
         .route("/backup", get(backup::download_backup))
-        .route("/backup", post(backup::upload_backup).layer(backup_timeout))
-        .route("/backup", head(backup::head_backup));
+        .route("/backup", post(backup::upload_backup))
+        .route("/backup", head(backup::head_backup))
+        .layer(backup_timeout);
 
     Router::new()
         .route("/openapi.yaml", get(docs::openapi_yaml))

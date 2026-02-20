@@ -17,7 +17,7 @@ async fn test_standard_request_timeout() {
 #[tokio::test]
 async fn test_backup_upload_timeout() {
     let mut config = common::get_test_config();
-    config.backup.upload_timeout_secs = 1; // 1 second limit
+    config.backup.request_timeout_secs = 1; // 1 second limit
     
     let app = common::TestApp::spawn_with_config(config.clone()).await;
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
@@ -52,7 +52,7 @@ async fn test_backup_upload_timeout() {
 #[tokio::test]
 async fn test_attachment_upload_timeout() {
     let mut config = common::get_test_config();
-    config.attachment.upload_timeout_secs = 1; // 1 second limit
+    config.attachment.request_timeout_secs = 1; // 1 second limit
     
     let app = common::TestApp::spawn_with_config(config.clone()).await;
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
