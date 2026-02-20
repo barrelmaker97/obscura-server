@@ -20,9 +20,9 @@ impl Metrics {
     fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
-            cleanup_runs: meter.u64_counter("obscura_backup_janitor_runs").build(),
-            cleaned_items: meter.u64_counter("obscura_backup_janitor_cleaned").build(),
-            errors: meter.u64_counter("obscura_backup_janitor_errors").build(),
+            cleanup_runs: meter.u64_counter("obscura_backup_cleanup_runs").build(),
+            cleaned_items: meter.u64_counter("obscura_backup_cleanup_cleaned").build(),
+            errors: meter.u64_counter("obscura_backup_cleanup_errors").build(),
         }
     }
 }
@@ -57,13 +57,13 @@ impl BackupCleanupWorker {
     }
 
     pub async fn run(self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
-        let mut interval = tokio::time::interval(StdDuration::from_secs(self.backup_config.janitor_interval_secs));
+        let mut interval = tokio::time::interval(StdDuration::from_secs(self.backup_config.cleanup_interval_secs));
 
         while !*shutdown.borrow() {
             tokio::select! {
                 _ = interval.tick() => {
                     async {
-                        tracing::debug!("Running backup janitor...");
+                        tracing::debug!("Running backup cleanup...");
                         match self.cleanup_stale().await {
                             Ok(count) => {
                                 if count > 0 {
@@ -72,18 +72,18 @@ impl BackupCleanupWorker {
                                 self.metrics.cleanup_runs.add(1, &[]);
                             }
                             Err(e) => {
-                                tracing::error!(error = %e, "Backup janitor failed");
+                                tracing::error!(error = %e, "Backup cleanup failed");
                                 self.metrics.errors.add(1, &[]);
                             }
                         }
                     }
-                    .instrument(tracing::info_span!("run_backup_janitor"))
+                    .instrument(tracing::info_span!("run_backup_cleanup"))
                     .await;
                 }
                 _ = shutdown.changed() => {}
             }
         }
-        tracing::info!("Backup janitor shutting down...");
+        tracing::info!("Backup cleanup shutting down...");
     }
 
     /// Cleans up stale "UPLOADING" backup records.

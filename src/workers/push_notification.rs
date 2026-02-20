@@ -45,9 +45,9 @@ pub struct PushNotificationWorker {
     token_repo: PushTokenRepository,
     interval_secs: u64,
     visibility_timeout_secs: u64,
-    janitor_interval_secs: u64,
-    janitor_batch_size: usize,
-    janitor_channel_capacity: usize,
+    invalid_token_cleanup_interval_secs: u64,
+    invalid_token_cleanup_batch_size: usize,
+    invalid_token_cleanup_channel_capacity: usize,
     semaphore: Arc<Semaphore>,
     metrics: Metrics,
 }
@@ -67,9 +67,9 @@ impl PushNotificationWorker {
             token_repo,
             interval_secs: config.worker_interval_secs,
             visibility_timeout_secs: config.visibility_timeout_secs,
-            janitor_interval_secs: config.janitor_interval_secs,
-            janitor_batch_size: config.janitor_batch_size,
-            janitor_channel_capacity: config.janitor_channel_capacity,
+            invalid_token_cleanup_interval_secs: config.invalid_token_cleanup_interval_secs,
+            invalid_token_cleanup_batch_size: config.invalid_token_cleanup_batch_size,
+            invalid_token_cleanup_channel_capacity: config.invalid_token_cleanup_channel_capacity,
             semaphore: Arc::new(Semaphore::new(config.worker_concurrency)),
             metrics: Metrics::new(),
         }
@@ -77,10 +77,11 @@ impl PushNotificationWorker {
 
     pub async fn run(self, mut shutdown: tokio::sync::watch::Receiver<bool>) {
         let mut interval = tokio::time::interval(Duration::from_secs(self.interval_secs));
-        let mut janitor_interval = tokio::time::interval(Duration::from_secs(self.janitor_interval_secs));
-        let (invalid_token_tx, mut invalid_token_rx) = mpsc::channel::<String>(self.janitor_channel_capacity);
+        let mut cleanup_interval = tokio::time::interval(Duration::from_secs(self.invalid_token_cleanup_interval_secs));
+        let (invalid_token_tx, mut invalid_token_rx) =
+            mpsc::channel::<String>(self.invalid_token_cleanup_channel_capacity);
 
-        let mut janitor_batch = Vec::new();
+        let mut cleanup_batch = Vec::new();
 
         tracing::info!("Push notification worker started");
 
@@ -97,9 +98,9 @@ impl PushNotificationWorker {
                     }
                 }
 
-                _ = janitor_interval.tick() => {
+                _ = cleanup_interval.tick() => {
                     async {
-                        Self::flush_invalid_tokens(&self.pool, &self.token_repo, &mut janitor_batch).await;
+                        Self::flush_invalid_tokens(&self.pool, &self.token_repo, &mut cleanup_batch).await;
                     }
                     .instrument(tracing::debug_span!("flush_invalid_tokens"))
                     .await;
@@ -107,9 +108,9 @@ impl PushNotificationWorker {
 
                 res = invalid_token_rx.recv() => {
                     if let Some(token) = res {
-                        janitor_batch.push(token);
-                        if janitor_batch.len() >= self.janitor_batch_size {
-                            Self::flush_invalid_tokens(&self.pool, &self.token_repo, &mut janitor_batch).await;
+                        cleanup_batch.push(token);
+                        if cleanup_batch.len() >= self.invalid_token_cleanup_batch_size {
+                            Self::flush_invalid_tokens(&self.pool, &self.token_repo, &mut cleanup_batch).await;
                         }
                     }
                 }
@@ -119,7 +120,7 @@ impl PushNotificationWorker {
         tracing::info!("Push notification worker shutting down...");
 
         // Final cleanup
-        Self::flush_invalid_tokens(&self.pool, &self.token_repo, &mut janitor_batch).await;
+        Self::flush_invalid_tokens(&self.pool, &self.token_repo, &mut cleanup_batch).await;
     }
 
     #[tracing::instrument(level = "debug", skip(pool, repo, batch))]
@@ -138,7 +139,7 @@ impl PushNotificationWorker {
                     batch.clear();
                 }
             }
-            Err(e) => tracing::error!(error = %e, "Failed to acquire connection for janitor"),
+            Err(e) => tracing::error!(error = %e, "Failed to acquire connection for cleanup"),
         }
     }
 
@@ -206,13 +207,13 @@ impl PushNotificationWorker {
                             let _ = repo.delete_job(user_id).await;
                         }
                         Err(PushError::Unregistered) => {
-                            tracing::info!(token = %token, "Token unregistered, reporting to janitor");
+                            tracing::info!(token = %token, "Token unregistered, reporting to invalid token cleanup");
                             metrics.invalidated_tokens.add(1, &[]);
 
                             // Definitively failed: Remove job from Redis anyway
                             let _ = repo.delete_job(user_id).await;
 
-                            // Send to janitor for batch DB deletion
+                            // Send to cleanup for batch DB deletion
                             let _ = tx.send(token).await;
                         }
                         Err(PushError::QuotaExceeded) => {

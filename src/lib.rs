@@ -343,7 +343,7 @@ impl AppBuilder {
             notification_worker: NotificationWorker::new(
                 notifier,
                 Arc::clone(&adapters.notification),
-                config.notifications.gc_interval_secs,
+                config.notifications.cleanup_interval_secs,
             ),
         }
     }

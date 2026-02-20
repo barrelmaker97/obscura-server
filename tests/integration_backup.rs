@@ -287,16 +287,16 @@ async fn test_backup_concurrent_upload_conflict() {
 }
 
 #[tokio::test]
-async fn test_backup_janitor_cleanup() {
+async fn test_backup_cleanup() {
     let mut config = common::get_test_config();
-    config.storage.bucket = format!("test-janitor-{}", &Uuid::new_v4().to_string()[..8]);
+    config.storage.bucket = format!("test-cleanup-{}", &Uuid::new_v4().to_string()[..8]);
     config.backup.stale_threshold_mins = 1; // 1 minute threshold
 
     let app = common::TestApp::spawn_with_config(config.clone()).await;
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("janitor_{}", run_id)).await;
+    let user = app.register_user(&format!("cleanup_{}", run_id)).await;
     let user_id = user.user_id;
 
     // 1. Setup Stale DB State (2 minutes ago)
@@ -327,7 +327,7 @@ async fn test_backup_janitor_cleanup() {
         BackupCleanupWorker::new(app.pool.clone(), BackupRepository::new(), storage_adapter, config.backup.clone());
 
     // 4. Execution
-    let cleaned_count = worker.cleanup_stale().await.expect("Janitor cleanup failed");
+    let cleaned_count = worker.cleanup_stale().await.expect("Cleanup failed");
     assert!(cleaned_count >= 1);
 
     // 5. Verification: DB State for OUR specific user

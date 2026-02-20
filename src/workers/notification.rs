@@ -28,19 +28,23 @@ impl Metrics {
 pub struct NotificationWorker {
     service: NotificationService,
     repo: Arc<NotificationRepository>,
-    gc_interval_secs: u64,
+    cleanup_interval_secs: u64,
     metrics: Option<Metrics>,
 }
 
 impl NotificationWorker {
     #[must_use]
-    pub const fn new(service: NotificationService, repo: Arc<NotificationRepository>, gc_interval_secs: u64) -> Self {
-        Self { service, repo, gc_interval_secs, metrics: None }
+    pub const fn new(
+        service: NotificationService,
+        repo: Arc<NotificationRepository>,
+        cleanup_interval_secs: u64,
+    ) -> Self {
+        Self { service, repo, cleanup_interval_secs, metrics: None }
     }
 
     pub async fn run(mut self, mut shutdown: watch::Receiver<bool>) {
         self.metrics = Some(Metrics::new());
-        let mut gc_interval = tokio::time::interval(Duration::from_secs(self.gc_interval_secs));
+        let mut cleanup_interval = tokio::time::interval(Duration::from_secs(self.cleanup_interval_secs));
 
         let mut notification_rx = match self.repo.subscribe_realtime().await {
             Ok(rx) => rx,
@@ -56,11 +60,11 @@ impl NotificationWorker {
             tokio::select! {
                 _ = shutdown.changed() => break,
 
-                _ = gc_interval.tick() => {
+                _ = cleanup_interval.tick() => {
                     async {
-                        self.service.perform_gc();
+                        self.service.perform_cleanup();
                     }
-                    .instrument(tracing::debug_span!("run_notification_gc"))
+                    .instrument(tracing::debug_span!("run_notification_cleanup"))
                     .await;
                 }
 

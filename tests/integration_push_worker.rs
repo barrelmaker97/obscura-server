@@ -24,9 +24,9 @@ async fn test_push_worker_invalidates_unregistered_tokens() {
     let mut config = common::get_test_config();
     // Speed up intervals for the test
     config.notifications.worker_interval_secs = 1;
-    config.notifications.janitor_interval_secs = 1;
+    config.notifications.invalid_token_cleanup_interval_secs = 1;
     // Use a unique queue key for this test to avoid competition with the default TestApp worker
-    config.notifications.push_queue_key = format!("{}-janitor", config.notifications.push_queue_key);
+    config.notifications.push_queue_key = format!("{}-cleanup", config.notifications.push_queue_key);
 
     let pool = common::get_test_pool().await;
     let user_id = Uuid::new_v4();
