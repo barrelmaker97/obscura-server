@@ -12,6 +12,8 @@ async fn test_rate_limit_isolation() {
     config.rate_limit.per_second = 1;
     config.rate_limit.burst = 2;
     let app = common::TestApp::spawn_with_config(config).await;
+    let run_id = Uuid::new_v4().to_string();
+    let user = app.register_user(&format!("rate_user_iso_{}", &run_id[..8])).await;
 
     let user_a = "1.1.1.1";
     let user_b = "2.2.2.2";
@@ -20,6 +22,7 @@ async fn test_rate_limit_isolation() {
         let resp = app
             .client
             .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
+            .header("Authorization", format!("Bearer {}", user.token))
             .header("X-Forwarded-For", user_a)
             .send()
             .await
@@ -30,6 +33,7 @@ async fn test_rate_limit_isolation() {
     let resp_a = app
         .client
         .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
+        .header("Authorization", format!("Bearer {}", user.token))
         .header("X-Forwarded-For", user_a)
         .send()
         .await
@@ -39,6 +43,7 @@ async fn test_rate_limit_isolation() {
     let resp_b = app
         .client
         .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
+        .header("Authorization", format!("Bearer {}", user.token))
         .header("X-Forwarded-For", user_b)
         .send()
         .await
@@ -52,6 +57,8 @@ async fn test_rate_limit_proxy_chain() {
     config.rate_limit.per_second = 1;
     config.rate_limit.burst = 2;
     let app = common::TestApp::spawn_with_config(config).await;
+    let run_id = Uuid::new_v4().to_string();
+    let user = app.register_user(&format!("rate_user_chain_{}", &run_id[..8])).await;
 
     let chain = "9.9.9.9, 1.1.1.1, 2.2.2.2";
 
@@ -59,6 +66,7 @@ async fn test_rate_limit_proxy_chain() {
         let resp = app
             .client
             .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
+            .header("Authorization", format!("Bearer {}", user.token))
             .header("X-Forwarded-For", chain)
             .send()
             .await
@@ -69,6 +77,7 @@ async fn test_rate_limit_proxy_chain() {
     let resp = app
         .client
         .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
+        .header("Authorization", format!("Bearer {}", user.token))
         .header("X-Forwarded-For", "different.spoof, 2.2.2.2")
         .send()
         .await
@@ -82,6 +91,8 @@ async fn test_rate_limit_concurrency() {
     config.rate_limit.per_second = 1;
     config.rate_limit.burst = 2;
     let app = common::TestApp::spawn_with_config(config).await;
+    let run_id = Uuid::new_v4().to_string();
+    let user = app.register_user(&format!("rate_user_conc_{}", &run_id[..8])).await;
 
     let mut tasks = vec![];
     let client = Client::new();
@@ -89,9 +100,15 @@ async fn test_rate_limit_concurrency() {
     for i in 0..20 {
         let url = app.server_url.clone();
         let c = client.clone();
+        let token = user.token.clone();
         tasks.push(tokio::spawn(async move {
             let ip = format!("10.10.10.{}", i);
-            c.get(format!("{}/v1/keys/{}", url, Uuid::new_v4())).header("X-Forwarded-For", ip).send().await.unwrap()
+            c.get(format!("{}/v1/keys/{}", url, Uuid::new_v4()))
+                .header("Authorization", format!("Bearer {}", token))
+                .header("X-Forwarded-For", ip)
+                .send()
+                .await
+                .unwrap()
         }));
     }
 
@@ -107,12 +124,26 @@ async fn test_rate_limit_fallback_to_peer_ip() {
     config.rate_limit.per_second = 1;
     config.rate_limit.burst = 2;
     let app = common::TestApp::spawn_with_config(config).await;
+    let run_id = Uuid::new_v4().to_string();
+    let user = app.register_user(&format!("rate_user_fall_{}", &run_id[..8])).await;
 
     for _ in 0..2 {
-        let resp = app.client.get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4())).send().await.unwrap();
+        let resp = app
+            .client
+            .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
+            .header("Authorization", format!("Bearer {}", user.token))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
-    let resp = app.client.get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4())).send().await.unwrap();
+    let resp = app
+        .client
+        .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS, "Should have fallen back to local peer IP and blocked");
 }
 
@@ -122,6 +153,8 @@ async fn test_rate_limit_spoofing_protection() {
     config.rate_limit.per_second = 1;
     config.rate_limit.burst = 1;
     let app = common::TestApp::spawn_with_config(config).await;
+    let run_id = Uuid::new_v4().to_string();
+    let user = app.register_user(&format!("rate_user_spoof_{}", &run_id[..8])).await;
 
     let spoofed_ip = "1.2.3.4";
     let real_attacker_ip = "5.6.7.8";
@@ -129,6 +162,7 @@ async fn test_rate_limit_spoofing_protection() {
     let _ = app
         .client
         .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
+        .header("Authorization", format!("Bearer {}", user.token))
         .header("X-Forwarded-For", format!("{}, {}", spoofed_ip, real_attacker_ip))
         .send()
         .await
@@ -137,6 +171,7 @@ async fn test_rate_limit_spoofing_protection() {
     let resp = app
         .client
         .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
+        .header("Authorization", format!("Bearer {}", user.token))
         .header("X-Forwarded-For", format!("9.9.9.9, {}", real_attacker_ip))
         .send()
         .await
@@ -151,6 +186,7 @@ async fn test_rate_limit_spoofing_protection() {
     let resp_ok = app
         .client
         .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
+        .header("Authorization", format!("Bearer {}", user.token))
         .header("X-Forwarded-For", spoofed_ip)
         .send()
         .await
@@ -169,19 +205,23 @@ async fn test_rate_limit_tiers() {
 
     let ip = "1.2.3.4";
 
-    let (reg_payload, _) = common::generate_registration_payload("tier_test", "password12345", 123, 0);
+    // 1. Register a user for standard tier requests BEFORE exhausting the auth tier
+    let user = app.register_user(&format!("tier_std_user_{}", &Uuid::new_v4().to_string()[..8])).await;
 
-    for _ in 0..2 {
-        let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&reg_payload).send().await.unwrap();
-        if resp.status() == StatusCode::TOO_MANY_REQUESTS {
-            // Limited as expected
-        }
+    // 2. Exhaust Auth Tier (Registration)
+    // Use unique usernames to avoid 409 logs
+    for i in 0..2 {
+        let username = format!("tier_auth_{}_{}", i, &Uuid::new_v4().to_string()[..8]);
+        let (reg_payload, _) = common::generate_registration_payload(&username, "password12345", 123, 0);
+        let _ = app.client.post(format!("{}/v1/users", app.server_url)).json(&reg_payload).send().await.unwrap();
     }
 
+    // 3. Standard Tier should still work
     for _ in 0..5 {
         let resp = app
             .client
             .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
+            .header("Authorization", format!("Bearer {}", user.token))
             .header("X-Forwarded-For", ip)
             .send()
             .await
@@ -191,6 +231,7 @@ async fn test_rate_limit_tiers() {
             StatusCode::TOO_MANY_REQUESTS,
             "Standard tier should not be affected by auth exhaustion"
         );
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 }
 
@@ -200,12 +241,15 @@ async fn test_rate_limit_recovery() {
     config.rate_limit.per_second = 1;
     config.rate_limit.burst = 1;
     let app = common::TestApp::spawn_with_config(config).await;
+    let run_id = Uuid::new_v4().to_string();
+    let user = app.register_user(&format!("rate_user_recov_{}", &run_id[..8])).await;
 
     let ip = "5.5.5.5";
 
     let _ = app
         .client
         .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
+        .header("Authorization", format!("Bearer {}", user.token))
         .header("X-Forwarded-For", ip)
         .send()
         .await
@@ -214,6 +258,7 @@ async fn test_rate_limit_recovery() {
     let resp = app
         .client
         .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
+        .header("Authorization", format!("Bearer {}", user.token))
         .header("X-Forwarded-For", ip)
         .send()
         .await
@@ -225,6 +270,7 @@ async fn test_rate_limit_recovery() {
     let resp_ok = app
         .client
         .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
+        .header("Authorization", format!("Bearer {}", user.token))
         .header("X-Forwarded-For", ip)
         .send()
         .await
@@ -238,11 +284,14 @@ async fn test_rate_limit_retry_after_header() {
     config.rate_limit.per_second = 1;
     config.rate_limit.burst = 1;
     let app = common::TestApp::spawn_with_config(config).await;
+    let run_id = Uuid::new_v4().to_string();
+    let user = app.register_user(&format!("rate_user_retry_{}", &run_id[..8])).await;
 
     let ip = "7.7.7.7";
 
     app.client
         .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
+        .header("Authorization", format!("Bearer {}", user.token))
         .header("X-Forwarded-For", ip)
         .send()
         .await
@@ -251,6 +300,7 @@ async fn test_rate_limit_retry_after_header() {
     let resp = app
         .client
         .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
+        .header("Authorization", format!("Bearer {}", user.token))
         .header("X-Forwarded-For", ip)
         .send()
         .await
