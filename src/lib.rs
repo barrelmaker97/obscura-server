@@ -32,6 +32,7 @@ use crate::adapters::database::push_token_repo::PushTokenRepository;
 use crate::adapters::database::refresh_token_repo::RefreshTokenRepository;
 use crate::adapters::database::user_repo::UserRepository;
 use crate::adapters::push::PushProvider;
+use crate::adapters::redis::IdempotencyRepository;
 use crate::adapters::storage::S3Storage;
 use crate::config::{Config, StorageConfig};
 use crate::services::account_service::AccountService;
@@ -254,6 +255,7 @@ impl AppBuilder {
         let message_service = MessageService::new(
             pool.clone(),
             adapters.message.clone(),
+            IdempotencyRepository::new(Arc::clone(&pubsub)),
             notifier.clone(),
             config.messaging.clone(),
             config.ttl_days,

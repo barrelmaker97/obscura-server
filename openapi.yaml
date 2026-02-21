@@ -207,14 +207,67 @@ paths:
           $ref: '#/components/responses/TooManyRequestsError'
 
   # --- Messaging (REST Upstream) ---
+  /v1/messages:
+    post:
+      operationId: sendMessages
+      summary: Send one or more encrypted messages.
+      description: |
+        Pushes an array of encrypted envelopes to target devices' queues.
+        Accepts a batch of messages to support multi-device fan-out or single messages.
+
+        **Idempotency:** Requires an `Idempotency-Key` header to safely retry dropped network requests.
+        **Payload:** `SendMessageRequest` (Protobuf).
+        **Response:** `SendMessageResponse` (Protobuf) detailing any partial failures. An empty response array indicates total success.
+      tags: [Messaging]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Client-generated UUID. Used to prevent duplicate processing on network retries.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/x-protobuf:
+            schema:
+              type: string
+              format: binary
+              description: Serialized `SendMessageRequest` protobuf.
+      responses:
+        '200':
+          description: Batch processed. Parse the response payload to check for partial failures via the `failed_messages` array.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/x-request-id'
+          content:
+            application/x-protobuf:
+              schema:
+                type: string
+                format: binary
+                description: Serialized `SendMessageResponse` protobuf.
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '413':
+          description: Payload Too Large. The batch contains too many messages (exceeds server max).
+        '429':
+          $ref: '#/components/responses/TooManyRequestsError'
+
   /v1/messages/{recipientId}:
     post:
       operationId: sendMessage
-      summary: Send an encrypted message (Push).
+      summary: Send an encrypted message (Push) [DEPRECATED].
+      deprecated: true
       description: |
         Pushes an encrypted envelope to the target device's queue.
         **Payload:** `EncryptedMessage` (Protobuf).
         The recipient will receive this via WebSocket.
+        **Note:** Please migrate to the batch endpoint `POST /v1/messages`.
       tags: [Messaging]
       security:
         - bearerAuth: []

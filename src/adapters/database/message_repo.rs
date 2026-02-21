@@ -25,6 +25,8 @@ impl MessageRepository {
         conn: &mut PgConnection,
         sender_id: Uuid,
         recipient_id: Uuid,
+        client_message_id: Option<Uuid>,
+        client_timestamp_ms: Option<i64>,
         message_type: i32,
         content: Vec<u8>,
         ttl_days: i64,
@@ -33,13 +35,15 @@ impl MessageRepository {
 
         let result = sqlx::query_as::<_, MessageRecord>(
             r#"
-            INSERT INTO messages (sender_id, recipient_id, message_type, content, expires_at)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING id, sender_id, recipient_id, message_type, content, created_at, expires_at
+            INSERT INTO messages (sender_id, recipient_id, client_message_id, client_timestamp_ms, message_type, content, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING id, sender_id, recipient_id, client_message_id, client_timestamp_ms, message_type, content, created_at, expires_at
             "#,
         )
         .bind(sender_id)
         .bind(recipient_id)
+        .bind(client_message_id)
+        .bind(client_timestamp_ms)
         .bind(message_type)
         .bind(content)
         .bind(expires_at)
@@ -72,7 +76,7 @@ impl MessageRepository {
             Some((last_ts, last_id)) => {
                 sqlx::query_as::<_, MessageRecord>(
                     r#"
-                    SELECT id, sender_id, recipient_id, message_type, content, created_at, expires_at
+                    SELECT id, sender_id, recipient_id, client_message_id, client_timestamp_ms, message_type, content, created_at, expires_at
                     FROM messages
                     WHERE recipient_id = $1
                       AND expires_at > NOW()
@@ -91,7 +95,7 @@ impl MessageRepository {
             None => {
                 sqlx::query_as::<_, MessageRecord>(
                     r#"
-                    SELECT id, sender_id, recipient_id, message_type, content, created_at, expires_at
+                    SELECT id, sender_id, recipient_id, client_message_id, client_timestamp_ms, message_type, content, created_at, expires_at
                     FROM messages
                     WHERE recipient_id = $1
                       AND expires_at > NOW()

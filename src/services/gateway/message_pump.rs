@@ -101,7 +101,7 @@ impl MessagePump {
             let envelope = Envelope {
                 id: msg.id.to_string(),
                 source_user_id: msg.sender_id.to_string(),
-                timestamp,
+                server_timestamp_ms: timestamp,
                 message: Some(EncryptedMessage { r#type: msg.message_type, content: msg.content }),
             };
 

@@ -6,8 +6,10 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, watch};
 use tracing::Instrument;
 
+pub mod idempotency_repo;
 pub mod notification_repo;
 
+pub use idempotency_repo::IdempotencyRepository;
 pub use notification_repo::NotificationRepository;
 
 #[derive(Debug, Clone)]

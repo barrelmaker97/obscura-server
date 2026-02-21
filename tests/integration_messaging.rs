@@ -2,7 +2,9 @@ mod common;
 
 use common::TestApp;
 use futures::SinkExt;
-use obscura_server::proto::obscura::v1::{AckMessage, EncryptedMessage, WebSocketFrame, web_socket_frame::Payload};
+use obscura_server::proto::obscura::v1::{
+    web_socket_frame::Payload, send_message_response, AckMessage, EncryptedMessage, SendMessageResponse, WebSocketFrame,
+};
 use prost::Message as ProstMessage;
 use std::time::Duration;
 use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
@@ -105,21 +107,37 @@ async fn test_send_message_recipient_not_found() {
     let user_a = app.register_user(&format!("alice_404_{}", run_id)).await;
     let bad_id = Uuid::new_v4();
 
-    let enc_msg = EncryptedMessage { r#type: 2, content: b"Hello".to_vec() };
+    let client_msg_id = Uuid::new_v4().to_string();
+    let request = obscura_server::proto::obscura::v1::SendMessageRequest {
+        messages: vec![obscura_server::proto::obscura::v1::OutgoingMessage {
+            client_message_id: client_msg_id.clone(),
+            recipient_id: bad_id.to_string(),
+            client_timestamp_ms: 123456,
+            message: Some(EncryptedMessage { r#type: 2, content: b"Hello".to_vec() }),
+        }],
+    };
     let mut buf = Vec::new();
-    enc_msg.encode(&mut buf).unwrap();
+    request.encode(&mut buf).unwrap();
 
     let resp = app
         .client
-        .post(format!("{}/v1/messages/{}", app.server_url, bad_id))
+        .post(format!("{}/v1/messages", app.server_url))
         .header("Authorization", format!("Bearer {}", user_a.token))
-        .header("Content-Type", "application/octet-stream")
+        .header("Content-Type", "application/x-protobuf")
         .body(buf)
         .send()
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), 404);
+    assert_eq!(resp.status(), 200);
+    let body = resp.bytes().await.unwrap();
+    let response = SendMessageResponse::decode(body).unwrap();
+    assert_eq!(response.failed_messages.len(), 1);
+    assert_eq!(response.failed_messages[0].client_message_id, client_msg_id);
+    assert_eq!(
+        response.failed_messages[0].error_code,
+        send_message_response::ErrorCode::UserNotFound as i32
+    );
 }
 
 #[tokio::test]
@@ -127,19 +145,76 @@ async fn test_send_message_malformed_protobuf() {
     let app = TestApp::spawn().await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
     let user = app.register_user(&format!("malformed_{}", run_id)).await;
-    let recipient = app.register_user(&format!("rec_malformed_{}", run_id)).await;
 
     let resp = app
         .client
-        .post(format!("{}/v1/messages/{}", app.server_url, recipient.user_id))
+        .post(format!("{}/v1/messages", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
-        .header("Content-Type", "application/octet-stream")
+        .header("Content-Type", "application/x-protobuf")
         .body(vec![0, 1, 2])
         .send()
         .await
         .unwrap();
 
     assert_eq!(resp.status(), 400);
+}
+
+#[tokio::test]
+async fn test_message_idempotency() {
+    let app = TestApp::spawn().await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user_a = app.register_user(&format!("alice_idem_{}", run_id)).await;
+    let user_b = app.register_user(&format!("bob_idem_{}", run_id)).await;
+
+    let idempotency_key = Uuid::new_v4();
+    let content = b"Idempotent Hello".to_vec();
+
+    let request = obscura_server::proto::obscura::v1::SendMessageRequest {
+        messages: vec![obscura_server::proto::obscura::v1::OutgoingMessage {
+            client_message_id: Uuid::new_v4().to_string(),
+            recipient_id: user_b.user_id.to_string(),
+            client_timestamp_ms: 123456789,
+            message: Some(EncryptedMessage { r#type: 2, content: content.clone() }),
+        }],
+    };
+    let mut buf = Vec::new();
+    request.encode(&mut buf).unwrap();
+
+    // First attempt
+    let resp1 = app
+        .client
+        .post(format!("{}/v1/messages", app.server_url))
+        .header("Authorization", format!("Bearer {}", user_a.token))
+        .header("Idempotency-Key", idempotency_key.to_string())
+        .header("Content-Type", "application/x-protobuf")
+        .body(buf.clone())
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp1.status(), 200);
+    let body1 = resp1.bytes().await.unwrap();
+
+    // Second attempt (retry)
+    let resp2 = app
+        .client
+        .post(format!("{}/v1/messages", app.server_url))
+        .header("Authorization", format!("Bearer {}", user_a.token))
+        .header("Idempotency-Key", idempotency_key.to_string())
+        .header("Content-Type", "application/x-protobuf")
+        .body(buf)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp2.status(), 200);
+    let body2 = resp2.bytes().await.unwrap();
+
+    // Verify bodies are identical (cached response)
+    assert_eq!(body1, body2);
+
+    // Verify only ONE message was queued
+    app.assert_message_count(user_b.user_id, 1).await;
 }
 
 #[tokio::test]

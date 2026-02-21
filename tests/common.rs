@@ -333,21 +333,37 @@ impl TestApp {
     }
 
     pub async fn send_message(&self, token: &str, recipient_id: Uuid, content: &[u8]) {
-        let enc_msg = EncryptedMessage { r#type: 2, content: content.to_vec() };
+        self.send_messages(token, &[(recipient_id, content)]).await;
+    }
+
+    pub async fn send_messages(&self, token: &str, messages: &[(Uuid, &[u8])]) {
+        use obscura_server::proto::obscura::v1::{SendMessageRequest, OutgoingMessage};
+
+        let outgoing = messages
+            .iter()
+            .map(|(recipient_id, content)| OutgoingMessage {
+                client_message_id: Uuid::new_v4().to_string(),
+                recipient_id: recipient_id.to_string(),
+                client_timestamp_ms: 123456789, // Dummy
+                message: Some(EncryptedMessage { r#type: 2, content: content.to_vec() }),
+            })
+            .collect();
+
+        let request = SendMessageRequest { messages: outgoing };
         let mut buf = Vec::new();
-        enc_msg.encode(&mut buf).unwrap();
+        request.encode(&mut buf).unwrap();
 
         let resp = self
             .client
-            .post(format!("{}/v1/messages/{}", self.server_url, recipient_id))
+            .post(format!("{}/v1/messages", self.server_url))
             .header("Authorization", format!("Bearer {}", token))
-            .header("Content-Type", "application/octet-stream")
+            .header("Content-Type", "application/x-protobuf")
             .body(buf)
             .send()
             .await
             .unwrap();
 
-        assert_eq!(resp.status(), 201, "Message sending failed");
+        assert_eq!(resp.status(), 200, "Message sending failed: {}", resp.text().await.unwrap());
     }
 
     pub async fn connect_ws(&self, token: &str) -> TestWsClient {

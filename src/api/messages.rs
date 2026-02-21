@@ -1,17 +1,43 @@
 use crate::api::AppState;
 use crate::api::middleware::AuthUser;
 use crate::error::{AppError, Result};
-use crate::proto::obscura::v1::EncryptedMessage;
+use crate::proto::obscura::v1::SendMessageRequest;
 use axum::{
     body::Bytes,
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
 use prost::Message;
 use uuid::Uuid;
 
-/// Sends an encrypted message to a recipient.
+/// Sends a batch of encrypted messages.
+///
+/// # Errors
+/// Returns `AppError::BadRequest` if the request protobuf is malformed.
+pub async fn send_messages(
+    auth_user: AuthUser,
+
+    State(state): State<AppState>,
+
+    headers: HeaderMap,
+
+    body: Bytes,
+) -> Result<impl IntoResponse> {
+    let request = SendMessageRequest::decode(body)
+        .map_err(|e| AppError::BadRequest(format!("Invalid SendMessageRequest protobuf: {e}")))?;
+
+    let idempotency_key = headers
+        .get("idempotency-key")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| Uuid::parse_str(s).ok());
+
+    let response = state.message_service.send_batch(auth_user.user_id, idempotency_key, request.messages).await?;
+
+    Ok(response.encode_to_vec())
+}
+
+/// Sends an encrypted message to a recipient (Deprecated).
 ///
 /// # Errors
 /// Returns `AppError::BadRequest` if the message protobuf is malformed.
@@ -25,10 +51,10 @@ pub async fn send_message(
 
     body: Bytes,
 ) -> Result<impl IntoResponse> {
-    let msg = EncryptedMessage::decode(body)
+    let msg = crate::proto::obscura::v1::EncryptedMessage::decode(body)
         .map_err(|e| AppError::BadRequest(format!("Invalid EncryptedMessage protobuf: {e}")))?;
 
-    state.message_service.send_message(auth_user.user_id, recipient_id, msg.r#type, msg.content).await?;
+    state.message_service.send_message(auth_user.user_id, recipient_id, None, None, msg.r#type, msg.content).await?;
 
     Ok(StatusCode::CREATED)
 }
