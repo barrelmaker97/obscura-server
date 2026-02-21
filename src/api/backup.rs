@@ -47,9 +47,16 @@ pub async fn upload_backup(
     // Bridge Axum Body -> StorageStream (using neutral std::io::Error)
     let stream = body.into_data_stream().map(|res| res.map_err(|e| std::io::Error::other(e.to_string()))).boxed();
 
-    state.backup_service.handle_upload(auth_user.user_id, if_match_version, Some(content_len), stream).await?;
+    let new_version =
+        state.backup_service.handle_upload(auth_user.user_id, if_match_version, Some(content_len), stream).await?;
 
-    Ok(StatusCode::OK)
+    let mut response = Response::new(Body::empty());
+    *response.status_mut() = StatusCode::OK;
+    response
+        .headers_mut()
+        .insert(header::ETAG, HeaderValue::from_str(&format!("\"{new_version}\"")).map_err(|_| AppError::Internal)?);
+
+    Ok(response)
 }
 
 /// Downloads the current backup.

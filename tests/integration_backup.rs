@@ -42,6 +42,8 @@ async fn test_backup_lifecycle() {
         .unwrap();
 
     assert_eq!(resp_up.status(), StatusCode::OK);
+    let etag_up = resp_up.headers().get("ETag").unwrap().to_str().unwrap().to_string();
+    assert_eq!(etag_up, "\"1\"");
 
     // 3. Download
     let resp_down = app
@@ -71,6 +73,8 @@ async fn test_backup_lifecycle() {
         .unwrap();
 
     assert_eq!(resp_up_v2.status(), StatusCode::OK);
+    let etag_up_v2 = resp_up_v2.headers().get("ETag").unwrap().to_str().unwrap().to_string();
+    assert_eq!(etag_up_v2, "\"2\"");
 
     // 5. Download v2
     let resp_down_v2 = app
