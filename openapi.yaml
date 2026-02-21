@@ -499,6 +499,10 @@ paths:
           headers:
             x-request-id:
               $ref: '#/components/headers/x-request-id'
+            ETag:
+              description: The new backup version.
+              schema:
+                type: string
         '400':
           $ref: '#/components/responses/BadRequestError'
         '401':

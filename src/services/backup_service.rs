@@ -81,7 +81,7 @@ impl BackupService {
         if_match_version: i32,
         content_len: Option<usize>,
         stream: StorageStream,
-    ) -> Result<()> {
+    ) -> Result<i32> {
         if let Some(len) = content_len {
             if len < self.backup_config.min_size_bytes {
                 return Err(AppError::BadRequest("Backup too small".into()));
@@ -155,7 +155,7 @@ impl BackupService {
             });
         }
 
-        Ok(())
+        Ok(pending_version)
     }
 
     /// Downloads the current backup for the user.
