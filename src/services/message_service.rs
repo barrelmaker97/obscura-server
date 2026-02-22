@@ -85,7 +85,6 @@ impl MessageService {
         sender_id: Uuid,
         recipient_id: Uuid,
         client_message_id: Option<Uuid>,
-        client_timestamp_ms: Option<i64>,
         message_type: i32,
         content: Vec<u8>,
     ) -> Result<()> {
@@ -97,7 +96,6 @@ impl MessageService {
                 sender_id,
                 recipient_id,
                 client_message_id,
-                client_timestamp_ms,
                 message_type,
                 content,
                 self.ttl_days,
@@ -177,7 +175,6 @@ impl MessageService {
                     sender_id,
                     recipient_id,
                     client_message_id,
-                    Some(outgoing.client_timestamp_ms as i64),
                     msg.r#type,
                     msg.content,
                 )

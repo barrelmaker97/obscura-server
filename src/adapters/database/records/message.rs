@@ -8,7 +8,6 @@ pub struct MessageRecord {
     pub(crate) sender_id: Uuid,
     pub(crate) recipient_id: Uuid,
     pub(crate) client_message_id: Option<Uuid>,
-    pub(crate) client_timestamp_ms: Option<i64>,
     #[sqlx(rename = "message_type")]
     pub(crate) r#type: i32,
     pub(crate) content: Vec<u8>,
@@ -23,7 +22,6 @@ impl From<MessageRecord> for Message {
             sender_id: record.sender_id,
             recipient_id: record.recipient_id,
             client_message_id: record.client_message_id,
-            client_timestamp_ms: record.client_timestamp_ms,
             message_type: record.r#type,
             content: record.content,
             created_at: record.created_at,

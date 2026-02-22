@@ -344,7 +344,6 @@ impl TestApp {
             .map(|(recipient_id, content)| OutgoingMessage {
                 client_message_id: Uuid::new_v4().to_string(),
                 recipient_id: recipient_id.to_string(),
-                client_timestamp_ms: 123456789, // Dummy
                 message: Some(EncryptedMessage { r#type: 2, content: content.to_vec() }),
             })
             .collect();

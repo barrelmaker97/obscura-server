@@ -112,7 +112,6 @@ async fn test_send_message_recipient_not_found() {
         messages: vec![obscura_server::proto::obscura::v1::OutgoingMessage {
             client_message_id: client_msg_id.clone(),
             recipient_id: bad_id.to_string(),
-            client_timestamp_ms: 123456,
             message: Some(EncryptedMessage { r#type: 2, content: b"Hello".to_vec() }),
         }],
     };
@@ -173,7 +172,6 @@ async fn test_message_idempotency() {
         messages: vec![obscura_server::proto::obscura::v1::OutgoingMessage {
             client_message_id: Uuid::new_v4().to_string(),
             recipient_id: user_b.user_id.to_string(),
-            client_timestamp_ms: 123456789,
             message: Some(EncryptedMessage { r#type: 2, content: content.clone() }),
         }],
     };

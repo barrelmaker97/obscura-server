@@ -7,7 +7,6 @@ pub struct Message {
     pub sender_id: Uuid,
     pub recipient_id: Uuid,
     pub client_message_id: Option<Uuid>,
-    pub client_timestamp_ms: Option<i64>,
     pub message_type: i32,
     pub content: Vec<u8>,
     pub created_at: Option<OffsetDateTime>,

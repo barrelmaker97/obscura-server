@@ -54,7 +54,7 @@ pub async fn send_message(
     let msg = crate::proto::obscura::v1::EncryptedMessage::decode(body)
         .map_err(|e| AppError::BadRequest(format!("Invalid EncryptedMessage protobuf: {e}")))?;
 
-    state.message_service.send_message(auth_user.user_id, recipient_id, None, None, msg.r#type, msg.content).await?;
+    state.message_service.send_message(auth_user.user_id, recipient_id, None, msg.r#type, msg.content).await?;
 
     Ok(StatusCode::CREATED)
 }
