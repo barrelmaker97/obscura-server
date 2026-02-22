@@ -53,6 +53,8 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
           $ref: '#/components/responses/TooManyRequestsError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /v1/sessions:
     post:
@@ -81,6 +83,8 @@ paths:
           $ref: '#/components/responses/RequestTimeoutError'
         '429':
           $ref: '#/components/responses/TooManyRequestsError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
     delete:
       operationId: logout
@@ -105,6 +109,8 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '408':
           $ref: '#/components/responses/RequestTimeoutError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /v1/sessions/refresh:
     post:
@@ -134,6 +140,8 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '408':
           $ref: '#/components/responses/RequestTimeoutError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   # --- Keys (X3DH) ---
   /v1/keys:
@@ -173,6 +181,8 @@ paths:
           $ref: '#/components/responses/RequestTimeoutError'
         '429':
           $ref: '#/components/responses/TooManyRequestsError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /v1/keys/{userId}:
     get:
@@ -205,6 +215,8 @@ paths:
           $ref: '#/components/responses/RequestTimeoutError'
         '429':
           $ref: '#/components/responses/TooManyRequestsError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   # --- Messaging (REST Upstream) ---
   /v1/messages:
@@ -253,10 +265,14 @@ paths:
           $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '408':
+          $ref: '#/components/responses/RequestTimeoutError'
         '413':
           description: Payload Too Large. The batch contains too many messages (exceeds server max).
         '429':
           $ref: '#/components/responses/TooManyRequestsError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /v1/messages/{recipientId}:
     post:
@@ -306,6 +322,8 @@ paths:
           $ref: '#/components/responses/RequestTimeoutError'
         '429':
           $ref: '#/components/responses/TooManyRequestsError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   # --- WebSocket Gateway (Documentation Only) ---
   /v1/gateway:
@@ -337,6 +355,8 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '429':
           $ref: '#/components/responses/TooManyRequestsError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   # --- Attachments (Binary Storage) ---
   /v1/attachments:
@@ -379,6 +399,8 @@ paths:
           $ref: '#/components/responses/PayloadTooLargeError'
         '429':
           $ref: '#/components/responses/TooManyRequestsError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /v1/attachments/{id}:
     get:
@@ -428,6 +450,8 @@ paths:
           $ref: '#/components/responses/RequestTimeoutError'
         '429':
           $ref: '#/components/responses/TooManyRequestsError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   # --- Backups (Encrypted Identity Recovery) ---
   /v1/backup:
@@ -476,6 +500,8 @@ paths:
           $ref: '#/components/responses/RequestTimeoutError'
         '429':
           $ref: '#/components/responses/TooManyRequestsError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
     head:
       operationId: headBackup
@@ -508,6 +534,8 @@ paths:
           $ref: '#/components/responses/RequestTimeoutError'
         '429':
           $ref: '#/components/responses/TooManyRequestsError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
     post:
       operationId: uploadBackup
@@ -572,6 +600,8 @@ paths:
           $ref: '#/components/responses/PayloadTooLargeError'
         '429':
           $ref: '#/components/responses/TooManyRequestsError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   # --- Push Notifications ---
   /v1/push-tokens:
@@ -604,6 +634,8 @@ paths:
           $ref: '#/components/responses/BadRequestError'
         '429':
           $ref: '#/components/responses/TooManyRequestsError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
 components:
   securitySchemes:
@@ -703,6 +735,15 @@ components:
           $ref: '#/components/headers/x-request-id'
         retry-after:
           $ref: '#/components/headers/retry-after'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalServerError:
+      description: Internal Server Error.
+      headers:
+        x-request-id:
+          $ref: '#/components/headers/x-request-id'
       content:
         application/json:
           schema:
