@@ -133,7 +133,7 @@ async fn test_send_message_recipient_not_found() {
     let response = SendMessageResponse::decode(body).unwrap();
     assert_eq!(response.failed_messages.len(), 1);
     assert_eq!(response.failed_messages[0].client_message_id, client_msg_id);
-    assert_eq!(response.failed_messages[0].error_code, send_message_response::ErrorCode::UserNotFound as i32);
+    assert_eq!(response.failed_messages[0].error_code, send_message_response::ErrorCode::InvalidRecipient as i32);
 }
 
 #[tokio::test]
@@ -267,7 +267,7 @@ async fn test_batch_partial_success() {
     // Verify Response: Should list ONLY the failed message
     assert_eq!(response.failed_messages.len(), 1);
     assert_eq!(response.failed_messages[0].client_message_id, client_msg_id_bad);
-    assert_eq!(response.failed_messages[0].error_code, send_message_response::ErrorCode::UserNotFound as i32);
+    assert_eq!(response.failed_messages[0].error_code, send_message_response::ErrorCode::InvalidRecipient as i32);
 
     // Verify Delivery: Bob and Charlie should have messages
     app.assert_message_count(user_b.user_id, 1).await;

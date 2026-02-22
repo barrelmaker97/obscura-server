@@ -142,7 +142,7 @@ impl MessageService {
             let Ok(recipient_id) = Uuid::parse_str(&outgoing.recipient_id) else {
                 failed_messages.push(send_message_response::FailedMessage {
                     client_message_id: outgoing.client_message_id.clone(),
-                    error_code: send_message_response::ErrorCode::UserNotFound as i32,
+                    error_code: send_message_response::ErrorCode::InvalidRecipient as i32,
                     error_message: "Invalid recipient UUID".to_string(),
                 });
                 continue;
@@ -187,7 +187,7 @@ impl MessageService {
             } else {
                 failed_messages.push(send_message_response::FailedMessage {
                     client_message_id: parsed.original.client_message_id.clone(),
-                    error_code: send_message_response::ErrorCode::UserNotFound as i32,
+                    error_code: send_message_response::ErrorCode::InvalidRecipient as i32,
                     error_message: "Recipient not found".to_string(),
                 });
             }
