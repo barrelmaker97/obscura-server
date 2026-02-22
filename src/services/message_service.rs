@@ -225,7 +225,9 @@ impl MessageService {
         // 6. Cache Result
         if let Some(key) = idempotency_key {
             let encoded = response.encode_to_vec();
-            if let Err(e) = self.idempotency_repo.save_response(&key.to_string(), &encoded, 86400).await {
+            if let Err(e) =
+                self.idempotency_repo.save_response(&key.to_string(), &encoded, self.config.idempotency_ttl_secs).await
+            {
                 tracing::error!(error = %e, "Failed to cache idempotency response");
             }
         }

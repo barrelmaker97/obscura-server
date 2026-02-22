@@ -335,6 +335,14 @@ pub struct MessagingConfig {
     )]
     pub send_batch_limit: i64,
 
+    /// Time-to-live for idempotency keys in seconds
+    #[arg(
+        long = "messaging-idempotency-ttl-secs",
+        env = "OBSCURA_MESSAGING_IDEMPOTENCY_TTL_SECS",
+        default_value_t = MessagingConfig::default().idempotency_ttl_secs
+    )]
+    pub idempotency_ttl_secs: u64,
+
     /// Threshold of one-time prekeys to trigger a refill notification
     #[arg(long = "pre-key-refill-threshold", env = "OBSCURA_PRE_KEY_REFILL_THRESHOLD", default_value_t = MessagingConfig::default().pre_key_refill_threshold)]
     pub pre_key_refill_threshold: i32,
@@ -351,6 +359,7 @@ impl Default for MessagingConfig {
             cleanup_interval_secs: 300,
             fetch_batch_limit: 50,
             send_batch_limit: 100,
+            idempotency_ttl_secs: 86400,
             pre_key_refill_threshold: 20,
             max_pre_keys: 100,
         }
