@@ -301,6 +301,41 @@ async fn test_batch_empty() {
 }
 
 #[tokio::test]
+async fn test_batch_too_large() {
+    let mut config = common::get_test_config();
+    config.messaging.send_batch_limit = 5;
+
+    let app = TestApp::spawn_with_config(config).await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user = app.register_user(&format!("limit_{}", run_id)).await;
+
+    let mut messages = Vec::new();
+    for _ in 0..6 {
+        messages.push(obscura_server::proto::obscura::v1::OutgoingMessage {
+            client_message_id: Uuid::new_v4().to_string(),
+            recipient_id: user.user_id.to_string(),
+            message: Some(EncryptedMessage { r#type: 2, content: b"Msg".to_vec() }),
+        });
+    }
+
+    let request = obscura_server::proto::obscura::v1::SendMessageRequest { messages };
+    let mut buf = Vec::new();
+    request.encode(&mut buf).unwrap();
+
+    let resp = app
+        .client
+        .post(format!("{}/v1/messages", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("Content-Type", "application/x-protobuf")
+        .body(buf)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 413);
+}
+
+#[tokio::test]
 async fn test_websocket_auth_failure() {
     let app = TestApp::spawn().await;
     let res = tokio_tungstenite::connect_async(format!("{}?token=invalid", app.ws_url)).await;

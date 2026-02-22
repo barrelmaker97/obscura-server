@@ -62,7 +62,8 @@ Obscura Server is configured via command-line flags or environment variables usi
 |------|----------------------|---------|-------------|
 | `--messaging-inbox-max-size` | `OBSCURA_MESSAGING_INBOX_MAX_SIZE` | `1000` | Maximum number of pending messages per user before pruning. |
 | `--messaging-cleanup-interval-secs` | `OBSCURA_MESSAGING_CLEANUP_INTERVAL_SECS` | `300` | How often to run the message cleanup task in seconds. |
-| `--messaging-batch-limit` | `OBSCURA_MESSAGING_BATCH_LIMIT` | `50` | Maximum number of messages processed in a single DB fetch loop. |
+| `--messaging-fetch-batch-limit` | `OBSCURA_MESSAGING_FETCH_BATCH_LIMIT` | `50` | Maximum number of messages to fetch in a single database query loop. |
+| `--messaging-send-batch-limit` | `OBSCURA_MESSAGING_SEND_BATCH_LIMIT` | `100` | Maximum number of messages to accept in a single send request. |
 | `--pre-key-refill-threshold` | `OBSCURA_PRE_KEY_REFILL_THRESHOLD` | `20` | Threshold of one-time prekeys to trigger a refill notification. |
 | `--pre-keys-max` | `OBSCURA_PRE_KEYS_MAX` | `100` | Maximum number of one-time prekeys allowed per user. |
 

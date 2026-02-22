@@ -27,6 +27,10 @@ pub async fn send_messages(
     let request = SendMessageRequest::decode(body)
         .map_err(|e| AppError::BadRequest(format!("Invalid SendMessageRequest protobuf: {e}")))?;
 
+    if request.messages.len() > usize::try_from(state.config.messaging.send_batch_limit).unwrap_or(0) {
+        return Err(AppError::PayloadTooLarge);
+    }
+
     let idempotency_key =
         headers.get("idempotency-key").and_then(|v| v.to_str().ok()).and_then(|s| Uuid::parse_str(s).ok());
 

@@ -271,7 +271,7 @@ impl MessageService {
     }
 
     #[must_use]
-    pub(crate) const fn batch_limit(&self) -> i64 {
-        self.config.batch_limit
+    pub(crate) const fn fetch_batch_limit(&self) -> i64 {
+        self.config.fetch_batch_limit
     }
 }

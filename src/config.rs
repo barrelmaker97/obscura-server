@@ -319,9 +319,21 @@ pub struct MessagingConfig {
     )]
     pub cleanup_interval_secs: u64,
 
-    /// Maximum number of messages to process in a single batch
-    #[arg(long = "messaging-batch-limit", env = "OBSCURA_MESSAGING_BATCH_LIMIT", default_value_t = MessagingConfig::default().batch_limit)]
-    pub batch_limit: i64,
+    /// Maximum number of messages to fetch in a single database query loop
+    #[arg(
+        long = "messaging-fetch-batch-limit",
+        env = "OBSCURA_MESSAGING_FETCH_BATCH_LIMIT",
+        default_value_t = MessagingConfig::default().fetch_batch_limit
+    )]
+    pub fetch_batch_limit: i64,
+
+    /// Maximum number of messages to accept in a single send request
+    #[arg(
+        long = "messaging-send-batch-limit",
+        env = "OBSCURA_MESSAGING_SEND_BATCH_LIMIT",
+        default_value_t = MessagingConfig::default().send_batch_limit
+    )]
+    pub send_batch_limit: i64,
 
     /// Threshold of one-time prekeys to trigger a refill notification
     #[arg(long = "pre-key-refill-threshold", env = "OBSCURA_PRE_KEY_REFILL_THRESHOLD", default_value_t = MessagingConfig::default().pre_key_refill_threshold)]
@@ -337,7 +349,8 @@ impl Default for MessagingConfig {
         Self {
             max_inbox_size: 1000,
             cleanup_interval_secs: 300,
-            batch_limit: 50,
+            fetch_batch_limit: 50,
+            send_batch_limit: 100,
             pre_key_refill_threshold: 20,
             max_pre_keys: 100,
         }

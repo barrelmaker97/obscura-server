@@ -65,7 +65,7 @@ impl Session {
             message_service.clone(),
             outbound_tx,
             metrics.clone(),
-            message_service.batch_limit(),
+            message_service.fetch_batch_limit(),
         );
 
         message_pump.notify();
