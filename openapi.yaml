@@ -236,7 +236,7 @@ paths:
       parameters:
         - name: Idempotency-Key
           in: header
-          required: false
+          required: true
           description: Client-generated UUID. Used to prevent duplicate processing on network retries.
           schema:
             type: string

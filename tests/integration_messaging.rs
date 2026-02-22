@@ -122,6 +122,7 @@ async fn test_send_message_recipient_not_found() {
         .client
         .post(format!("{}/v1/messages", app.server_url))
         .header("Authorization", format!("Bearer {}", user_a.token))
+        .header("Idempotency-Key", Uuid::new_v4().to_string())
         .header("Content-Type", "application/x-protobuf")
         .body(buf)
         .send()
@@ -146,6 +147,7 @@ async fn test_send_message_malformed_protobuf() {
         .client
         .post(format!("{}/v1/messages", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
+        .header("Idempotency-Key", Uuid::new_v4().to_string())
         .header("Content-Type", "application/x-protobuf")
         .body(vec![0, 1, 2])
         .send()
@@ -254,6 +256,7 @@ async fn test_batch_partial_success() {
         .client
         .post(format!("{}/v1/messages", app.server_url))
         .header("Authorization", format!("Bearer {}", user_a.token))
+        .header("Idempotency-Key", Uuid::new_v4().to_string())
         .header("Content-Type", "application/x-protobuf")
         .body(buf)
         .send()
@@ -288,6 +291,7 @@ async fn test_batch_empty() {
         .client
         .post(format!("{}/v1/messages", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
+        .header("Idempotency-Key", Uuid::new_v4().to_string())
         .header("Content-Type", "application/x-protobuf")
         .body(buf)
         .send()
@@ -326,6 +330,7 @@ async fn test_batch_too_large() {
         .client
         .post(format!("{}/v1/messages", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
+        .header("Idempotency-Key", Uuid::new_v4().to_string())
         .header("Content-Type", "application/x-protobuf")
         .body(buf)
         .send()

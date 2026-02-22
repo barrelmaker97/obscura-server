@@ -356,6 +356,7 @@ impl TestApp {
             .client
             .post(format!("{}/v1/messages", self.server_url))
             .header("Authorization", format!("Bearer {}", token))
+            .header("Idempotency-Key", Uuid::new_v4().to_string())
             .header("Content-Type", "application/x-protobuf")
             .body(buf)
             .send()

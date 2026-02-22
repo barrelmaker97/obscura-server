@@ -29,6 +29,7 @@ async fn test_standard_request_timeout() {
         .client
         .post(format!("{}/v1/messages", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
+        .header("Idempotency-Key", Uuid::new_v4().to_string())
         .header("Content-Type", "application/octet-stream")
         .header("Content-Length", "9")
         .body(reqwest::Body::wrap_stream(delayed_stream))

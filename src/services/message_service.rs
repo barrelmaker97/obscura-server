@@ -81,14 +81,12 @@ impl MessageService {
     pub async fn send_batch(
         &self,
         sender_id: Uuid,
-        idempotency_key: Option<Uuid>,
+        idempotency_key: Uuid,
         messages: Vec<OutgoingMessage>,
     ) -> Result<SendMessageResponse> {
         // 1. Check Idempotency
-        if let Some(key) = idempotency_key
-            && let Ok(Some(cached)) = self.idempotency_repo.get_response(&key.to_string()).await
-        {
-            tracing::info!(%key, "Returning cached idempotency response");
+        if let Ok(Some(cached)) = self.idempotency_repo.get_response(&idempotency_key.to_string()).await {
+            tracing::info!(key = %idempotency_key, "Returning cached idempotency response");
             return SendMessageResponse::decode(cached.as_slice())
                 .map_err(|e| AppError::InternalMsg(format!("Failed to decode cached idempotency response: {e}")));
         }
@@ -185,13 +183,13 @@ impl MessageService {
         let response = SendMessageResponse { failed_messages };
 
         // 6. Cache Result
-        if let Some(key) = idempotency_key {
-            let encoded = response.encode_to_vec();
-            if let Err(e) =
-                self.idempotency_repo.save_response(&key.to_string(), &encoded, self.config.idempotency_ttl_secs).await
-            {
-                tracing::error!(error = %e, "Failed to cache idempotency response");
-            }
+        let encoded = response.encode_to_vec();
+        if let Err(e) = self
+            .idempotency_repo
+            .save_response(&idempotency_key.to_string(), &encoded, self.config.idempotency_ttl_secs)
+            .await
+        {
+            tracing::error!(error = %e, "Failed to cache idempotency response");
         }
 
         Ok(response)
