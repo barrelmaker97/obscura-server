@@ -60,44 +60,6 @@ impl MessageService {
         Self { pool, repo, idempotency_repo, notifier, config, ttl_days, metrics: Metrics::new() }
     }
 
-    /// Sends a message to a recipient.
-    ///
-    /// # Errors
-    /// Returns `AppError::NotFound` if the recipient does not exist.
-    /// Returns `AppError::Database` if the message cannot be stored.
-    #[tracing::instrument(
-        err(level = "warn"),
-        skip(self, content, sender_id, recipient_id),
-        fields(recipient_id = %recipient_id)
-    )]
-    pub async fn send_message(
-        &self,
-        sender_id: Uuid,
-        recipient_id: Uuid,
-        client_message_id: Option<Uuid>,
-        message_type: i32,
-        content: Vec<u8>,
-    ) -> Result<()> {
-        let mut conn = self.pool.acquire().await?;
-        match self
-            .repo
-            .create(&mut conn, sender_id, recipient_id, client_message_id, message_type, content, self.ttl_days)
-            .await
-        {
-            Ok(_) => {
-                tracing::debug!("Message stored for delivery");
-                self.metrics.sent_total.add(1, &[KeyValue::new("status", "success")]);
-
-                self.notifier.notify(recipient_id, UserEvent::MessageReceived).await;
-                Ok(())
-            }
-            Err(e) => {
-                self.metrics.sent_total.add(1, &[KeyValue::new("status", "failure")]);
-                Err(e)
-            }
-        }
-    }
-
     /// Sends a batch of messages with idempotency support.
     ///
     /// # Errors
@@ -127,11 +89,10 @@ impl MessageService {
         let mut recipient_ids_to_check = std::collections::HashSet::new();
 
         // 2. Parse and Collect IDs
-        // struct to hold parsed data temporarily
         struct ParsedMessage<'a> {
             original: &'a OutgoingMessage,
             recipient_id: Uuid,
-            client_message_id: Option<Uuid>,
+            client_message_id: Uuid,
             msg_type: i32,
             content: Vec<u8>,
         }
@@ -148,7 +109,17 @@ impl MessageService {
                 continue;
             };
 
-            let client_message_id = Uuid::parse_str(&outgoing.client_message_id).ok();
+            let client_message_id = match Uuid::parse_str(&outgoing.client_message_id) {
+                Ok(uuid) => uuid,
+                Err(_) => {
+                    failed_messages.push(send_message_response::FailedMessage {
+                        client_message_id: outgoing.client_message_id.clone(),
+                        error_code: send_message_response::ErrorCode::Unspecified as i32,
+                        error_message: "Invalid client_message_id UUID".to_string(),
+                    });
+                    continue;
+                }
+            };
 
             let Some(msg) = &outgoing.message else {
                 failed_messages.push(send_message_response::FailedMessage {
@@ -197,25 +168,18 @@ impl MessageService {
         if !valid_messages.is_empty() {
             let mut conn = self.pool.acquire().await?;
             match self.repo.create_batch(&mut conn, sender_id, valid_messages.clone(), self.ttl_days).await {
-                Ok(()) => {
-                    self.metrics.sent_total.add(valid_messages.len() as u64, &[KeyValue::new("status", "success")]);
-                    // Notify recipients (best effort)
-                    for (recipient_id, _, _, _) in valid_messages {
+                Ok(inserted) => {
+                    self.metrics.sent_total.add(inserted.len() as u64, &[KeyValue::new("status", "success")]);
+
+                    // Notify only for newly inserted messages
+                    for (recipient_id, _client_id) in inserted {
                         self.notifier.notify(recipient_id, UserEvent::MessageReceived).await;
                     }
                 }
                 Err(e) => {
                     tracing::error!(error = ?e, "Failed to insert batch messages");
-                    // If the bulk insert fails, we have to mark all "valid" messages as failed
-                    // (unless we want to fallback to individual inserts, but that defeats the purpose of optimization)
-                    // For now, fail the batch that was supposed to be valid.
                     self.metrics.sent_total.add(valid_messages.len() as u64, &[KeyValue::new("status", "failure")]);
-                    // We need to map these back to failed_messages.
-                    // Since we don't have the original 'outgoing' struct easily here without re-looping or keeping it,
-                    // we might just return the error.
-                    // However, the signature returns Result<SendMessageResponse>.
-                    // A database failure here is likely transient or serious.
-                    return Err(e);
+                    return Err(e.into());
                 }
             }
         }

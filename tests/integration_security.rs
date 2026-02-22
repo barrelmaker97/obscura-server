@@ -13,7 +13,7 @@ async fn test_unauthenticated_access_denied() {
     let endpoints = vec![
         ("GET", format!("{}/v1/keys/{}", app.server_url, target_user_id)),
         ("POST", format!("{}/v1/keys", app.server_url)),
-        ("POST", format!("{}/v1/messages/{}", app.server_url, target_user_id)),
+        ("POST", format!("{}/v1/messages", app.server_url)),
         ("DELETE", format!("{}/v1/sessions", app.server_url)),
         ("POST", format!("{}/v1/attachments", app.server_url)),
         ("GET", format!("{}/v1/attachments/{}", app.server_url, target_resource_id)),

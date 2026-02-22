@@ -14,51 +14,6 @@ impl MessageRepository {
         Self {}
     }
 
-    /// Records a new message in the database.
-    ///
-    /// # Errors
-    /// Returns `AppError::NotFound` if the recipient does not exist.
-    /// Returns `AppError::Database` if the insert fails.
-    #[tracing::instrument(level = "debug", skip(self, conn, content))]
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn create(
-        &self,
-        conn: &mut PgConnection,
-        sender_id: Uuid,
-        recipient_id: Uuid,
-        client_message_id: Option<Uuid>,
-        message_type: i32,
-        content: Vec<u8>,
-        ttl_days: i64,
-    ) -> Result<Message> {
-        let expires_at = OffsetDateTime::now_utc() + Duration::days(ttl_days);
-
-        let result = sqlx::query_as::<_, MessageRecord>(
-            r#"
-            INSERT INTO messages (sender_id, recipient_id, client_message_id, message_type, content, expires_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING id, sender_id, recipient_id, client_message_id, message_type, content, created_at, expires_at
-            "#,
-        )
-        .bind(sender_id)
-        .bind(recipient_id)
-        .bind(client_message_id)
-        .bind(message_type)
-        .bind(content)
-        .bind(expires_at)
-        .fetch_one(conn)
-        .await;
-
-        match result {
-            Ok(record) => Ok(record.into()),
-            Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("23503") => {
-                // Foreign key violation: recipient_id does not exist
-                Err(AppError::NotFound)
-            }
-            Err(e) => Err(AppError::Database(e)),
-        }
-    }
-
     /// Checks which recipients exist in the database.
     ///
     /// # Errors
@@ -85,6 +40,7 @@ impl MessageRepository {
     /// Inserts a batch of messages.
     ///
     /// Ignores duplicate messages (based on `sender_id` and `client_message_id`) via `ON CONFLICT DO NOTHING`.
+    /// Returns the list of `(recipient_id, client_message_id)` that were successfully inserted.
     ///
     /// # Errors
     /// Returns `AppError::Database` if the insert fails.
@@ -93,11 +49,11 @@ impl MessageRepository {
         &self,
         conn: &mut PgConnection,
         sender_id: Uuid,
-        messages: Vec<(Uuid, Option<Uuid>, i32, Vec<u8>)>,
+        messages: Vec<(Uuid, Uuid, i32, Vec<u8>)>,
         ttl_days: i64,
-    ) -> Result<()> {
+    ) -> Result<Vec<(Uuid, Uuid)>> {
         if messages.is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
 
         let expires_at = OffsetDateTime::now_utc() + Duration::days(ttl_days);
@@ -114,12 +70,13 @@ impl MessageRepository {
             contents.push(content);
         }
 
-        sqlx::query(
+        let inserted = sqlx::query_as::<_, (Uuid, Uuid)>(
             r#"
             INSERT INTO messages (sender_id, recipient_id, client_message_id, message_type, content, expires_at)
             SELECT $1, u.r_id, u.c_id, u.m_type, u.content, $6
             FROM UNNEST($2::uuid[], $3::uuid[], $4::int[], $5::bytea[]) AS u(r_id, c_id, m_type, content)
             ON CONFLICT (sender_id, client_message_id) DO NOTHING
+            RETURNING recipient_id, client_message_id
             "#,
         )
         .bind(sender_id)
@@ -128,11 +85,11 @@ impl MessageRepository {
         .bind(message_types)
         .bind(contents)
         .bind(expires_at)
-        .execute(conn)
+        .fetch_all(conn)
         .await
         .map_err(AppError::Database)?;
 
-        Ok(())
+        Ok(inserted)
     }
 
     /// Fetches a batch of pending messages for a recipient.

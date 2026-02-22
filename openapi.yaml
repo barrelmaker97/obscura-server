@@ -274,56 +274,6 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /v1/messages/{recipientId}:
-    post:
-      operationId: sendMessage
-      summary: Send an encrypted message (Push) [DEPRECATED].
-      deprecated: true
-      description: |
-        Pushes an encrypted envelope to the target device's queue.
-        **Payload:** `EncryptedMessage` (Protobuf).
-        The recipient will receive this via WebSocket.
-        **Note:** Please migrate to the batch endpoint `POST /v1/messages`.
-      tags: [Messaging]
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: recipientId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      requestBody:
-        content:
-          application/x-protobuf:
-            schema:
-              type: string
-              format: binary
-              description: Serialized `EncryptedMessage` protobuf.
-          application/octet-stream:
-             schema:
-              type: string
-              format: binary
-              description: Serialized `EncryptedMessage` protobuf.
-      responses:
-        '201':
-          description: Message queued.
-          headers:
-            x-request-id:
-              $ref: '#/components/headers/x-request-id'
-        '400':
-          $ref: '#/components/responses/BadRequestError'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
-        '404':
-          $ref: '#/components/responses/NotFoundError'
-        '408':
-          $ref: '#/components/responses/RequestTimeoutError'
-        '429':
-          $ref: '#/components/responses/TooManyRequestsError'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
 
   # --- WebSocket Gateway (Documentation Only) ---
   /v1/gateway:

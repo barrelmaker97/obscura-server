@@ -7,7 +7,7 @@ pub struct MessageRecord {
     pub(crate) id: Uuid,
     pub(crate) sender_id: Uuid,
     pub(crate) recipient_id: Uuid,
-    pub(crate) client_message_id: Option<Uuid>,
+    pub(crate) client_message_id: Uuid,
     #[sqlx(rename = "message_type")]
     pub(crate) r#type: i32,
     pub(crate) content: Vec<u8>,

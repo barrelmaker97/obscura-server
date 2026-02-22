@@ -122,7 +122,6 @@ pub fn app_router(config: &Config, services: Services, shutdown_rx: tokio::sync:
         .route("/keys", post(keys::upload_keys))
         .route("/keys/{userId}", get(keys::get_pre_key_bundle))
         .route("/messages", post(messages::send_messages))
-        .route("/messages/{recipientId}", post(messages::send_message))
         .route("/gateway", get(gateway::websocket_handler))
         .route("/push-tokens", put(push_tokens::register_token))
         .layer(GovernorLayer::new(standard_conf))

@@ -27,7 +27,7 @@ async fn test_standard_request_timeout() {
 
     let resp = app
         .client
-        .post(format!("{}/v1/messages/{}", app.server_url, Uuid::new_v4()))
+        .post(format!("{}/v1/messages", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
         .header("Content-Type", "application/octet-stream")
         .header("Content-Length", "9")
