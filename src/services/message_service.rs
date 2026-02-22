@@ -37,6 +37,15 @@ impl Metrics {
 }
 
 #[derive(Clone, Debug)]
+struct ParsedMessage {
+    original_client_message_id: String,
+    recipient_id: Uuid,
+    client_message_id: Uuid,
+    msg_type: i32,
+    content: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
 pub struct MessageService {
     pool: DbPool,
     repo: MessageRepository,
@@ -89,41 +98,30 @@ impl MessageService {
         let mut recipient_ids_to_check = std::collections::HashSet::new();
 
         // 2. Parse and Collect IDs
-        struct ParsedMessage<'a> {
-            original: &'a OutgoingMessage,
-            recipient_id: Uuid,
-            client_message_id: Uuid,
-            msg_type: i32,
-            content: Vec<u8>,
-        }
-
         let mut parsed_batch = Vec::with_capacity(messages.len());
 
-        for outgoing in &messages {
+        for outgoing in messages {
             let Ok(recipient_id) = Uuid::parse_str(&outgoing.recipient_id) else {
                 failed_messages.push(send_message_response::FailedMessage {
-                    client_message_id: outgoing.client_message_id.clone(),
+                    client_message_id: outgoing.client_message_id,
                     error_code: send_message_response::ErrorCode::InvalidRecipient as i32,
                     error_message: "Invalid recipient UUID".to_string(),
                 });
                 continue;
             };
 
-            let client_message_id = match Uuid::parse_str(&outgoing.client_message_id) {
-                Ok(uuid) => uuid,
-                Err(_) => {
-                    failed_messages.push(send_message_response::FailedMessage {
-                        client_message_id: outgoing.client_message_id.clone(),
-                        error_code: send_message_response::ErrorCode::Unspecified as i32,
-                        error_message: "Invalid client_message_id UUID".to_string(),
-                    });
-                    continue;
-                }
+            let Ok(client_message_id) = Uuid::parse_str(&outgoing.client_message_id) else {
+                failed_messages.push(send_message_response::FailedMessage {
+                    client_message_id: outgoing.client_message_id,
+                    error_code: send_message_response::ErrorCode::Unspecified as i32,
+                    error_message: "Invalid client_message_id UUID".to_string(),
+                });
+                continue;
             };
 
-            let Some(msg) = &outgoing.message else {
+            let Some(msg) = outgoing.message else {
                 failed_messages.push(send_message_response::FailedMessage {
-                    client_message_id: outgoing.client_message_id.clone(),
+                    client_message_id: outgoing.client_message_id,
                     error_code: send_message_response::ErrorCode::Unspecified as i32,
                     error_message: "Missing EncryptedMessage payload".to_string(),
                 });
@@ -131,11 +129,11 @@ impl MessageService {
             };
 
             parsed_batch.push(ParsedMessage {
-                original: outgoing,
+                original_client_message_id: outgoing.client_message_id,
                 recipient_id,
                 client_message_id,
                 msg_type: msg.r#type,
-                content: msg.content.clone(),
+                content: msg.content,
             });
             recipient_ids_to_check.insert(recipient_id);
         }
@@ -157,7 +155,7 @@ impl MessageService {
                 valid_messages.push((parsed.recipient_id, parsed.client_message_id, parsed.msg_type, parsed.content));
             } else {
                 failed_messages.push(send_message_response::FailedMessage {
-                    client_message_id: parsed.original.client_message_id.clone(),
+                    client_message_id: parsed.original_client_message_id,
                     error_code: send_message_response::ErrorCode::InvalidRecipient as i32,
                     error_message: "Recipient not found".to_string(),
                 });
@@ -179,7 +177,7 @@ impl MessageService {
                 Err(e) => {
                     tracing::error!(error = ?e, "Failed to insert batch messages");
                     self.metrics.sent_total.add(valid_messages.len() as u64, &[KeyValue::new("status", "failure")]);
-                    return Err(e.into());
+                    return Err(e);
                 }
             }
         }
