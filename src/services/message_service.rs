@@ -70,16 +70,6 @@ impl MessageService {
         skip(self, content, sender_id, recipient_id),
         fields(recipient_id = %recipient_id)
     )]
-    /// Sends a message to a recipient.
-    ///
-    /// # Errors
-    /// Returns `AppError::NotFound` if the recipient does not exist.
-    /// Returns `AppError::Database` if the message cannot be stored.
-    #[tracing::instrument(
-        err(level = "warn"),
-        skip(self, content, sender_id, recipient_id),
-        fields(recipient_id = %recipient_id)
-    )]
     pub async fn send_message(
         &self,
         sender_id: Uuid,
