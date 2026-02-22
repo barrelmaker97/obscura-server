@@ -17,11 +17,8 @@ use uuid::Uuid;
 /// Returns `AppError::BadRequest` if the request protobuf is malformed.
 pub async fn send_messages(
     auth_user: AuthUser,
-
     State(state): State<AppState>,
-
     headers: HeaderMap,
-
     body: Bytes,
 ) -> Result<impl IntoResponse> {
     let request = SendMessageRequest::decode(body)
@@ -46,11 +43,8 @@ pub async fn send_messages(
 /// Returns `AppError::NotFound` if the recipient does not exist.
 pub async fn send_message(
     auth_user: AuthUser,
-
     State(state): State<AppState>,
-
     Path(recipient_id): Path<Uuid>,
-
     body: Bytes,
 ) -> Result<impl IntoResponse> {
     let msg = crate::proto::obscura::v1::EncryptedMessage::decode(body)
