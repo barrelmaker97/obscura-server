@@ -20,6 +20,7 @@ impl MessageRepository {
     /// Returns `AppError::NotFound` if the recipient does not exist.
     /// Returns `AppError::Database` if the insert fails.
     #[tracing::instrument(level = "debug", skip(self, conn, content))]
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn create(
         &self,
         conn: &mut PgConnection,
@@ -56,6 +57,82 @@ impl MessageRepository {
             }
             Err(e) => Err(AppError::Database(e)),
         }
+    }
+
+    /// Checks which recipients exist in the database.
+    ///
+    /// # Errors
+    /// Returns `AppError::Database` if the query fails.
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub(crate) async fn check_recipients_exist(
+        &self,
+        conn: &mut PgConnection,
+        recipient_ids: &[Uuid],
+    ) -> Result<Vec<Uuid>> {
+        if recipient_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let rows: Vec<(Uuid,)> = sqlx::query_as("SELECT id FROM users WHERE id = ANY($1)")
+            .bind(recipient_ids)
+            .fetch_all(conn)
+            .await
+            .map_err(AppError::Database)?;
+
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
+    /// Inserts a batch of messages.
+    ///
+    /// Ignores duplicate messages (based on `sender_id` and `client_message_id`) via `ON CONFLICT DO NOTHING`.
+    ///
+    /// # Errors
+    /// Returns `AppError::Database` if the insert fails.
+    #[tracing::instrument(level = "debug", skip(self, conn, messages))]
+    pub(crate) async fn create_batch(
+        &self,
+        conn: &mut PgConnection,
+        sender_id: Uuid,
+        messages: Vec<(Uuid, Option<Uuid>, i32, Vec<u8>)>,
+        ttl_days: i64,
+    ) -> Result<()> {
+        if messages.is_empty() {
+            return Ok(());
+        }
+
+        let expires_at = OffsetDateTime::now_utc() + Duration::days(ttl_days);
+
+        let mut recipient_ids = Vec::with_capacity(messages.len());
+        let mut client_message_ids = Vec::with_capacity(messages.len());
+        let mut message_types = Vec::with_capacity(messages.len());
+        let mut contents = Vec::with_capacity(messages.len());
+
+        for (recipient_id, client_message_id, message_type, content) in messages {
+            recipient_ids.push(recipient_id);
+            client_message_ids.push(client_message_id);
+            message_types.push(message_type);
+            contents.push(content);
+        }
+
+        sqlx::query(
+            r#"
+            INSERT INTO messages (sender_id, recipient_id, client_message_id, message_type, content, expires_at)
+            SELECT $1, u.r_id, u.c_id, u.m_type, u.content, $6
+            FROM UNNEST($2::uuid[], $3::uuid[], $4::int[], $5::bytea[]) AS u(r_id, c_id, m_type, content)
+            ON CONFLICT (sender_id, client_message_id) DO NOTHING
+            "#,
+        )
+        .bind(sender_id)
+        .bind(recipient_ids)
+        .bind(client_message_ids)
+        .bind(message_types)
+        .bind(contents)
+        .bind(expires_at)
+        .execute(conn)
+        .await
+        .map_err(AppError::Database)?;
+
+        Ok(())
     }
 
     /// Fetches a batch of pending messages for a recipient.

@@ -27,10 +27,8 @@ pub async fn send_messages(
     let request = SendMessageRequest::decode(body)
         .map_err(|e| AppError::BadRequest(format!("Invalid SendMessageRequest protobuf: {e}")))?;
 
-    let idempotency_key = headers
-        .get("idempotency-key")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| Uuid::parse_str(s).ok());
+    let idempotency_key =
+        headers.get("idempotency-key").and_then(|v| v.to_str().ok()).and_then(|s| Uuid::parse_str(s).ok());
 
     let response = state.message_service.send_batch(auth_user.user_id, idempotency_key, request.messages).await?;
 

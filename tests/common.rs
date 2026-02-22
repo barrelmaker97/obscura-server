@@ -337,7 +337,7 @@ impl TestApp {
     }
 
     pub async fn send_messages(&self, token: &str, messages: &[(Uuid, &[u8])]) {
-        use obscura_server::proto::obscura::v1::{SendMessageRequest, OutgoingMessage};
+        use obscura_server::proto::obscura::v1::{OutgoingMessage, SendMessageRequest};
 
         let outgoing = messages
             .iter()

@@ -5,7 +5,7 @@ use crate::config::MessagingConfig;
 use crate::domain::message::Message;
 use crate::domain::notification::UserEvent;
 use crate::error::{AppError, Result};
-use crate::proto::obscura::v1::{SendMessageResponse, OutgoingMessage, send_message_response};
+use crate::proto::obscura::v1::{OutgoingMessage, SendMessageResponse, send_message_response};
 use crate::services::notification_service::NotificationService;
 use opentelemetry::{
     KeyValue, global,
@@ -81,15 +81,7 @@ impl MessageService {
         let mut conn = self.pool.acquire().await?;
         match self
             .repo
-            .create(
-                &mut conn,
-                sender_id,
-                recipient_id,
-                client_message_id,
-                message_type,
-                content,
-                self.ttl_days,
-            )
+            .create(&mut conn, sender_id, recipient_id, client_message_id, message_type, content, self.ttl_days)
             .await
         {
             Ok(_) => {
@@ -122,36 +114,43 @@ impl MessageService {
         messages: Vec<OutgoingMessage>,
     ) -> Result<SendMessageResponse> {
         // 1. Check Idempotency
-        if let Some(key) = idempotency_key {
-            if let Ok(Some(cached)) = self.idempotency_repo.get_response(&key.to_string()).await {
-                tracing::info!(%key, "Returning cached idempotency response");
-                return SendMessageResponse::decode(cached.as_slice())
-                    .map_err(|e| AppError::InternalMsg(format!("Failed to decode cached idempotency response: {e}")));
-            }
+        if let Some(key) = idempotency_key
+            && let Ok(Some(cached)) = self.idempotency_repo.get_response(&key.to_string()).await
+        {
+            tracing::info!(%key, "Returning cached idempotency response");
+            return SendMessageResponse::decode(cached.as_slice())
+                .map_err(|e| AppError::InternalMsg(format!("Failed to decode cached idempotency response: {e}")));
         }
 
         let mut failed_messages = Vec::new();
+        let mut valid_messages = Vec::with_capacity(messages.len());
+        let mut recipient_ids_to_check = std::collections::HashSet::new();
 
-        // 2. Process Batch
-        for outgoing in messages {
-            let recipient_id = match Uuid::parse_str(&outgoing.recipient_id) {
-                Ok(id) => id,
-                Err(_) => {
-                    failed_messages.push(send_message_response::FailedMessage {
-                        client_message_id: outgoing.client_message_id.clone(),
-                        error_code: send_message_response::ErrorCode::UserNotFound as i32,
-                        error_message: "Invalid recipient UUID".to_string(),
-                    });
-                    continue;
-                }
+        // 2. Parse and Collect IDs
+        // struct to hold parsed data temporarily
+        struct ParsedMessage<'a> {
+            original: &'a OutgoingMessage,
+            recipient_id: Uuid,
+            client_message_id: Option<Uuid>,
+            msg_type: i32,
+            content: Vec<u8>,
+        }
+
+        let mut parsed_batch = Vec::with_capacity(messages.len());
+
+        for outgoing in &messages {
+            let Ok(recipient_id) = Uuid::parse_str(&outgoing.recipient_id) else {
+                failed_messages.push(send_message_response::FailedMessage {
+                    client_message_id: outgoing.client_message_id.clone(),
+                    error_code: send_message_response::ErrorCode::UserNotFound as i32,
+                    error_message: "Invalid recipient UUID".to_string(),
+                });
+                continue;
             };
 
-            let client_message_id = match Uuid::parse_str(&outgoing.client_message_id) {
-                Ok(id) => Some(id),
-                Err(_) => None, // Or could fail validation
-            };
+            let client_message_id = Uuid::parse_str(&outgoing.client_message_id).ok();
 
-            let Some(msg) = outgoing.message else {
+            let Some(msg) = &outgoing.message else {
                 failed_messages.push(send_message_response::FailedMessage {
                     client_message_id: outgoing.client_message_id.clone(),
                     error_code: send_message_response::ErrorCode::Unspecified as i32,
@@ -160,38 +159,70 @@ impl MessageService {
                 continue;
             };
 
-            match self
-                .send_message(
-                    sender_id,
-                    recipient_id,
-                    client_message_id,
-                    msg.r#type,
-                    msg.content,
-                )
-                .await
-            {
-                Ok(_) => {}
-                Err(AppError::NotFound) => {
-                    failed_messages.push(send_message_response::FailedMessage {
-                        client_message_id: outgoing.client_message_id,
-                        error_code: send_message_response::ErrorCode::UserNotFound as i32,
-                        error_message: "Recipient not found".to_string(),
-                    });
+            parsed_batch.push(ParsedMessage {
+                original: outgoing,
+                recipient_id,
+                client_message_id,
+                msg_type: msg.r#type,
+                content: msg.content.clone(),
+            });
+            recipient_ids_to_check.insert(recipient_id);
+        }
+
+        // 3. Pre-Flight Check: Validate Recipients
+        let valid_recipient_ids = if recipient_ids_to_check.is_empty() {
+            Vec::new()
+        } else {
+            let ids: Vec<Uuid> = recipient_ids_to_check.into_iter().collect();
+            let mut conn = self.pool.acquire().await?;
+            self.repo.check_recipients_exist(&mut conn, &ids).await?
+        };
+
+        let valid_recipients_set: std::collections::HashSet<Uuid> = valid_recipient_ids.into_iter().collect();
+
+        // 4. Filter and Prepare Bulk Insert
+        for parsed in parsed_batch {
+            if valid_recipients_set.contains(&parsed.recipient_id) {
+                valid_messages.push((parsed.recipient_id, parsed.client_message_id, parsed.msg_type, parsed.content));
+            } else {
+                failed_messages.push(send_message_response::FailedMessage {
+                    client_message_id: parsed.original.client_message_id.clone(),
+                    error_code: send_message_response::ErrorCode::UserNotFound as i32,
+                    error_message: "Recipient not found".to_string(),
+                });
+            }
+        }
+
+        // 5. Bulk Insert
+        if !valid_messages.is_empty() {
+            let mut conn = self.pool.acquire().await?;
+            match self.repo.create_batch(&mut conn, sender_id, valid_messages.clone(), self.ttl_days).await {
+                Ok(()) => {
+                    self.metrics.sent_total.add(valid_messages.len() as u64, &[KeyValue::new("status", "success")]);
+                    // Notify recipients (best effort)
+                    for (recipient_id, _, _, _) in valid_messages {
+                        self.notifier.notify(recipient_id, UserEvent::MessageReceived).await;
+                    }
                 }
                 Err(e) => {
-                    tracing::error!(error = ?e, "Failed to send message in batch");
-                    failed_messages.push(send_message_response::FailedMessage {
-                        client_message_id: outgoing.client_message_id,
-                        error_code: send_message_response::ErrorCode::Unspecified as i32,
-                        error_message: format!("Internal error: {e}"),
-                    });
+                    tracing::error!(error = ?e, "Failed to insert batch messages");
+                    // If the bulk insert fails, we have to mark all "valid" messages as failed
+                    // (unless we want to fallback to individual inserts, but that defeats the purpose of optimization)
+                    // For now, fail the batch that was supposed to be valid.
+                    self.metrics.sent_total.add(valid_messages.len() as u64, &[KeyValue::new("status", "failure")]);
+                    // We need to map these back to failed_messages.
+                    // Since we don't have the original 'outgoing' struct easily here without re-looping or keeping it,
+                    // we might just return the error.
+                    // However, the signature returns Result<SendMessageResponse>.
+                    // A database failure here is likely transient or serious.
+                    return Err(e);
                 }
             }
         }
 
         let response = SendMessageResponse { failed_messages };
 
-        // 3. Cache Result
+        // 6. Cache Result
         if let Some(key) = idempotency_key {
             let encoded = response.encode_to_vec();
             if let Err(e) = self.idempotency_repo.save_response(&key.to_string(), &encoded, 86400).await {

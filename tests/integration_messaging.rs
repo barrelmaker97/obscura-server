@@ -3,7 +3,7 @@ mod common;
 use common::TestApp;
 use futures::SinkExt;
 use obscura_server::proto::obscura::v1::{
-    web_socket_frame::Payload, send_message_response, AckMessage, EncryptedMessage, SendMessageResponse, WebSocketFrame,
+    AckMessage, EncryptedMessage, SendMessageResponse, WebSocketFrame, send_message_response, web_socket_frame::Payload,
 };
 use prost::Message as ProstMessage;
 use std::time::Duration;
@@ -133,10 +133,7 @@ async fn test_send_message_recipient_not_found() {
     let response = SendMessageResponse::decode(body).unwrap();
     assert_eq!(response.failed_messages.len(), 1);
     assert_eq!(response.failed_messages[0].client_message_id, client_msg_id);
-    assert_eq!(
-        response.failed_messages[0].error_code,
-        send_message_response::ErrorCode::UserNotFound as i32
-    );
+    assert_eq!(response.failed_messages[0].error_code, send_message_response::ErrorCode::UserNotFound as i32);
 }
 
 #[tokio::test]
@@ -213,6 +210,94 @@ async fn test_message_idempotency() {
 
     // Verify only ONE message was queued
     app.assert_message_count(user_b.user_id, 1).await;
+}
+
+#[tokio::test]
+async fn test_batch_partial_success() {
+    let app = TestApp::spawn().await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user_a = app.register_user(&format!("alice_mix_{}", run_id)).await;
+    let user_b = app.register_user(&format!("bob_mix_{}", run_id)).await;
+    let user_c = app.register_user(&format!("charlie_mix_{}", run_id)).await;
+    let bad_id = Uuid::new_v4();
+
+    let client_msg_id_b = Uuid::new_v4().to_string();
+    let client_msg_id_bad = Uuid::new_v4().to_string();
+    let client_msg_id_c = Uuid::new_v4().to_string();
+
+    let request = obscura_server::proto::obscura::v1::SendMessageRequest {
+        messages: vec![
+            // 1. Valid (Bob)
+            obscura_server::proto::obscura::v1::OutgoingMessage {
+                client_message_id: client_msg_id_b.clone(),
+                recipient_id: user_b.user_id.to_string(),
+                message: Some(EncryptedMessage { r#type: 2, content: b"Msg for Bob".to_vec() }),
+            },
+            // 2. Invalid (Bad ID)
+            obscura_server::proto::obscura::v1::OutgoingMessage {
+                client_message_id: client_msg_id_bad.clone(),
+                recipient_id: bad_id.to_string(),
+                message: Some(EncryptedMessage { r#type: 2, content: b"Msg for Nowhere".to_vec() }),
+            },
+            // 3. Valid (Charlie)
+            obscura_server::proto::obscura::v1::OutgoingMessage {
+                client_message_id: client_msg_id_c.clone(),
+                recipient_id: user_c.user_id.to_string(),
+                message: Some(EncryptedMessage { r#type: 2, content: b"Msg for Charlie".to_vec() }),
+            },
+        ],
+    };
+    let mut buf = Vec::new();
+    request.encode(&mut buf).unwrap();
+
+    let resp = app
+        .client
+        .post(format!("{}/v1/messages", app.server_url))
+        .header("Authorization", format!("Bearer {}", user_a.token))
+        .header("Content-Type", "application/x-protobuf")
+        .body(buf)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.bytes().await.unwrap();
+    let response = SendMessageResponse::decode(body).unwrap();
+
+    // Verify Response: Should list ONLY the failed message
+    assert_eq!(response.failed_messages.len(), 1);
+    assert_eq!(response.failed_messages[0].client_message_id, client_msg_id_bad);
+    assert_eq!(response.failed_messages[0].error_code, send_message_response::ErrorCode::UserNotFound as i32);
+
+    // Verify Delivery: Bob and Charlie should have messages
+    app.assert_message_count(user_b.user_id, 1).await;
+    app.assert_message_count(user_c.user_id, 1).await;
+}
+
+#[tokio::test]
+async fn test_batch_empty() {
+    let app = TestApp::spawn().await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user = app.register_user(&format!("empty_{}", run_id)).await;
+
+    let request = obscura_server::proto::obscura::v1::SendMessageRequest { messages: vec![] };
+    let mut buf = Vec::new();
+    request.encode(&mut buf).unwrap();
+
+    let resp = app
+        .client
+        .post(format!("{}/v1/messages", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("Content-Type", "application/x-protobuf")
+        .body(buf)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.bytes().await.unwrap();
+    let response = SendMessageResponse::decode(body).unwrap();
+    assert!(response.failed_messages.is_empty());
 }
 
 #[tokio::test]
