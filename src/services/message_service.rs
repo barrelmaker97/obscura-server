@@ -38,7 +38,6 @@ impl Metrics {
 
 #[derive(Clone, Debug)]
 struct ParsedMessage {
-    original_client_message_id: String,
     recipient_id: Uuid,
     client_message_id: Uuid,
     msg_type: i32,
@@ -91,69 +90,30 @@ impl MessageService {
                 .map_err(|e| AppError::InternalMsg(format!("Failed to decode cached idempotency response: {e}")));
         }
 
-        let mut failed_messages = Vec::new();
-        let mut valid_messages = Vec::with_capacity(messages.len());
-        let mut recipient_ids_to_check = std::collections::HashSet::new();
-
-        // 2. Parse and Collect IDs
-        let mut parsed_batch = Vec::with_capacity(messages.len());
-
-        for outgoing in messages {
-            let Ok(recipient_id) = Uuid::parse_str(&outgoing.recipient_id) else {
-                failed_messages.push(send_message_response::FailedMessage {
-                    client_message_id: outgoing.client_message_id,
-                    error_code: send_message_response::ErrorCode::InvalidRecipient as i32,
-                    error_message: "Invalid recipient UUID".to_string(),
-                });
-                continue;
-            };
-
-            let Ok(client_message_id) = Uuid::parse_str(&outgoing.client_message_id) else {
-                failed_messages.push(send_message_response::FailedMessage {
-                    client_message_id: outgoing.client_message_id,
-                    error_code: send_message_response::ErrorCode::Unspecified as i32,
-                    error_message: "Invalid client_message_id UUID".to_string(),
-                });
-                continue;
-            };
-
-            let Some(msg) = outgoing.message else {
-                failed_messages.push(send_message_response::FailedMessage {
-                    client_message_id: outgoing.client_message_id,
-                    error_code: send_message_response::ErrorCode::Unspecified as i32,
-                    error_message: "Missing EncryptedMessage payload".to_string(),
-                });
-                continue;
-            };
-
-            parsed_batch.push(ParsedMessage {
-                original_client_message_id: outgoing.client_message_id,
-                recipient_id,
-                client_message_id,
-                msg_type: msg.r#type,
-                content: msg.content,
-            });
-            recipient_ids_to_check.insert(recipient_id);
+        if messages.is_empty() {
+            return Ok(SendMessageResponse { failed_messages: Vec::new() });
         }
 
+        // 2. Parse and Validate Input
+        let (parsed_batch, mut failed_messages, recipient_ids_to_check) = self.parse_incoming_batch(messages);
+
         // 3. Pre-Flight Check: Validate Recipients
-        let valid_recipient_ids = if recipient_ids_to_check.is_empty() {
-            Vec::new()
+        let valid_recipients_set = if recipient_ids_to_check.is_empty() {
+            std::collections::HashSet::new()
         } else {
             let ids: Vec<Uuid> = recipient_ids_to_check.into_iter().collect();
             let mut conn = self.pool.acquire().await?;
-            self.repo.check_recipients_exist(&mut conn, &ids).await?
+            self.repo.check_recipients_exist(&mut conn, &ids).await?.into_iter().collect()
         };
 
-        let valid_recipients_set: std::collections::HashSet<Uuid> = valid_recipient_ids.into_iter().collect();
-
         // 4. Filter and Prepare Bulk Insert
-        for parsed in parsed_batch {
+        let mut valid_messages = Vec::with_capacity(parsed_batch.len());
+        for parsed in parsed_batch.into_iter() {
             if valid_recipients_set.contains(&parsed.recipient_id) {
                 valid_messages.push((parsed.recipient_id, parsed.client_message_id, parsed.msg_type, parsed.content));
             } else {
                 failed_messages.push(send_message_response::FailedMessage {
-                    client_message_id: parsed.original_client_message_id,
+                    client_message_id: parsed.client_message_id.as_bytes().to_vec(),
                     error_code: send_message_response::ErrorCode::InvalidRecipient as i32,
                     error_message: "Recipient not found".to_string(),
                 });
@@ -163,7 +123,7 @@ impl MessageService {
         // 5. Bulk Insert
         if !valid_messages.is_empty() {
             let mut conn = self.pool.acquire().await?;
-            match self.repo.create_batch(&mut conn, sender_id, valid_messages.clone(), self.ttl_days).await {
+            match self.repo.create_batch(&mut conn, sender_id, valid_messages, self.ttl_days).await {
                 Ok(inserted) => {
                     self.metrics.sent_total.add(inserted.len() as u64, &[KeyValue::new("status", "success")]);
 
@@ -174,7 +134,6 @@ impl MessageService {
                 }
                 Err(e) => {
                     tracing::error!(error = ?e, "Failed to insert batch messages");
-                    self.metrics.sent_total.add(valid_messages.len() as u64, &[KeyValue::new("status", "failure")]);
                     return Err(e);
                 }
             }
@@ -193,6 +152,50 @@ impl MessageService {
         }
 
         Ok(response)
+    }
+
+    /// Internal helper to parse Protobuf messages into domain types.
+    fn parse_incoming_batch(
+        &self,
+        messages: Vec<OutgoingMessage>,
+    ) -> (Vec<ParsedMessage>, Vec<send_message_response::FailedMessage>, std::collections::HashSet<Uuid>) {
+        let mut failed = Vec::new();
+        let mut parsed = Vec::with_capacity(messages.len());
+        let mut recipient_ids = std::collections::HashSet::new();
+
+        for outgoing in messages {
+            let Ok(recipient_id) = Uuid::from_slice(&outgoing.recipient_id) else {
+                failed.push(send_message_response::FailedMessage {
+                    client_message_id: outgoing.client_message_id,
+                    error_code: send_message_response::ErrorCode::InvalidRecipient as i32,
+                    error_message: "Invalid recipient UUID bytes (expected 16)".to_string(),
+                });
+                continue;
+            };
+
+            let Ok(client_message_id) = Uuid::from_slice(&outgoing.client_message_id) else {
+                failed.push(send_message_response::FailedMessage {
+                    client_message_id: outgoing.client_message_id,
+                    error_code: send_message_response::ErrorCode::Unspecified as i32,
+                    error_message: "Invalid client_message_id UUID bytes (expected 16)".to_string(),
+                });
+                continue;
+            };
+
+            let Some(msg) = outgoing.message else {
+                failed.push(send_message_response::FailedMessage {
+                    client_message_id: outgoing.client_message_id,
+                    error_code: send_message_response::ErrorCode::Unspecified as i32,
+                    error_message: "Missing EncryptedMessage payload".to_string(),
+                });
+                continue;
+            };
+
+            parsed.push(ParsedMessage { recipient_id, client_message_id, msg_type: msg.r#type, content: msg.content });
+            recipient_ids.insert(recipient_id);
+        }
+
+        (parsed, failed, recipient_ids)
     }
 
     /// Fetches a batch of pending messages for a recipient.

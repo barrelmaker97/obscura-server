@@ -99,8 +99,8 @@ impl MessagePump {
             );
 
             let envelope = Envelope {
-                id: msg.id.to_string(),
-                source_user_id: msg.sender_id.to_string(),
+                id: msg.id.as_bytes().to_vec(),
+                source_user_id: msg.sender_id.as_bytes().to_vec(),
                 timestamp,
                 message: Some(EncryptedMessage { r#type: msg.message_type, content: msg.content }),
             };

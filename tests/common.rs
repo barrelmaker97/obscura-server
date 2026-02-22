@@ -342,8 +342,8 @@ impl TestApp {
         let outgoing = messages
             .iter()
             .map(|(recipient_id, content)| OutgoingMessage {
-                client_message_id: Uuid::new_v4().to_string(),
-                recipient_id: recipient_id.to_string(),
+                client_message_id: Uuid::new_v4().as_bytes().to_vec(),
+                recipient_id: recipient_id.as_bytes().to_vec(),
                 message: Some(EncryptedMessage { r#type: 2, content: content.to_vec() }),
             })
             .collect();
@@ -484,7 +484,7 @@ impl TestWsClient {
         tokio::time::timeout(timeout, self.rx_raw.recv()).await.ok().flatten()
     }
 
-    pub async fn send_ack(&mut self, message_id: String) {
+    pub async fn send_ack(&mut self, message_id: Vec<u8>) {
         let ack = AckMessage { message_id, message_ids: vec![] };
         let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
         let mut buf = Vec::new();

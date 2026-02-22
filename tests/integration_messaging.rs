@@ -3,7 +3,8 @@ mod common;
 use common::TestApp;
 use futures::SinkExt;
 use obscura_server::proto::obscura::v1::{
-    AckMessage, EncryptedMessage, SendMessageResponse, WebSocketFrame, send_message_response, web_socket_frame::Payload,
+    AckMessage, EncryptedMessage, SendMessageRequest, SendMessageResponse, WebSocketFrame, send_message_response,
+    web_socket_frame::Payload,
 };
 use prost::Message as ProstMessage;
 use std::time::Duration;
@@ -107,11 +108,11 @@ async fn test_send_message_recipient_not_found() {
     let user_a = app.register_user(&format!("alice_404_{}", run_id)).await;
     let bad_id = Uuid::new_v4();
 
-    let client_msg_id = Uuid::new_v4().to_string();
+    let client_msg_id = Uuid::new_v4();
     let request = obscura_server::proto::obscura::v1::SendMessageRequest {
         messages: vec![obscura_server::proto::obscura::v1::OutgoingMessage {
-            client_message_id: client_msg_id.clone(),
-            recipient_id: bad_id.to_string(),
+            client_message_id: client_msg_id.as_bytes().to_vec(),
+            recipient_id: bad_id.as_bytes().to_vec(),
             message: Some(EncryptedMessage { r#type: 2, content: b"Hello".to_vec() }),
         }],
     };
@@ -133,7 +134,7 @@ async fn test_send_message_recipient_not_found() {
     let body = resp.bytes().await.unwrap();
     let response = SendMessageResponse::decode(body).unwrap();
     assert_eq!(response.failed_messages.len(), 1);
-    assert_eq!(response.failed_messages[0].client_message_id, client_msg_id);
+    assert_eq!(response.failed_messages[0].client_message_id, client_msg_id.as_bytes().to_vec());
     assert_eq!(response.failed_messages[0].error_code, send_message_response::ErrorCode::InvalidRecipient as i32);
 }
 
@@ -169,8 +170,8 @@ async fn test_message_idempotency() {
 
     let request = obscura_server::proto::obscura::v1::SendMessageRequest {
         messages: vec![obscura_server::proto::obscura::v1::OutgoingMessage {
-            client_message_id: Uuid::new_v4().to_string(),
-            recipient_id: user_b.user_id.to_string(),
+            client_message_id: Uuid::new_v4().as_bytes().to_vec(),
+            recipient_id: user_b.user_id.as_bytes().to_vec(),
             message: Some(EncryptedMessage { r#type: 2, content: content.clone() }),
         }],
     };
@@ -223,28 +224,28 @@ async fn test_batch_partial_success() {
     let user_c = app.register_user(&format!("charlie_mix_{}", run_id)).await;
     let bad_id = Uuid::new_v4();
 
-    let client_msg_id_b = Uuid::new_v4().to_string();
-    let client_msg_id_bad = Uuid::new_v4().to_string();
-    let client_msg_id_c = Uuid::new_v4().to_string();
+    let client_msg_id_b = Uuid::new_v4();
+    let client_msg_id_bad = Uuid::new_v4();
+    let client_msg_id_c = Uuid::new_v4();
 
     let request = obscura_server::proto::obscura::v1::SendMessageRequest {
         messages: vec![
             // 1. Valid (Bob)
             obscura_server::proto::obscura::v1::OutgoingMessage {
-                client_message_id: client_msg_id_b.clone(),
-                recipient_id: user_b.user_id.to_string(),
+                client_message_id: client_msg_id_b.as_bytes().to_vec(),
+                recipient_id: user_b.user_id.as_bytes().to_vec(),
                 message: Some(EncryptedMessage { r#type: 2, content: b"Msg for Bob".to_vec() }),
             },
             // 2. Invalid (Bad ID)
             obscura_server::proto::obscura::v1::OutgoingMessage {
-                client_message_id: client_msg_id_bad.clone(),
-                recipient_id: bad_id.to_string(),
+                client_message_id: client_msg_id_bad.as_bytes().to_vec(),
+                recipient_id: bad_id.as_bytes().to_vec(),
                 message: Some(EncryptedMessage { r#type: 2, content: b"Msg for Nowhere".to_vec() }),
             },
             // 3. Valid (Charlie)
             obscura_server::proto::obscura::v1::OutgoingMessage {
-                client_message_id: client_msg_id_c.clone(),
-                recipient_id: user_c.user_id.to_string(),
+                client_message_id: client_msg_id_c.as_bytes().to_vec(),
+                recipient_id: user_c.user_id.as_bytes().to_vec(),
                 message: Some(EncryptedMessage { r#type: 2, content: b"Msg for Charlie".to_vec() }),
             },
         ],
@@ -269,7 +270,7 @@ async fn test_batch_partial_success() {
 
     // Verify Response: Should list ONLY the failed message
     assert_eq!(response.failed_messages.len(), 1);
-    assert_eq!(response.failed_messages[0].client_message_id, client_msg_id_bad);
+    assert_eq!(response.failed_messages[0].client_message_id, client_msg_id_bad.as_bytes().to_vec());
     assert_eq!(response.failed_messages[0].error_code, send_message_response::ErrorCode::InvalidRecipient as i32);
 
     // Verify Delivery: Bob and Charlie should have messages
@@ -316,8 +317,8 @@ async fn test_batch_too_large() {
     let mut messages = Vec::new();
     for _ in 0..6 {
         messages.push(obscura_server::proto::obscura::v1::OutgoingMessage {
-            client_message_id: Uuid::new_v4().to_string(),
-            recipient_id: user.user_id.to_string(),
+            client_message_id: Uuid::new_v4().as_bytes().to_vec(),
+            recipient_id: user.user_id.as_bytes().to_vec(),
             message: Some(EncryptedMessage { r#type: 2, content: b"Msg".to_vec() }),
         });
     }
@@ -397,7 +398,7 @@ async fn test_ack_buffer_saturation() {
     let mut client = app.connect_ws(&user.token).await;
 
     for _ in 0..15 {
-        let ack = AckMessage { message_id: Uuid::new_v4().to_string(), message_ids: vec![] };
+        let ack = AckMessage { message_id: Uuid::new_v4().as_bytes().to_vec(), message_ids: vec![] };
         let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
         let mut buf = Vec::new();
         frame.encode(&mut buf).unwrap();
@@ -433,10 +434,7 @@ async fn test_bulk_ack_processing() {
     assert_eq!(message_ids.len(), 5);
 
     // Send ONE bulk ACK
-    let ack = AckMessage {
-        message_id: String::new(), // Legacy field empty
-        message_ids: message_ids.clone(),
-    };
+    let ack = AckMessage { message_id: Vec::new(), message_ids: message_ids.clone() };
     let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
     let mut buf = Vec::new();
     frame.encode(&mut buf).unwrap();
@@ -511,4 +509,62 @@ async fn test_ack_security_cross_user_deletion() {
 
     // Assert message is STILL there for B (count should be 1)
     app.assert_message_count(user_b.user_id, 1).await;
+}
+
+#[tokio::test]
+async fn test_send_message_invalid_uuid_bytes() {
+    let app = TestApp::spawn().await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user = app.register_user(&format!("malformed_bytes_{}", run_id)).await;
+
+    let request = SendMessageRequest {
+        messages: vec![obscura_server::proto::obscura::v1::OutgoingMessage {
+            client_message_id: vec![1, 2, 3], // Invalid length
+            recipient_id: vec![4, 5, 6],      // Invalid length
+            message: Some(EncryptedMessage { r#type: 2, content: b"Hello".to_vec() }),
+        }],
+    };
+    let mut buf = Vec::new();
+    request.encode(&mut buf).unwrap();
+
+    let resp = app
+        .client
+        .post(format!("{}/v1/messages", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("Idempotency-Key", Uuid::new_v4().to_string())
+        .header("Content-Type", "application/x-protobuf")
+        .body(buf)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.bytes().await.unwrap();
+    let response = SendMessageResponse::decode(body).unwrap();
+
+    assert_eq!(response.failed_messages.len(), 1);
+    assert_eq!(response.failed_messages[0].error_message, "Invalid recipient UUID bytes (expected 16)");
+}
+
+#[tokio::test]
+async fn test_ack_invalid_uuid_bytes() {
+    let app = TestApp::spawn().await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user = app.register_user(&format!("ack_malformed_{}", run_id)).await;
+    let mut client = app.connect_ws(&user.token).await;
+
+    // Send ACK with invalid length ID
+    let ack = AckMessage {
+        message_id: vec![1, 2, 3, 4, 5],  // 5 bytes instead of 16
+        message_ids: vec![vec![0u8; 32]], // 32 bytes instead of 16
+    };
+    let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
+    let mut buf = Vec::new();
+    frame.encode(&mut buf).unwrap();
+
+    client.sink.send(WsMessage::Binary(buf.into())).await.unwrap();
+
+    // Verify connection stays alive (non-fatal error)
+    client.sink.send(WsMessage::Ping(vec![].into())).await.unwrap();
+    assert!(client.receive_pong().await.is_some());
 }

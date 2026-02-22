@@ -124,11 +124,15 @@ impl Session {
 
                                             // Support legacy single ID
                                             if !ack.message_id.is_empty() {
-                                                if let Ok(id) = Uuid::parse_str(&ack.message_id) {
+                                                if let Ok(id) = Uuid::from_slice(&ack.message_id) {
                                                     uuids.push(id);
                                                     metrics.acks_received_single_total.add(1, &[]);
                                                 } else {
-                                                    tracing::warn!("Received ACK with invalid UUID: {}", ack.message_id);
+                                                    tracing::warn!(
+                                                        len = ack.message_id.len(),
+                                                        hex = %hex::encode(&ack.message_id),
+                                                        "Received ACK with invalid UUID bytes (expected 16)"
+                                                    );
                                                 }
                                             }
 
@@ -136,11 +140,15 @@ impl Session {
                                             if !ack.message_ids.is_empty() {
                                                 metrics.acks_received_bulk_total.add(1, &[]);
                                             }
-                                            for id_str in ack.message_ids {
-                                                if let Ok(id) = Uuid::parse_str(&id_str) {
+                                            for id_bytes in ack.message_ids {
+                                                if let Ok(id) = Uuid::from_slice(&id_bytes) {
                                                     uuids.push(id);
                                                 } else {
-                                                    tracing::warn!("Received ACK with invalid UUID in list: {}", id_str);
+                                                    tracing::warn!(
+                                                        len = id_bytes.len(),
+                                                        hex = %hex::encode(&id_bytes),
+                                                        "Received ACK with invalid UUID bytes in list (expected 16)"
+                                                    );
                                                 }
                                             }
 
