@@ -40,7 +40,6 @@ impl Metrics {
 struct ParsedMessage {
     recipient_id: Uuid,
     submission_id: Uuid,
-    msg_type: i32,
     content: Vec<u8>,
 }
 
@@ -110,7 +109,7 @@ impl MessageService {
         let mut valid_messages = Vec::with_capacity(parsed_batch.len());
         for parsed in parsed_batch {
             if valid_recipients_set.contains(&parsed.recipient_id) {
-                valid_messages.push((parsed.recipient_id, parsed.submission_id, parsed.msg_type, parsed.content));
+                valid_messages.push((parsed.recipient_id, parsed.submission_id, parsed.content));
             } else {
                 failed_submissions.push(send_message_response::FailedSubmission {
                     submission_id: parsed.submission_id.as_bytes().to_vec(),
@@ -189,7 +188,7 @@ impl MessageService {
                 continue;
             };
 
-            parsed.push(ParsedMessage { recipient_id, submission_id, msg_type: msg.r#type, content: msg.content });
+            parsed.push(ParsedMessage { recipient_id, submission_id, content: msg.encode_to_vec() });
             recipient_ids.insert(recipient_id);
         }
 

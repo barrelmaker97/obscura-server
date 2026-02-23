@@ -29,7 +29,7 @@ async fn test_message_cleanup_worker_full_orchestration() {
     // Seed 3 messages (exceeds limit of 2)
     for i in 0..3 {
         let msg_id = Uuid::new_v4();
-        sqlx::query("INSERT INTO messages (id, submission_id, sender_id, recipient_id, message_type, content, created_at, expires_at) VALUES ($1, $6, $2, $2, 2, $3, $4, $5)")
+        sqlx::query("INSERT INTO messages (id, submission_id, sender_id, recipient_id, content, created_at, expires_at) VALUES ($1, $6, $2, $2, $3, $4, $5)")
             .bind(msg_id)
             .bind(user_a)
             .bind(format!("msg {}", i).into_bytes())
@@ -53,7 +53,7 @@ async fn test_message_cleanup_worker_full_orchestration() {
     // Insert one expired message
     let expired_msg_id = Uuid::new_v4();
     let expired_time = OffsetDateTime::now_utc() - Duration::days(1);
-    sqlx::query("INSERT INTO messages (id, submission_id, sender_id, recipient_id, message_type, content, expires_at) VALUES ($1, $5, $2, $2, 2, $3, $4)")
+    sqlx::query("INSERT INTO messages (id, submission_id, sender_id, recipient_id, content, expires_at) VALUES ($1, $5, $2, $2, $3, $4)")
         .bind(expired_msg_id)
         .bind(user_b)
         .bind(b"expired content".to_vec())
@@ -66,7 +66,7 @@ async fn test_message_cleanup_worker_full_orchestration() {
     // Insert one active message
     let active_msg_id = Uuid::new_v4();
     let active_time = OffsetDateTime::now_utc() + Duration::days(1);
-    sqlx::query("INSERT INTO messages (id, submission_id, sender_id, recipient_id, message_type, content, expires_at) VALUES ($1, $5, $2, $2, 2, $3, $4)")
+    sqlx::query("INSERT INTO messages (id, submission_id, sender_id, recipient_id, content, expires_at) VALUES ($1, $5, $2, $2, $3, $4)")
         .bind(active_msg_id)
         .bind(user_b)
         .bind(b"active content".to_vec())

@@ -3,7 +3,6 @@ CREATE TABLE messages (
     sender_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     recipient_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     submission_id UUID NOT NULL,
-    message_type INTEGER NOT NULL DEFAULT 2, -- 2 = Encrypted Message
     content BYTEA NOT NULL,
     created_at TIMESTAMPTZ DEFAULT now(),
     expires_at TIMESTAMPTZ NOT NULL,

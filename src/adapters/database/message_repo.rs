@@ -49,7 +49,7 @@ impl MessageRepository {
         &self,
         conn: &mut PgConnection,
         sender_id: Uuid,
-        messages: Vec<(Uuid, Uuid, i32, Vec<u8>)>,
+        messages: Vec<(Uuid, Uuid, Vec<u8>)>,
         ttl_days: i64,
     ) -> Result<Vec<(Uuid, Uuid)>> {
         if messages.is_empty() {
@@ -60,21 +60,19 @@ impl MessageRepository {
 
         let mut recipient_ids = Vec::with_capacity(messages.len());
         let mut submission_ids = Vec::with_capacity(messages.len());
-        let mut message_types = Vec::with_capacity(messages.len());
         let mut contents = Vec::with_capacity(messages.len());
 
-        for (recipient_id, submission_id, message_type, content) in messages {
+        for (recipient_id, submission_id, content) in messages {
             recipient_ids.push(recipient_id);
             submission_ids.push(submission_id);
-            message_types.push(message_type);
             contents.push(content);
         }
 
         let inserted = sqlx::query_as::<_, (Uuid, Uuid)>(
             r#"
-            INSERT INTO messages (sender_id, recipient_id, submission_id, message_type, content, expires_at)
-            SELECT $1, u.r_id, u.s_id, u.m_type, u.content, $6
-            FROM UNNEST($2::uuid[], $3::uuid[], $4::int[], $5::bytea[]) AS u(r_id, s_id, m_type, content)
+            INSERT INTO messages (sender_id, recipient_id, submission_id, content, expires_at)
+            SELECT $1, u.r_id, u.s_id, u.content, $5
+            FROM UNNEST($2::uuid[], $3::uuid[], $4::bytea[]) AS u(r_id, s_id, content)
             ON CONFLICT (sender_id, submission_id) DO NOTHING
             RETURNING recipient_id, submission_id
             "#,
@@ -82,7 +80,6 @@ impl MessageRepository {
         .bind(sender_id)
         .bind(recipient_ids)
         .bind(submission_ids)
-        .bind(message_types)
         .bind(contents)
         .bind(expires_at)
         .fetch_all(conn)
@@ -108,7 +105,7 @@ impl MessageRepository {
             Some((last_ts, last_id)) => {
                 sqlx::query_as::<_, MessageRecord>(
                     r#"
-                    SELECT id, sender_id, recipient_id, submission_id, message_type, content, created_at, expires_at
+                    SELECT id, sender_id, recipient_id, submission_id, content, created_at, expires_at
                     FROM messages
                     WHERE recipient_id = $1
                       AND expires_at > NOW()
@@ -127,7 +124,7 @@ impl MessageRepository {
             None => {
                 sqlx::query_as::<_, MessageRecord>(
                     r#"
-                    SELECT id, sender_id, recipient_id, submission_id, message_type, content, created_at, expires_at
+                    SELECT id, sender_id, recipient_id, submission_id, content, created_at, expires_at
                     FROM messages
                     WHERE recipient_id = $1
                       AND expires_at > NOW()
