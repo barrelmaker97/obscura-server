@@ -100,7 +100,7 @@ impl MessagePump {
 
             let envelope = Envelope {
                 id: msg.id.as_bytes().to_vec(),
-                source_user_id: msg.sender_id.as_bytes().to_vec(),
+                sender_id: msg.sender_id.as_bytes().to_vec(),
                 timestamp,
                 message: EncryptedMessage::decode(msg.content.as_slice()).ok(),
             };
