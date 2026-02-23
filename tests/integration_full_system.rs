@@ -101,7 +101,10 @@ async fn test_full_system_flow() {
     // 7. Verify Partial Success
     // We expect exactly 1 failed message (the invalid recipient)
     assert_eq!(response.failed_submissions.len(), 1, "Expected 1 failed message in the batch");
-    assert_eq!(response.failed_submissions[0].error_code, 1); // Invalid Recipient code
+    assert_eq!(
+        response.failed_submissions[0].error_code,
+        proto::send_message_response::ErrorCode::InvalidRecipient as i32
+    );
 
     // 8. Verify Push Coalescing
     // Receiver is offline, so push notification should fire.

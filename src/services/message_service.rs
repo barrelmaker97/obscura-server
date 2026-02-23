@@ -165,7 +165,7 @@ impl MessageService {
             let Ok(recipient_id) = Uuid::from_slice(&outgoing.recipient_id) else {
                 failed_submissions.push(proto::send_message_response::FailedSubmission {
                     submission_id: outgoing.submission_id,
-                    error_code: proto::send_message_response::ErrorCode::InvalidRecipient as i32,
+                    error_code: proto::send_message_response::ErrorCode::MalformedRecipientId as i32,
                     error_message: "Invalid recipient UUID bytes (expected 16)".to_string(),
                 });
                 continue;
@@ -174,7 +174,7 @@ impl MessageService {
             let Ok(submission_id) = Uuid::from_slice(&outgoing.submission_id) else {
                 failed_submissions.push(proto::send_message_response::FailedSubmission {
                     submission_id: outgoing.submission_id,
-                    error_code: proto::send_message_response::ErrorCode::Unspecified as i32,
+                    error_code: proto::send_message_response::ErrorCode::MalformedSubmissionId as i32,
                     error_message: "Invalid submission_id UUID bytes (expected 16)".to_string(),
                 });
                 continue;
@@ -183,7 +183,7 @@ impl MessageService {
             let Some(msg) = outgoing.message else {
                 failed_submissions.push(proto::send_message_response::FailedSubmission {
                     submission_id: outgoing.submission_id,
-                    error_code: proto::send_message_response::ErrorCode::Unspecified as i32,
+                    error_code: proto::send_message_response::ErrorCode::MessageMissing as i32,
                     error_message: "Missing EncryptedMessage payload".to_string(),
                 });
                 continue;

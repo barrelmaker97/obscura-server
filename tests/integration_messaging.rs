@@ -509,6 +509,10 @@ async fn test_send_message_invalid_uuid_bytes() {
 
     assert_eq!(response.failed_submissions.len(), 1);
     assert_eq!(response.failed_submissions[0].error_message, "Invalid recipient UUID bytes (expected 16)");
+    assert_eq!(
+        response.failed_submissions[0].error_code,
+        proto::send_message_response::ErrorCode::MalformedRecipientId as i32
+    );
 }
 
 #[tokio::test]
@@ -535,4 +539,80 @@ async fn test_ack_invalid_uuid_bytes() {
     // Verify connection stays alive (non-fatal error)
     client.sink.send(WsMessage::Ping(vec![].into())).await.unwrap();
     assert!(client.receive_pong().await.is_some());
+}
+
+#[tokio::test]
+async fn test_send_message_malformed_submission_id() {
+    let app = TestApp::spawn().await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user = app.register_user(&format!("malformed_sub_{}", run_id)).await;
+    let recipient = app.register_user(&format!("recipient_sub_{}", run_id)).await;
+
+    let request = proto::SendMessageRequest {
+        messages: vec![proto::send_message_request::Submission {
+            submission_id: vec![1, 2, 3], // Invalid length
+            recipient_id: recipient.user_id.as_bytes().to_vec(),
+            message: Some(proto::EncryptedMessage { r#type: 2, content: b"Hello".to_vec() }),
+        }],
+    };
+    let mut buf = Vec::new();
+    request.encode(&mut buf).unwrap();
+
+    let resp = app
+        .client
+        .post(format!("{}/v1/messages", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("Idempotency-Key", Uuid::new_v4().to_string())
+        .header("Content-Type", "application/x-protobuf")
+        .body(buf)
+        .send()
+        .await
+        .unwrap();
+
+    let body = resp.bytes().await.unwrap();
+    let response = proto::SendMessageResponse::decode(body).unwrap();
+
+    assert_eq!(response.failed_submissions.len(), 1);
+    assert_eq!(
+        response.failed_submissions[0].error_code,
+        proto::send_message_response::ErrorCode::MalformedSubmissionId as i32
+    );
+}
+
+#[tokio::test]
+async fn test_send_message_missing_payload() {
+    let app = TestApp::spawn().await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user = app.register_user(&format!("missing_payload_{}", run_id)).await;
+    let recipient = app.register_user(&format!("recipient_payload_{}", run_id)).await;
+
+    let request = proto::SendMessageRequest {
+        messages: vec![proto::send_message_request::Submission {
+            submission_id: Uuid::new_v4().as_bytes().to_vec(),
+            recipient_id: recipient.user_id.as_bytes().to_vec(),
+            message: None, // Missing payload
+        }],
+    };
+    let mut buf = Vec::new();
+    request.encode(&mut buf).unwrap();
+
+    let resp = app
+        .client
+        .post(format!("{}/v1/messages", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("Idempotency-Key", Uuid::new_v4().to_string())
+        .header("Content-Type", "application/x-protobuf")
+        .body(buf)
+        .send()
+        .await
+        .unwrap();
+
+    let body = resp.bytes().await.unwrap();
+    let response = proto::SendMessageResponse::decode(body).unwrap();
+
+    assert_eq!(response.failed_submissions.len(), 1);
+    assert_eq!(
+        response.failed_submissions[0].error_code,
+        proto::send_message_response::ErrorCode::MessageMissing as i32
+    );
 }
