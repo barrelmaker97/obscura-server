@@ -77,7 +77,7 @@ impl MessageService {
         skip(self, messages),
         fields(sender_id = %sender_id, count = messages.len())
     )]
-    pub async fn send_batch(
+    pub async fn send(
         &self,
         sender_id: Uuid,
         idempotency_key: Uuid,
@@ -95,20 +95,20 @@ impl MessageService {
         }
 
         // 2. Parse and Validate Input
-        let (parsed_batch, mut failed_messages, recipient_ids_to_check) = self.parse_incoming_batch(messages);
+        let (parsed_batch, mut failed_messages, recipient_ids_to_check) = Self::parse_incoming_batch(messages);
 
         // 3. Pre-Flight Check: Validate Recipients
+        let mut tx = self.pool.begin().await?;
         let valid_recipients_set = if recipient_ids_to_check.is_empty() {
             std::collections::HashSet::new()
         } else {
             let ids: Vec<Uuid> = recipient_ids_to_check.into_iter().collect();
-            let mut conn = self.pool.acquire().await?;
-            self.repo.check_recipients_exist(&mut conn, &ids).await?.into_iter().collect()
+            self.repo.check_recipients_exist(&mut tx, &ids).await?.into_iter().collect()
         };
 
         // 4. Filter and Prepare Bulk Insert
         let mut valid_messages = Vec::with_capacity(parsed_batch.len());
-        for parsed in parsed_batch.into_iter() {
+        for parsed in parsed_batch {
             if valid_recipients_set.contains(&parsed.recipient_id) {
                 valid_messages.push((parsed.recipient_id, parsed.client_message_id, parsed.msg_type, parsed.content));
             } else {
@@ -122,15 +122,14 @@ impl MessageService {
 
         // 5. Bulk Insert
         if !valid_messages.is_empty() {
-            let mut conn = self.pool.acquire().await?;
-            match self.repo.create_batch(&mut conn, sender_id, valid_messages, self.ttl_days).await {
+            match self.repo.create_batch(&mut tx, sender_id, valid_messages, self.ttl_days).await {
                 Ok(inserted) => {
+                    tx.commit().await?;
                     self.metrics.sent_total.add(inserted.len() as u64, &[KeyValue::new("status", "success")]);
 
                     // Notify only for newly inserted messages
-                    for (recipient_id, _client_id) in inserted {
-                        self.notifier.notify(recipient_id, UserEvent::MessageReceived).await;
-                    }
+                    let recipient_ids: Vec<Uuid> = inserted.into_iter().map(|(id, _)| id).collect();
+                    self.notifier.notify(&recipient_ids, UserEvent::MessageReceived).await;
                 }
                 Err(e) => {
                     tracing::error!(error = ?e, "Failed to insert batch messages");
@@ -156,7 +155,6 @@ impl MessageService {
 
     /// Internal helper to parse Protobuf messages into domain types.
     fn parse_incoming_batch(
-        &self,
         messages: Vec<OutgoingMessage>,
     ) -> (Vec<ParsedMessage>, Vec<send_message_response::FailedMessage>, std::collections::HashSet<Uuid>) {
         let mut failed = Vec::new();

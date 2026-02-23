@@ -51,7 +51,7 @@ async fn test_push_worker_invalidates_unregistered_tokens() {
     let pubsub =
         obscura_server::adapters::redis::RedisClient::new(&config.pubsub, 1024, shutdown_rx.clone()).await.unwrap();
     let notification_repo = Arc::new(NotificationRepository::new(pubsub.clone(), &config.notifications));
-    let _: anyhow::Result<()> = notification_repo.push_job(user_id, 0).await;
+    let _: anyhow::Result<()> = notification_repo.push_jobs(&[user_id], 0).await;
 
     // 3. Setup Worker with FAILING provider and START it
     let worker = PushNotificationWorker::new(
@@ -128,7 +128,7 @@ async fn test_push_worker_removes_job_when_user_has_no_token() {
     let notification_repo = Arc::new(NotificationRepository::new(redis_client.clone(), &config.notifications));
 
     // Push the job
-    notification_repo.push_job(user_id, 0).await.unwrap();
+    notification_repo.push_jobs(&[user_id], 0).await.unwrap();
 
     // 3. Start Worker
     let worker = PushNotificationWorker::new(

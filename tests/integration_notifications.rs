@@ -37,7 +37,7 @@ async fn test_scheduled_push_delivery() {
     }
 
     // 1. Notify MessageReceived
-    app.notifier.notify(user_id, obscura_server::domain::notification::UserEvent::MessageReceived).await;
+    app.notifier.notify(&[user_id], obscura_server::domain::notification::UserEvent::MessageReceived).await;
 
     // 2. Wait for push
     let start = std::time::Instant::now();
@@ -191,7 +191,7 @@ async fn test_delivery_exactly_once_under_competition() {
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let _: anyhow::Result<()> = notification_repo.push_job(user_id, 0).await;
+    let _: anyhow::Result<()> = notification_repo.push_jobs(&[user_id], 0).await;
 
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(10) {
@@ -230,7 +230,7 @@ async fn test_push_coalescing() {
     }
 
     for _ in 0..5 {
-        app.notifier.notify(user_id, obscura_server::domain::notification::UserEvent::MessageReceived).await;
+        app.notifier.notify(&[user_id], obscura_server::domain::notification::UserEvent::MessageReceived).await;
     }
 
     tokio::time::sleep(Duration::from_secs(5)).await;
@@ -308,7 +308,7 @@ async fn test_notification_worker_concurrency_limit() {
             let token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
             token_repo.upsert_token(&mut conn, user_id, &format!("token:{}", user_id)).await.unwrap();
         }
-        let _: anyhow::Result<()> = notification_repo.push_job(user_id, 0).await;
+        let _: anyhow::Result<()> = notification_repo.push_jobs(&[user_id], 0).await;
     }
 
     tokio::time::sleep(Duration::from_secs(5)).await;

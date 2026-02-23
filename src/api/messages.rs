@@ -29,7 +29,7 @@ pub async fn send_messages(
         .ok_or_else(|| AppError::BadRequest("Missing idempotency-key header".to_string()))
         .and_then(|s| Uuid::parse_str(s).map_err(|e| AppError::BadRequest(format!("Invalid idempotency-key: {e}"))))?;
 
-    let response = state.message_service.send_batch(auth_user.user_id, idempotency_key, request.messages).await?;
+    let response = state.message_service.send(auth_user.user_id, idempotency_key, request.messages).await?;
 
     Ok(response.encode_to_vec())
 }
