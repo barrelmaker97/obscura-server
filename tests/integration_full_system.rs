@@ -1,7 +1,9 @@
 mod common;
 
 use common::{TestApp, notification_counts};
-use obscura_server::proto::obscura::v1::{EncryptedMessage, OutgoingMessage, SendMessageRequest, SendMessageResponse};
+use obscura_server::proto::obscura::v1::{
+    EncryptedMessage, MessageSubmission, SendMessageRequest, SendMessageResponse,
+};
 use prost::Message;
 use std::time::Duration;
 use uuid::Uuid;
@@ -51,7 +53,7 @@ async fn test_full_system_flow() {
     for i in 0..20 {
         let content = format!("Valid Message {}", i).into_bytes();
         expected_content.insert(content.clone());
-        messages.push(OutgoingMessage {
+        messages.push(MessageSubmission {
             client_message_id: Uuid::new_v4().as_bytes().to_vec(),
             recipient_id: receiver.user_id.as_bytes().to_vec(),
             message: Some(EncryptedMessage { r#type: 1, content }),
@@ -60,7 +62,7 @@ async fn test_full_system_flow() {
 
     // 1 Invalid Recipient
     let invalid_id = Uuid::new_v4();
-    messages.push(OutgoingMessage {
+    messages.push(MessageSubmission {
         client_message_id: Uuid::new_v4().as_bytes().to_vec(),
         recipient_id: invalid_id.as_bytes().to_vec(),
         message: Some(EncryptedMessage { r#type: 1, content: b"Invalid".to_vec() }),
@@ -70,7 +72,7 @@ async fn test_full_system_flow() {
     for i in 20..49 {
         let content = format!("Valid Message {}", i).into_bytes();
         expected_content.insert(content.clone());
-        messages.push(OutgoingMessage {
+        messages.push(MessageSubmission {
             client_message_id: Uuid::new_v4().as_bytes().to_vec(),
             recipient_id: receiver.user_id.as_bytes().to_vec(),
             message: Some(EncryptedMessage { r#type: 1, content }),

@@ -122,23 +122,8 @@ impl Session {
                                         if let Some(Payload::Ack(ack)) = frame.payload {
                                             let mut uuids = Vec::new();
 
-                                            // Support legacy single ID
-                                            if !ack.message_id.is_empty() {
-                                                if let Ok(id) = Uuid::from_slice(&ack.message_id) {
-                                                    uuids.push(id);
-                                                    metrics.acks_received_single_total.add(1, &[]);
-                                                } else {
-                                                    tracing::warn!(
-                                                        len = ack.message_id.len(),
-                                                        hex = %hex::encode(&ack.message_id),
-                                                        "Received ACK with invalid UUID bytes (expected 16)"
-                                                    );
-                                                }
-                                            }
-
-                                            // Support bulk IDs
                                             if !ack.message_ids.is_empty() {
-                                                metrics.acks_received_bulk_total.add(1, &[]);
+                                                metrics.acks_received_total.add(1, &[]);
                                             }
                                             for id_bytes in ack.message_ids {
                                                 if let Ok(id) = Uuid::from_slice(&id_bytes) {

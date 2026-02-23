@@ -5,7 +5,7 @@ use crate::config::MessagingConfig;
 use crate::domain::message::Message;
 use crate::domain::notification::UserEvent;
 use crate::error::{AppError, Result};
-use crate::proto::obscura::v1::{OutgoingMessage, SendMessageResponse, send_message_response};
+use crate::proto::obscura::v1::{MessageSubmission, SendMessageResponse, send_message_response};
 use crate::services::notification_service::NotificationService;
 use opentelemetry::{
     KeyValue, global,
@@ -81,7 +81,7 @@ impl MessageService {
         &self,
         sender_id: Uuid,
         idempotency_key: Uuid,
-        messages: Vec<OutgoingMessage>,
+        messages: Vec<MessageSubmission>,
     ) -> Result<SendMessageResponse> {
         // 1. Check Idempotency
         if let Ok(Some(cached)) = self.idempotency_repo.get_response(&idempotency_key.to_string()).await {
@@ -155,7 +155,7 @@ impl MessageService {
 
     /// Internal helper to parse Protobuf messages into domain types.
     fn parse_incoming_batch(
-        messages: Vec<OutgoingMessage>,
+        messages: Vec<MessageSubmission>,
     ) -> (Vec<ParsedMessage>, Vec<send_message_response::FailedMessage>, std::collections::HashSet<Uuid>) {
         let mut failed = Vec::new();
         let mut parsed = Vec::with_capacity(messages.len());

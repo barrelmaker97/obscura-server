@@ -110,7 +110,7 @@ async fn test_send_message_recipient_not_found() {
 
     let client_msg_id = Uuid::new_v4();
     let request = obscura_server::proto::obscura::v1::SendMessageRequest {
-        messages: vec![obscura_server::proto::obscura::v1::OutgoingMessage {
+        messages: vec![obscura_server::proto::obscura::v1::MessageSubmission {
             client_message_id: client_msg_id.as_bytes().to_vec(),
             recipient_id: bad_id.as_bytes().to_vec(),
             message: Some(EncryptedMessage { r#type: 2, content: b"Hello".to_vec() }),
@@ -169,7 +169,7 @@ async fn test_message_idempotency() {
     let content = b"Idempotent Hello".to_vec();
 
     let request = obscura_server::proto::obscura::v1::SendMessageRequest {
-        messages: vec![obscura_server::proto::obscura::v1::OutgoingMessage {
+        messages: vec![obscura_server::proto::obscura::v1::MessageSubmission {
             client_message_id: Uuid::new_v4().as_bytes().to_vec(),
             recipient_id: user_b.user_id.as_bytes().to_vec(),
             message: Some(EncryptedMessage { r#type: 2, content: content.clone() }),
@@ -231,19 +231,19 @@ async fn test_batch_partial_success() {
     let request = obscura_server::proto::obscura::v1::SendMessageRequest {
         messages: vec![
             // 1. Valid (Bob)
-            obscura_server::proto::obscura::v1::OutgoingMessage {
+            obscura_server::proto::obscura::v1::MessageSubmission {
                 client_message_id: client_msg_id_b.as_bytes().to_vec(),
                 recipient_id: user_b.user_id.as_bytes().to_vec(),
                 message: Some(EncryptedMessage { r#type: 2, content: b"Msg for Bob".to_vec() }),
             },
             // 2. Invalid (Bad ID)
-            obscura_server::proto::obscura::v1::OutgoingMessage {
+            obscura_server::proto::obscura::v1::MessageSubmission {
                 client_message_id: client_msg_id_bad.as_bytes().to_vec(),
                 recipient_id: bad_id.as_bytes().to_vec(),
                 message: Some(EncryptedMessage { r#type: 2, content: b"Msg for Nowhere".to_vec() }),
             },
             // 3. Valid (Charlie)
-            obscura_server::proto::obscura::v1::OutgoingMessage {
+            obscura_server::proto::obscura::v1::MessageSubmission {
                 client_message_id: client_msg_id_c.as_bytes().to_vec(),
                 recipient_id: user_c.user_id.as_bytes().to_vec(),
                 message: Some(EncryptedMessage { r#type: 2, content: b"Msg for Charlie".to_vec() }),
@@ -316,7 +316,7 @@ async fn test_batch_too_large() {
 
     let mut messages = Vec::new();
     for _ in 0..6 {
-        messages.push(obscura_server::proto::obscura::v1::OutgoingMessage {
+        messages.push(obscura_server::proto::obscura::v1::MessageSubmission {
             client_message_id: Uuid::new_v4().as_bytes().to_vec(),
             recipient_id: user.user_id.as_bytes().to_vec(),
             message: Some(EncryptedMessage { r#type: 2, content: b"Msg".to_vec() }),
@@ -398,7 +398,7 @@ async fn test_ack_buffer_saturation() {
     let mut client = app.connect_ws(&user.token).await;
 
     for _ in 0..15 {
-        let ack = AckMessage { message_id: Uuid::new_v4().as_bytes().to_vec(), message_ids: vec![] };
+        let ack = AckMessage { message_ids: vec![Uuid::new_v4().as_bytes().to_vec()] };
         let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
         let mut buf = Vec::new();
         frame.encode(&mut buf).unwrap();
@@ -434,52 +434,13 @@ async fn test_bulk_ack_processing() {
     assert_eq!(message_ids.len(), 5);
 
     // Send ONE bulk ACK
-    let ack = AckMessage { message_id: Vec::new(), message_ids: message_ids.clone() };
+    let ack = AckMessage { message_ids: message_ids.clone() };
     let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
     let mut buf = Vec::new();
     frame.encode(&mut buf).unwrap();
     ws.sink.send(WsMessage::Binary(buf.into())).await.unwrap();
 
     // Verify all 5 are deleted
-    app.assert_message_count(user_b.user_id, 0).await;
-}
-
-#[tokio::test]
-async fn test_mixed_ack_processing() {
-    let app = TestApp::spawn().await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-
-    let user_a = app.register_user(&format!("alice_mix_{}", run_id)).await;
-    let user_b = app.register_user(&format!("bob_mix_{}", run_id)).await;
-
-    // Send 3 messages
-    for i in 0..3 {
-        app.send_message(&user_a.token, user_b.user_id, format!("msg {}", i).as_bytes()).await;
-    }
-
-    let mut ws = app.connect_ws(&user_b.token).await;
-
-    let mut message_ids = Vec::new();
-    for _ in 0..3 {
-        if let Some(env) = ws.receive_envelope().await {
-            message_ids.push(env.id);
-        }
-    }
-    assert_eq!(message_ids.len(), 3);
-
-    // Send ACK with BOTH fields
-    // message_id = First message
-    // message_ids = Remaining two messages
-    let ack = AckMessage {
-        message_id: message_ids[0].clone(),
-        message_ids: vec![message_ids[1].clone(), message_ids[2].clone()],
-    };
-    let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
-    let mut buf = Vec::new();
-    frame.encode(&mut buf).unwrap();
-    ws.sink.send(WsMessage::Binary(buf.into())).await.unwrap();
-
-    // Verify all 3 are deleted
     app.assert_message_count(user_b.user_id, 0).await;
 }
 
@@ -518,7 +479,7 @@ async fn test_send_message_invalid_uuid_bytes() {
     let user = app.register_user(&format!("malformed_bytes_{}", run_id)).await;
 
     let request = SendMessageRequest {
-        messages: vec![obscura_server::proto::obscura::v1::OutgoingMessage {
+        messages: vec![obscura_server::proto::obscura::v1::MessageSubmission {
             client_message_id: vec![1, 2, 3], // Invalid length
             recipient_id: vec![4, 5, 6],      // Invalid length
             message: Some(EncryptedMessage { r#type: 2, content: b"Hello".to_vec() }),
@@ -555,8 +516,10 @@ async fn test_ack_invalid_uuid_bytes() {
 
     // Send ACK with invalid length ID
     let ack = AckMessage {
-        message_id: vec![1, 2, 3, 4, 5],  // 5 bytes instead of 16
-        message_ids: vec![vec![0u8; 32]], // 32 bytes instead of 16
+        message_ids: vec![
+            vec![1, 2, 3, 4, 5], // 5 bytes instead of 16
+            vec![0u8; 32],       // 32 bytes instead of 16
+        ],
     };
     let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
     let mut buf = Vec::new();

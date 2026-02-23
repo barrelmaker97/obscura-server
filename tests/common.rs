@@ -337,11 +337,11 @@ impl TestApp {
     }
 
     pub async fn send_messages(&self, token: &str, messages: &[(Uuid, &[u8])]) {
-        use obscura_server::proto::obscura::v1::{OutgoingMessage, SendMessageRequest};
+        use obscura_server::proto::obscura::v1::{MessageSubmission, SendMessageRequest};
 
         let outgoing = messages
             .iter()
-            .map(|(recipient_id, content)| OutgoingMessage {
+            .map(|(recipient_id, content)| MessageSubmission {
                 client_message_id: Uuid::new_v4().as_bytes().to_vec(),
                 recipient_id: recipient_id.as_bytes().to_vec(),
                 message: Some(EncryptedMessage { r#type: 2, content: content.to_vec() }),
@@ -485,7 +485,7 @@ impl TestWsClient {
     }
 
     pub async fn send_ack(&mut self, message_id: Vec<u8>) {
-        let ack = AckMessage { message_id, message_ids: vec![] };
+        let ack = AckMessage { message_ids: vec![message_id] };
         let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
         let mut buf = Vec::new();
         frame.encode(&mut buf).unwrap();
