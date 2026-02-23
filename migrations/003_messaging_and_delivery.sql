@@ -1,6 +1,3 @@
--- Messages
--- Includes client_message_id for sender-side deduplication.
--- Using uuidv7() for server-generated ID for time-ordered clustering.
 CREATE TABLE messages (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     sender_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -16,7 +13,6 @@ CREATE TABLE messages (
 
 CREATE INDEX idx_messages_fetch ON messages(recipient_id, created_at);
 
--- Attachments
 CREATE TABLE attachments (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     expires_at TIMESTAMPTZ NOT NULL
@@ -24,7 +20,6 @@ CREATE TABLE attachments (
 
 CREATE INDEX idx_attachments_expires_at ON attachments(expires_at);
 
--- Push Tokens
 CREATE TABLE push_tokens (
     user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     token TEXT NOT NULL,
@@ -33,7 +28,6 @@ CREATE TABLE push_tokens (
 
 CREATE INDEX idx_push_tokens_updated_at ON push_tokens(updated_at);
 
--- Backups
 CREATE TABLE backups (
     user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     current_version INT NOT NULL DEFAULT 0,

@@ -1,4 +1,3 @@
--- Users
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     username VARCHAR(50) NOT NULL UNIQUE,
@@ -6,7 +5,6 @@ CREATE TABLE users (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Refresh Tokens
 CREATE TABLE refresh_tokens (
     token_hash VARCHAR NOT NULL PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
