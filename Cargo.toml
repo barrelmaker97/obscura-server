@@ -44,7 +44,7 @@ tokio-util = { version = "0.7", features = ["io", "codec"] }
 tower_governor = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-uuid = { version = "1.19", features = ["v4", "serde"] }
+uuid = { version = "1.19", features = ["v4", "v7", "serde"] }
 tower-http = { version = "0.6", features = ["trace", "request-id", "util", "timeout"] }
 opentelemetry = { version = "0.31", features = ["metrics", "logs"] }
 opentelemetry_sdk = { version = "0.31", features = ["metrics", "logs"] }
