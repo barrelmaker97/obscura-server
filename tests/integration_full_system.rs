@@ -2,7 +2,7 @@ mod common;
 
 use common::{TestApp, notification_counts};
 use obscura_server::proto::obscura::v1::{
-    EncryptedMessage, MessageSubmission, SendMessageRequest, SendMessageResponse,
+    EncryptedMessage, SendMessageRequest, SendMessageResponse, send_message_request,
 };
 use prost::Message;
 use std::time::Duration;
@@ -53,8 +53,8 @@ async fn test_full_system_flow() {
     for i in 0..20 {
         let content = format!("Valid Message {}", i).into_bytes();
         expected_content.insert(content.clone());
-        messages.push(MessageSubmission {
-            client_message_id: Uuid::new_v4().as_bytes().to_vec(),
+        messages.push(send_message_request::Submission {
+            submission_id: Uuid::new_v4().as_bytes().to_vec(),
             recipient_id: receiver.user_id.as_bytes().to_vec(),
             message: Some(EncryptedMessage { r#type: 1, content }),
         });
@@ -62,8 +62,8 @@ async fn test_full_system_flow() {
 
     // 1 Invalid Recipient
     let invalid_id = Uuid::new_v4();
-    messages.push(MessageSubmission {
-        client_message_id: Uuid::new_v4().as_bytes().to_vec(),
+    messages.push(send_message_request::Submission {
+        submission_id: Uuid::new_v4().as_bytes().to_vec(),
         recipient_id: invalid_id.as_bytes().to_vec(),
         message: Some(EncryptedMessage { r#type: 1, content: b"Invalid".to_vec() }),
     });
@@ -72,8 +72,8 @@ async fn test_full_system_flow() {
     for i in 20..49 {
         let content = format!("Valid Message {}", i).into_bytes();
         expected_content.insert(content.clone());
-        messages.push(MessageSubmission {
-            client_message_id: Uuid::new_v4().as_bytes().to_vec(),
+        messages.push(send_message_request::Submission {
+            submission_id: Uuid::new_v4().as_bytes().to_vec(),
             recipient_id: receiver.user_id.as_bytes().to_vec(),
             message: Some(EncryptedMessage { r#type: 1, content }),
         });
@@ -102,8 +102,8 @@ async fn test_full_system_flow() {
 
     // 7. Verify Partial Success
     // We expect exactly 1 failed message (the invalid recipient)
-    assert_eq!(response.failed_messages.len(), 1, "Expected 1 failed message in the batch");
-    assert_eq!(response.failed_messages[0].error_code, 1); // Invalid Recipient code
+    assert_eq!(response.failed_submissions.len(), 1, "Expected 1 failed message in the batch");
+    assert_eq!(response.failed_submissions[0].error_code, 1); // Invalid Recipient code
 
     // 8. Verify Push Coalescing
     // Receiver is offline, so push notification should fire.

@@ -11,7 +11,7 @@ pub struct IdempotencyRepository {
 impl IdempotencyRepository {
     #[must_use]
     pub fn new(redis: Arc<RedisClient>) -> Self {
-        Self { redis, prefix: "idempotency:msg:".to_string() }
+        Self { redis, prefix: "idempotency:submission:".to_string() }
     }
 
     /// Retrieves a cached response for an idempotency key.

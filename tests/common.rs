@@ -337,12 +337,12 @@ impl TestApp {
     }
 
     pub async fn send_messages(&self, token: &str, messages: &[(Uuid, &[u8])]) {
-        use obscura_server::proto::obscura::v1::{MessageSubmission, SendMessageRequest};
+        use obscura_server::proto::obscura::v1::{SendMessageRequest, send_message_request};
 
         let outgoing = messages
             .iter()
-            .map(|(recipient_id, content)| MessageSubmission {
-                client_message_id: Uuid::new_v4().as_bytes().to_vec(),
+            .map(|(recipient_id, content)| send_message_request::Submission {
+                submission_id: Uuid::new_v4().as_bytes().to_vec(),
                 recipient_id: recipient_id.as_bytes().to_vec(),
                 message: Some(EncryptedMessage { r#type: 2, content: content.to_vec() }),
             })

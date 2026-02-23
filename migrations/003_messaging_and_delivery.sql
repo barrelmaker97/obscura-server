@@ -2,13 +2,13 @@ CREATE TABLE messages (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
     sender_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     recipient_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    client_message_id UUID NOT NULL,
+    submission_id UUID NOT NULL,
     message_type INTEGER NOT NULL DEFAULT 2, -- 2 = Encrypted Message
     content BYTEA NOT NULL,
     created_at TIMESTAMPTZ DEFAULT now(),
     expires_at TIMESTAMPTZ NOT NULL,
-    -- Deduplication constraint: A sender cannot send the same client_message_id twice.
-    UNIQUE (sender_id, client_message_id)
+    -- Deduplication constraint: A sender cannot send the same submission_id twice.
+    UNIQUE (sender_id, submission_id)
 );
 
 CREATE INDEX idx_messages_fetch ON messages(recipient_id, created_at);

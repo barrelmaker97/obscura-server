@@ -39,8 +39,8 @@ impl MessageRepository {
 
     /// Inserts a batch of messages.
     ///
-    /// Ignores duplicate messages (based on `sender_id` and `client_message_id`) via `ON CONFLICT DO NOTHING`.
-    /// Returns the list of `(recipient_id, client_message_id)` that were successfully inserted.
+    /// Ignores duplicate messages (based on `sender_id` and `submission_id`) via `ON CONFLICT DO NOTHING`.
+    /// Returns the list of `(recipient_id, submission_id)` that were successfully inserted.
     ///
     /// # Errors
     /// Returns `AppError::Database` if the insert fails.
@@ -59,29 +59,29 @@ impl MessageRepository {
         let expires_at = OffsetDateTime::now_utc() + Duration::days(ttl_days);
 
         let mut recipient_ids = Vec::with_capacity(messages.len());
-        let mut client_message_ids = Vec::with_capacity(messages.len());
+        let mut submission_ids = Vec::with_capacity(messages.len());
         let mut message_types = Vec::with_capacity(messages.len());
         let mut contents = Vec::with_capacity(messages.len());
 
-        for (recipient_id, client_message_id, message_type, content) in messages {
+        for (recipient_id, submission_id, message_type, content) in messages {
             recipient_ids.push(recipient_id);
-            client_message_ids.push(client_message_id);
+            submission_ids.push(submission_id);
             message_types.push(message_type);
             contents.push(content);
         }
 
         let inserted = sqlx::query_as::<_, (Uuid, Uuid)>(
             r#"
-            INSERT INTO messages (sender_id, recipient_id, client_message_id, message_type, content, expires_at)
-            SELECT $1, u.r_id, u.c_id, u.m_type, u.content, $6
-            FROM UNNEST($2::uuid[], $3::uuid[], $4::int[], $5::bytea[]) AS u(r_id, c_id, m_type, content)
-            ON CONFLICT (sender_id, client_message_id) DO NOTHING
-            RETURNING recipient_id, client_message_id
+            INSERT INTO messages (sender_id, recipient_id, submission_id, message_type, content, expires_at)
+            SELECT $1, u.r_id, u.s_id, u.m_type, u.content, $6
+            FROM UNNEST($2::uuid[], $3::uuid[], $4::int[], $5::bytea[]) AS u(r_id, s_id, m_type, content)
+            ON CONFLICT (sender_id, submission_id) DO NOTHING
+            RETURNING recipient_id, submission_id
             "#,
         )
         .bind(sender_id)
         .bind(recipient_ids)
-        .bind(client_message_ids)
+        .bind(submission_ids)
         .bind(message_types)
         .bind(contents)
         .bind(expires_at)
@@ -108,7 +108,7 @@ impl MessageRepository {
             Some((last_ts, last_id)) => {
                 sqlx::query_as::<_, MessageRecord>(
                     r#"
-                    SELECT id, sender_id, recipient_id, client_message_id, message_type, content, created_at, expires_at
+                    SELECT id, sender_id, recipient_id, submission_id, message_type, content, created_at, expires_at
                     FROM messages
                     WHERE recipient_id = $1
                       AND expires_at > NOW()
@@ -127,7 +127,7 @@ impl MessageRepository {
             None => {
                 sqlx::query_as::<_, MessageRecord>(
                     r#"
-                    SELECT id, sender_id, recipient_id, client_message_id, message_type, content, created_at, expires_at
+                    SELECT id, sender_id, recipient_id, submission_id, message_type, content, created_at, expires_at
                     FROM messages
                     WHERE recipient_id = $1
                       AND expires_at > NOW()
