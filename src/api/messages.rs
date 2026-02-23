@@ -1,7 +1,7 @@
 use crate::api::AppState;
 use crate::api::middleware::AuthUser;
 use crate::error::{AppError, Result};
-use crate::proto::obscura::v1::SendMessageRequest;
+use crate::proto::obscura::v1 as proto;
 use axum::{body::Bytes, extract::State, http::HeaderMap, response::IntoResponse};
 use prost::Message;
 use uuid::Uuid;
@@ -16,7 +16,7 @@ pub async fn send_messages(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<impl IntoResponse> {
-    let request = SendMessageRequest::decode(body)
+    let request = proto::SendMessageRequest::decode(body)
         .map_err(|e| AppError::BadRequest(format!("Invalid SendMessageRequest protobuf: {e}")))?;
 
     if request.messages.len() > usize::try_from(state.config.messaging.send_batch_limit).unwrap_or(0) {

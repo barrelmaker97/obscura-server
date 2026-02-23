@@ -8,9 +8,7 @@ use obscura_server::{
     adapters::push::{PushError, PushProvider},
     api::app_router,
     config::{AuthConfig, Config, NotificationConfig, PubSubConfig, RateLimitConfig, ServerConfig, StorageConfig},
-    proto::obscura::v1::{
-        AckMessage, EncryptedMessage, Envelope, PreKeyStatus, WebSocketFrame, web_socket_frame::Payload,
-    },
+    proto::obscura::v1 as proto,
     services::notification_service::NotificationService,
 };
 
@@ -337,18 +335,16 @@ impl TestApp {
     }
 
     pub async fn send_messages(&self, token: &str, messages: &[(Uuid, &[u8])]) {
-        use obscura_server::proto::obscura::v1::{SendMessageRequest, send_message_request};
-
         let outgoing = messages
             .iter()
-            .map(|(recipient_id, content)| send_message_request::Submission {
+            .map(|(recipient_id, content)| proto::send_message_request::Submission {
                 submission_id: Uuid::new_v4().as_bytes().to_vec(),
                 recipient_id: recipient_id.as_bytes().to_vec(),
-                message: Some(EncryptedMessage { r#type: 2, content: content.to_vec() }),
+                message: Some(proto::EncryptedMessage { r#type: 2, content: content.to_vec() }),
             })
             .collect();
 
-        let request = SendMessageRequest { messages: outgoing };
+        let request = proto::SendMessageRequest { messages: outgoing };
         let mut buf = Vec::new();
         request.encode(&mut buf).unwrap();
 
@@ -383,12 +379,12 @@ impl TestApp {
                 }
                 match msg {
                     Ok(Message::Binary(bin)) => {
-                        if let Ok(frame) = WebSocketFrame::decode(bin.as_ref()) {
+                        if let Ok(frame) = proto::WebSocketFrame::decode(bin.as_ref()) {
                             match frame.payload {
-                                Some(Payload::Envelope(e)) => {
+                                Some(proto::web_socket_frame::Payload::Envelope(e)) => {
                                     let _ = tx_env.send(e);
                                 }
-                                Some(Payload::PreKeyStatus(s)) => {
+                                Some(proto::web_socket_frame::Payload::PreKeyStatus(s)) => {
                                     let _ = tx_status.send(s);
                                 }
                                 _ => {}
@@ -450,8 +446,8 @@ impl TestApp {
 pub struct TestWsClient {
     pub sink:
         futures::stream::SplitSink<WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, Message>,
-    pub rx_env: tokio::sync::mpsc::UnboundedReceiver<Envelope>,
-    pub rx_status: tokio::sync::mpsc::UnboundedReceiver<PreKeyStatus>,
+    pub rx_env: tokio::sync::mpsc::UnboundedReceiver<proto::Envelope>,
+    pub rx_status: tokio::sync::mpsc::UnboundedReceiver<proto::PreKeyStatus>,
     pub rx_pong: tokio::sync::mpsc::UnboundedReceiver<tokio_tungstenite::tungstenite::Bytes>,
     pub rx_raw: tokio::sync::mpsc::UnboundedReceiver<Result<Message, tokio_tungstenite::tungstenite::Error>>,
 }
@@ -461,19 +457,19 @@ impl TestWsClient {
         tokio::time::timeout(Duration::from_secs(5), self.rx_pong.recv()).await.ok().flatten().map(|b| b.to_vec())
     }
 
-    pub async fn receive_envelope(&mut self) -> Option<Envelope> {
+    pub async fn receive_envelope(&mut self) -> Option<proto::Envelope> {
         self.receive_envelope_timeout(Duration::from_secs(5)).await
     }
 
-    pub async fn receive_envelope_timeout(&mut self, timeout: Duration) -> Option<Envelope> {
+    pub async fn receive_envelope_timeout(&mut self, timeout: Duration) -> Option<proto::Envelope> {
         tokio::time::timeout(timeout, self.rx_env.recv()).await.ok().flatten()
     }
 
-    pub async fn receive_prekey_status(&mut self) -> Option<PreKeyStatus> {
+    pub async fn receive_prekey_status(&mut self) -> Option<proto::PreKeyStatus> {
         self.receive_prekey_status_timeout(Duration::from_secs(5)).await
     }
 
-    pub async fn receive_prekey_status_timeout(&mut self, timeout: Duration) -> Option<PreKeyStatus> {
+    pub async fn receive_prekey_status_timeout(&mut self, timeout: Duration) -> Option<proto::PreKeyStatus> {
         tokio::time::timeout(timeout, self.rx_status.recv()).await.ok().flatten()
     }
 
@@ -485,8 +481,8 @@ impl TestWsClient {
     }
 
     pub async fn send_ack(&mut self, message_id: Vec<u8>) {
-        let ack = AckMessage { message_ids: vec![message_id] };
-        let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
+        let ack = proto::AckMessage { message_ids: vec![message_id] };
+        let frame = proto::WebSocketFrame { payload: Some(proto::web_socket_frame::Payload::Ack(ack)) };
         let mut buf = Vec::new();
         frame.encode(&mut buf).unwrap();
         self.sink.send(Message::Binary(buf.into())).await.unwrap();

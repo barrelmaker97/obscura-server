@@ -5,7 +5,7 @@ use crate::config::MessagingConfig;
 use crate::domain::message::Message;
 use crate::domain::notification::UserEvent;
 use crate::error::{AppError, Result};
-use crate::proto::obscura::v1::{SendMessageResponse, send_message_request, send_message_response};
+use crate::proto::obscura::v1 as proto;
 use crate::services::notification_service::NotificationService;
 use opentelemetry::{
     KeyValue, global,
@@ -80,17 +80,17 @@ impl MessageService {
         &self,
         sender_id: Uuid,
         idempotency_key: Uuid,
-        messages: Vec<send_message_request::Submission>,
-    ) -> Result<SendMessageResponse> {
+        messages: Vec<proto::send_message_request::Submission>,
+    ) -> Result<proto::SendMessageResponse> {
         // 1. Check Idempotency
         if let Ok(Some(cached)) = self.idempotency_repo.get_response(&idempotency_key.to_string()).await {
             tracing::info!(key = %idempotency_key, "Returning cached idempotency response");
-            return SendMessageResponse::decode(cached.as_slice())
+            return proto::SendMessageResponse::decode(cached.as_slice())
                 .map_err(|e| AppError::InternalMsg(format!("Failed to decode cached idempotency response: {e}")));
         }
 
         if messages.is_empty() {
-            return Ok(SendMessageResponse { failed_submissions: Vec::new() });
+            return Ok(proto::SendMessageResponse { failed_submissions: Vec::new() });
         }
 
         // 2. Parse and Validate Input
@@ -111,9 +111,9 @@ impl MessageService {
             if valid_recipients_set.contains(&parsed.recipient_id) {
                 valid_messages.push((parsed.recipient_id, parsed.submission_id, parsed.content));
             } else {
-                failed_submissions.push(send_message_response::FailedSubmission {
+                failed_submissions.push(proto::send_message_response::FailedSubmission {
                     submission_id: parsed.submission_id.as_bytes().to_vec(),
-                    error_code: send_message_response::ErrorCode::InvalidRecipient as i32,
+                    error_code: proto::send_message_response::ErrorCode::InvalidRecipient as i32,
                     error_message: "Recipient not found".to_string(),
                 });
             }
@@ -137,7 +137,7 @@ impl MessageService {
             }
         }
 
-        let response = SendMessageResponse { failed_submissions };
+        let response = proto::SendMessageResponse { failed_submissions };
 
         // 6. Cache Result
         let encoded = response.encode_to_vec();
@@ -154,35 +154,36 @@ impl MessageService {
 
     /// Internal helper to parse Protobuf messages into domain types.
     fn parse_incoming_batch(
-        messages: Vec<send_message_request::Submission>,
-    ) -> (Vec<ParsedMessage>, Vec<send_message_response::FailedSubmission>, std::collections::HashSet<Uuid>) {
+        messages: Vec<proto::send_message_request::Submission>,
+    ) -> (Vec<ParsedMessage>, Vec<proto::send_message_response::FailedSubmission>, std::collections::HashSet<Uuid>)
+    {
         let mut failed_submissions = Vec::new();
         let mut parsed = Vec::with_capacity(messages.len());
         let mut recipient_ids = std::collections::HashSet::new();
 
         for outgoing in messages {
             let Ok(recipient_id) = Uuid::from_slice(&outgoing.recipient_id) else {
-                failed_submissions.push(send_message_response::FailedSubmission {
+                failed_submissions.push(proto::send_message_response::FailedSubmission {
                     submission_id: outgoing.submission_id,
-                    error_code: send_message_response::ErrorCode::InvalidRecipient as i32,
+                    error_code: proto::send_message_response::ErrorCode::InvalidRecipient as i32,
                     error_message: "Invalid recipient UUID bytes (expected 16)".to_string(),
                 });
                 continue;
             };
 
             let Ok(submission_id) = Uuid::from_slice(&outgoing.submission_id) else {
-                failed_submissions.push(send_message_response::FailedSubmission {
+                failed_submissions.push(proto::send_message_response::FailedSubmission {
                     submission_id: outgoing.submission_id,
-                    error_code: send_message_response::ErrorCode::Unspecified as i32,
+                    error_code: proto::send_message_response::ErrorCode::Unspecified as i32,
                     error_message: "Invalid submission_id UUID bytes (expected 16)".to_string(),
                 });
                 continue;
             };
 
             let Some(msg) = outgoing.message else {
-                failed_submissions.push(send_message_response::FailedSubmission {
+                failed_submissions.push(proto::send_message_response::FailedSubmission {
                     submission_id: outgoing.submission_id,
-                    error_code: send_message_response::ErrorCode::Unspecified as i32,
+                    error_code: proto::send_message_response::ErrorCode::Unspecified as i32,
                     error_message: "Missing EncryptedMessage payload".to_string(),
                 });
                 continue;

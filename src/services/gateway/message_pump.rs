@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::proto::obscura::v1::{EncryptedMessage, Envelope, WebSocketFrame, web_socket_frame::Payload};
+use crate::proto::obscura::v1 as proto;
 use crate::services::gateway::Metrics;
 use crate::services::message_service::MessageService;
 use axum::extract::ws::Message as WsMessage;
@@ -98,14 +98,14 @@ impl MessagePump {
                 |ts| u64::try_from(ts.unix_timestamp_nanos() / 1_000_000).unwrap_or(0),
             );
 
-            let envelope = Envelope {
+            let envelope = proto::Envelope {
                 id: msg.id.as_bytes().to_vec(),
                 sender_id: msg.sender_id.as_bytes().to_vec(),
                 timestamp,
-                message: EncryptedMessage::decode(msg.content.as_slice()).ok(),
+                message: proto::EncryptedMessage::decode(msg.content.as_slice()).ok(),
             };
 
-            let frame = WebSocketFrame { payload: Some(Payload::Envelope(envelope)) };
+            let frame = proto::WebSocketFrame { payload: Some(proto::web_socket_frame::Payload::Envelope(envelope)) };
             let mut buf = Vec::new();
 
             if frame.encode(&mut buf).is_ok() && outbound_tx.send(WsMessage::Binary(buf.into())).await.is_err() {

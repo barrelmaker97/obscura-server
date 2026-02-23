@@ -1,9 +1,7 @@
 mod common;
 
 use common::{TestApp, notification_counts};
-use obscura_server::proto::obscura::v1::{
-    EncryptedMessage, SendMessageRequest, SendMessageResponse, send_message_request,
-};
+use obscura_server::proto::obscura::v1 as proto;
 use prost::Message;
 use std::time::Duration;
 use uuid::Uuid;
@@ -53,33 +51,33 @@ async fn test_full_system_flow() {
     for i in 0..20 {
         let content = format!("Valid Message {}", i).into_bytes();
         expected_content.insert(content.clone());
-        messages.push(send_message_request::Submission {
+        messages.push(proto::send_message_request::Submission {
             submission_id: Uuid::new_v4().as_bytes().to_vec(),
             recipient_id: receiver.user_id.as_bytes().to_vec(),
-            message: Some(EncryptedMessage { r#type: 1, content }),
+            message: Some(proto::EncryptedMessage { r#type: 1, content }),
         });
     }
 
     // 1 Invalid Recipient
     let invalid_id = Uuid::new_v4();
-    messages.push(send_message_request::Submission {
+    messages.push(proto::send_message_request::Submission {
         submission_id: Uuid::new_v4().as_bytes().to_vec(),
         recipient_id: invalid_id.as_bytes().to_vec(),
-        message: Some(EncryptedMessage { r#type: 1, content: b"Invalid".to_vec() }),
+        message: Some(proto::EncryptedMessage { r#type: 1, content: b"Invalid".to_vec() }),
     });
 
     // Next 29 Valid
     for i in 20..49 {
         let content = format!("Valid Message {}", i).into_bytes();
         expected_content.insert(content.clone());
-        messages.push(send_message_request::Submission {
+        messages.push(proto::send_message_request::Submission {
             submission_id: Uuid::new_v4().as_bytes().to_vec(),
             recipient_id: receiver.user_id.as_bytes().to_vec(),
-            message: Some(EncryptedMessage { r#type: 1, content }),
+            message: Some(proto::EncryptedMessage { r#type: 1, content }),
         });
     }
 
-    let request = SendMessageRequest { messages };
+    let request = proto::SendMessageRequest { messages };
     let mut payload = Vec::new();
     request.encode(&mut payload).unwrap();
 
@@ -98,7 +96,7 @@ async fn test_full_system_flow() {
     assert_eq!(resp.status(), 200);
 
     let resp_bytes = resp.bytes().await.unwrap();
-    let response = SendMessageResponse::decode(resp_bytes).unwrap();
+    let response = proto::SendMessageResponse::decode(resp_bytes).unwrap();
 
     // 7. Verify Partial Success
     // We expect exactly 1 failed message (the invalid recipient)

@@ -1,6 +1,6 @@
 use crate::config::WsConfig;
 use crate::domain::notification::UserEvent;
-use crate::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
+use crate::proto::obscura::v1 as proto;
 use crate::services::gateway::{Metrics, ack_batcher::AckBatcher, message_pump::MessagePump};
 use crate::services::message_service::MessageService;
 use crate::services::notification_service::NotificationService;
@@ -118,8 +118,8 @@ impl Session {
                             last_seen = tokio::time::Instant::now();
                             match msg {
                                 WsMessage::Binary(bin) => {
-                                    if let Ok(frame) = WebSocketFrame::decode(bin.as_ref()) {
-                                        if let Some(Payload::Ack(ack)) = frame.payload {
+                                    if let Ok(frame) = proto::WebSocketFrame::decode(bin.as_ref()) {
+                                        if let Some(proto::web_socket_frame::Payload::Ack(ack)) = frame.payload {
                                             let mut uuids = Vec::new();
 
                                             if !ack.message_ids.is_empty() {

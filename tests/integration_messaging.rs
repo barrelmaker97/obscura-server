@@ -2,11 +2,9 @@ mod common;
 
 use common::TestApp;
 use futures::SinkExt;
-use obscura_server::proto::obscura::v1::{
-    AckMessage, EncryptedMessage, SendMessageRequest, SendMessageResponse, WebSocketFrame, send_message_response,
-    web_socket_frame::Payload,
-};
+use obscura_server::proto::obscura::v1 as proto;
 use prost::Message as ProstMessage;
+
 use std::time::Duration;
 use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
 use uuid::Uuid;
@@ -109,11 +107,11 @@ async fn test_send_message_recipient_not_found() {
     let bad_id = Uuid::new_v4();
 
     let submission_id = Uuid::new_v4();
-    let request = obscura_server::proto::obscura::v1::SendMessageRequest {
-        messages: vec![obscura_server::proto::obscura::v1::send_message_request::Submission {
+    let request = proto::SendMessageRequest {
+        messages: vec![proto::send_message_request::Submission {
             submission_id: submission_id.as_bytes().to_vec(),
             recipient_id: bad_id.as_bytes().to_vec(),
-            message: Some(EncryptedMessage { r#type: 2, content: b"Hello".to_vec() }),
+            message: Some(proto::EncryptedMessage { r#type: 2, content: b"Hello".to_vec() }),
         }],
     };
     let mut buf = Vec::new();
@@ -132,10 +130,13 @@ async fn test_send_message_recipient_not_found() {
 
     assert_eq!(resp.status(), 200);
     let body = resp.bytes().await.unwrap();
-    let response = SendMessageResponse::decode(body).unwrap();
+    let response = proto::SendMessageResponse::decode(body).unwrap();
     assert_eq!(response.failed_submissions.len(), 1);
     assert_eq!(response.failed_submissions[0].submission_id, submission_id.as_bytes().to_vec());
-    assert_eq!(response.failed_submissions[0].error_code, send_message_response::ErrorCode::InvalidRecipient as i32);
+    assert_eq!(
+        response.failed_submissions[0].error_code,
+        proto::send_message_response::ErrorCode::InvalidRecipient as i32
+    );
 }
 
 #[tokio::test]
@@ -168,11 +169,11 @@ async fn test_message_idempotency() {
     let idempotency_key = Uuid::new_v4();
     let content = b"Idempotent Hello".to_vec();
 
-    let request = obscura_server::proto::obscura::v1::SendMessageRequest {
-        messages: vec![obscura_server::proto::obscura::v1::send_message_request::Submission {
+    let request = proto::SendMessageRequest {
+        messages: vec![proto::send_message_request::Submission {
             submission_id: Uuid::new_v4().as_bytes().to_vec(),
             recipient_id: user_b.user_id.as_bytes().to_vec(),
-            message: Some(EncryptedMessage { r#type: 2, content: content.clone() }),
+            message: Some(proto::EncryptedMessage { r#type: 2, content: content.clone() }),
         }],
     };
     let mut buf = Vec::new();
@@ -228,25 +229,25 @@ async fn test_batch_partial_success() {
     let submission_id_bad = Uuid::new_v4();
     let submission_id_c = Uuid::new_v4();
 
-    let request = obscura_server::proto::obscura::v1::SendMessageRequest {
+    let request = proto::SendMessageRequest {
         messages: vec![
             // 1. Valid (Bob)
             obscura_server::proto::obscura::v1::send_message_request::Submission {
                 submission_id: submission_id_b.as_bytes().to_vec(),
                 recipient_id: user_b.user_id.as_bytes().to_vec(),
-                message: Some(EncryptedMessage { r#type: 2, content: b"Msg for Bob".to_vec() }),
+                message: Some(proto::EncryptedMessage { r#type: 2, content: b"Msg for Bob".to_vec() }),
             },
             // 2. Invalid (Bad ID)
             obscura_server::proto::obscura::v1::send_message_request::Submission {
                 submission_id: submission_id_bad.as_bytes().to_vec(),
                 recipient_id: bad_id.as_bytes().to_vec(),
-                message: Some(EncryptedMessage { r#type: 2, content: b"Msg for Nowhere".to_vec() }),
+                message: Some(proto::EncryptedMessage { r#type: 2, content: b"Msg for Nowhere".to_vec() }),
             },
             // 3. Valid (Charlie)
             obscura_server::proto::obscura::v1::send_message_request::Submission {
                 submission_id: submission_id_c.as_bytes().to_vec(),
                 recipient_id: user_c.user_id.as_bytes().to_vec(),
-                message: Some(EncryptedMessage { r#type: 2, content: b"Msg for Charlie".to_vec() }),
+                message: Some(proto::EncryptedMessage { r#type: 2, content: b"Msg for Charlie".to_vec() }),
             },
         ],
     };
@@ -266,12 +267,15 @@ async fn test_batch_partial_success() {
 
     assert_eq!(resp.status(), 200);
     let body = resp.bytes().await.unwrap();
-    let response = SendMessageResponse::decode(body).unwrap();
+    let response = proto::SendMessageResponse::decode(body).unwrap();
 
     // Verify Response: Should list ONLY the failed message
     assert_eq!(response.failed_submissions.len(), 1);
     assert_eq!(response.failed_submissions[0].submission_id, submission_id_bad.as_bytes().to_vec());
-    assert_eq!(response.failed_submissions[0].error_code, send_message_response::ErrorCode::InvalidRecipient as i32);
+    assert_eq!(
+        response.failed_submissions[0].error_code,
+        proto::send_message_response::ErrorCode::InvalidRecipient as i32
+    );
 
     // Verify Delivery: Bob and Charlie should have messages
     app.assert_message_count(user_b.user_id, 1).await;
@@ -284,7 +288,7 @@ async fn test_batch_empty() {
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
     let user = app.register_user(&format!("empty_{}", run_id)).await;
 
-    let request = obscura_server::proto::obscura::v1::SendMessageRequest { messages: vec![] };
+    let request = proto::SendMessageRequest { messages: vec![] };
     let mut buf = Vec::new();
     request.encode(&mut buf).unwrap();
 
@@ -301,7 +305,7 @@ async fn test_batch_empty() {
 
     assert_eq!(resp.status(), 200);
     let body = resp.bytes().await.unwrap();
-    let response = SendMessageResponse::decode(body).unwrap();
+    let response = proto::SendMessageResponse::decode(body).unwrap();
     assert!(response.failed_submissions.is_empty());
 }
 
@@ -316,14 +320,14 @@ async fn test_batch_too_large() {
 
     let mut messages = Vec::new();
     for _ in 0..6 {
-        messages.push(obscura_server::proto::obscura::v1::send_message_request::Submission {
+        messages.push(proto::send_message_request::Submission {
             submission_id: Uuid::new_v4().as_bytes().to_vec(),
             recipient_id: user.user_id.as_bytes().to_vec(),
-            message: Some(EncryptedMessage { r#type: 2, content: b"Msg".to_vec() }),
+            message: Some(proto::EncryptedMessage { r#type: 2, content: b"Msg".to_vec() }),
         });
     }
 
-    let request = obscura_server::proto::obscura::v1::SendMessageRequest { messages };
+    let request = proto::SendMessageRequest { messages };
     let mut buf = Vec::new();
     request.encode(&mut buf).unwrap();
 
@@ -398,8 +402,8 @@ async fn test_ack_buffer_saturation() {
     let mut client = app.connect_ws(&user.token).await;
 
     for _ in 0..15 {
-        let ack = AckMessage { message_ids: vec![Uuid::new_v4().as_bytes().to_vec()] };
-        let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
+        let ack = proto::AckMessage { message_ids: vec![Uuid::new_v4().as_bytes().to_vec()] };
+        let frame = proto::WebSocketFrame { payload: Some(proto::web_socket_frame::Payload::Ack(ack)) };
         let mut buf = Vec::new();
         frame.encode(&mut buf).unwrap();
         client.sink.send(WsMessage::Binary(buf.into())).await.unwrap();
@@ -434,8 +438,8 @@ async fn test_bulk_ack_processing() {
     assert_eq!(message_ids.len(), 5);
 
     // Send ONE bulk ACK
-    let ack = AckMessage { message_ids: message_ids.clone() };
-    let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
+    let ack = proto::AckMessage { message_ids: message_ids.clone() };
+    let frame = proto::WebSocketFrame { payload: Some(proto::web_socket_frame::Payload::Ack(ack)) };
     let mut buf = Vec::new();
     frame.encode(&mut buf).unwrap();
     ws.sink.send(WsMessage::Binary(buf.into())).await.unwrap();
@@ -478,11 +482,11 @@ async fn test_send_message_invalid_uuid_bytes() {
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
     let user = app.register_user(&format!("malformed_bytes_{}", run_id)).await;
 
-    let request = SendMessageRequest {
-        messages: vec![obscura_server::proto::obscura::v1::send_message_request::Submission {
+    let request = proto::SendMessageRequest {
+        messages: vec![proto::send_message_request::Submission {
             submission_id: vec![1, 2, 3], // Invalid length
             recipient_id: vec![4, 5, 6],  // Invalid length
-            message: Some(EncryptedMessage { r#type: 2, content: b"Hello".to_vec() }),
+            message: Some(proto::EncryptedMessage { r#type: 2, content: b"Hello".to_vec() }),
         }],
     };
     let mut buf = Vec::new();
@@ -501,7 +505,7 @@ async fn test_send_message_invalid_uuid_bytes() {
 
     assert_eq!(resp.status(), 200);
     let body = resp.bytes().await.unwrap();
-    let response = SendMessageResponse::decode(body).unwrap();
+    let response = proto::SendMessageResponse::decode(body).unwrap();
 
     assert_eq!(response.failed_submissions.len(), 1);
     assert_eq!(response.failed_submissions[0].error_message, "Invalid recipient UUID bytes (expected 16)");
@@ -515,14 +519,15 @@ async fn test_ack_invalid_uuid_bytes() {
     let mut client = app.connect_ws(&user.token).await;
 
     // Send ACK with invalid length ID
-    let ack = AckMessage {
+    let ack = proto::AckMessage {
         message_ids: vec![
             vec![1, 2, 3, 4, 5], // 5 bytes instead of 16
             vec![0u8; 32],       // 32 bytes instead of 16
         ],
     };
-    let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
+    let frame = proto::WebSocketFrame { payload: Some(proto::web_socket_frame::Payload::Ack(ack)) };
     let mut buf = Vec::new();
+
     frame.encode(&mut buf).unwrap();
 
     client.sink.send(WsMessage::Binary(buf.into())).await.unwrap();

@@ -4,7 +4,7 @@ pub(crate) mod message_pump;
 pub(crate) mod session;
 
 use crate::config::WsConfig;
-use crate::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
+use crate::proto::obscura::v1 as proto;
 use crate::services::gateway::session::Session;
 use crate::services::key_service::KeyService;
 use crate::services::message_service::MessageService;
@@ -109,7 +109,8 @@ impl GatewayService {
         // to prevent exhausting their bundle during an active session.
         match self.key_service.check_pre_key_status(user_id).await {
             Ok(Some(status)) => {
-                let frame = WebSocketFrame { payload: Some(Payload::PreKeyStatus(status)) };
+                let frame =
+                    proto::WebSocketFrame { payload: Some(proto::web_socket_frame::Payload::PreKeyStatus(status)) };
                 let mut buf = Vec::new();
                 if frame.encode(&mut buf).is_ok() {
                     let _ = socket.send(WsMessage::Binary(buf.into())).await;
