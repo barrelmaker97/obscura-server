@@ -319,14 +319,6 @@ pub struct MessagingConfig {
     )]
     pub cleanup_interval_secs: u64,
 
-    /// Maximum number of messages to fetch in a single database query loop
-    #[arg(
-        long = "messaging-fetch-batch-limit",
-        env = "OBSCURA_MESSAGING_FETCH_BATCH_LIMIT",
-        default_value_t = MessagingConfig::default().fetch_batch_limit
-    )]
-    pub fetch_batch_limit: i64,
-
     /// Maximum number of messages to accept in a single send request
     #[arg(
         long = "messaging-send-batch-limit",
@@ -357,7 +349,6 @@ impl Default for MessagingConfig {
         Self {
             max_inbox_size: 1000,
             cleanup_interval_secs: 300,
-            fetch_batch_limit: 50,
             send_batch_limit: 100,
             idempotency_ttl_secs: 86400,
             pre_key_refill_threshold: 20,
@@ -461,6 +452,14 @@ pub struct WsConfig {
     /// How long to wait for a pong response before closing the connection in seconds
     #[arg(long = "ws-ping-timeout-secs", env = "OBSCURA_WS_PING_TIMEOUT_SECS", default_value_t = WsConfig::default().ping_timeout_secs)]
     pub ping_timeout_secs: u64,
+
+    /// Maximum number of messages to fetch in a single database query loop
+    #[arg(
+        long = "ws-message-fetch-batch-size",
+        env = "OBSCURA_WS_MESSAGE_FETCH_BATCH_SIZE",
+        default_value_t = WsConfig::default().message_fetch_batch_size
+    )]
+    pub message_fetch_batch_size: i64,
 }
 
 impl Default for WsConfig {
@@ -472,6 +471,7 @@ impl Default for WsConfig {
             ack_flush_interval_ms: 500,
             ping_interval_secs: 30,
             ping_timeout_secs: 10,
+            message_fetch_batch_size: 50,
         }
     }
 }

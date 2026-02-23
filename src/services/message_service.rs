@@ -232,9 +232,4 @@ impl MessageService {
         let mut conn = self.pool.acquire().await?;
         self.repo.delete_batch(&mut conn, user_id, message_ids).await
     }
-
-    #[must_use]
-    pub(crate) const fn fetch_batch_limit(&self) -> i64 {
-        self.config.fetch_batch_limit
-    }
 }
