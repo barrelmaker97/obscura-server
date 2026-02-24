@@ -3,12 +3,12 @@ use redis::AsyncCommands;
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
-pub struct IdempotencyRepository {
+pub struct SubmissionCache {
     redis: Arc<RedisClient>,
     prefix: String,
 }
 
-impl IdempotencyRepository {
+impl SubmissionCache {
     #[must_use]
     pub fn new(redis: Arc<RedisClient>) -> Self {
         Self { redis, prefix: "idempotency:submission:".to_string() }

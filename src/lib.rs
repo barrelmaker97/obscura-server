@@ -32,7 +32,7 @@ use crate::adapters::database::push_token_repo::PushTokenRepository;
 use crate::adapters::database::refresh_token_repo::RefreshTokenRepository;
 use crate::adapters::database::user_repo::UserRepository;
 use crate::adapters::push::PushProvider;
-use crate::adapters::redis::IdempotencyRepository;
+use crate::adapters::redis::SubmissionCache;
 use crate::adapters::storage::S3Storage;
 use crate::config::{Config, StorageConfig};
 use crate::services::account_service::AccountService;
@@ -101,7 +101,7 @@ pub struct Services {
     pub notification_service: NotificationService,
     pub push_token_service: PushTokenService,
     pub rate_limit_service: RateLimitService,
-    pub idempotency_repo: IdempotencyRepository,
+    pub submission_cache: SubmissionCache,
 }
 
 #[derive(Debug)]
@@ -253,7 +253,7 @@ impl AppBuilder {
         let key_service = KeyService::new(pool.clone(), adapters.key.clone(), crypto_service, config.messaging.clone());
         let auth_service =
             AuthService::new(config.auth.clone(), pool.clone(), adapters.user.clone(), adapters.refresh.clone());
-        let idempotency_repo = IdempotencyRepository::new(Arc::clone(&pubsub));
+        let submission_cache = SubmissionCache::new(Arc::clone(&pubsub));
         let message_service = MessageService::new(
             pool.clone(),
             adapters.message.clone(),
@@ -309,7 +309,7 @@ impl AppBuilder {
             notification_service: notifier.clone(),
             push_token_service,
             rate_limit_service,
-            idempotency_repo,
+            submission_cache,
         };
 
         let workers = Self::init_workers(config, pool, &adapters, notifier);
