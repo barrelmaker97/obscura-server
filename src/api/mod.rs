@@ -1,4 +1,5 @@
 use crate::Services;
+use crate::adapters::redis::IdempotencyRepository;
 use crate::api::rate_limit::log_rate_limit_events;
 use crate::config::Config;
 use crate::services::account_service::AccountService;
@@ -53,6 +54,7 @@ pub struct AppState {
     pub notification_service: NotificationService,
     pub push_token_service: PushTokenService,
     pub rate_limit_service: RateLimitService,
+    pub idempotency_repo: IdempotencyRepository,
     pub shutdown_rx: tokio::sync::watch::Receiver<bool>,
 }
 
@@ -100,6 +102,7 @@ pub fn app_router(config: &Config, services: Services, shutdown_rx: tokio::sync:
         notification_service: services.notification_service,
         push_token_service: services.push_token_service,
         rate_limit_service: services.rate_limit_service,
+        idempotency_repo: services.idempotency_repo,
         shutdown_rx,
     };
 

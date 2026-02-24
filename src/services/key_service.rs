@@ -2,9 +2,8 @@ use crate::adapters::database::DbPool;
 use crate::adapters::database::key_repo::KeyRepository;
 use crate::config::MessagingConfig;
 use crate::domain::crypto::PublicKey;
-use crate::domain::keys::{OneTimePreKey, PreKeyBundle, SignedPreKey};
+use crate::domain::keys::{OneTimePreKey, PreKeyBundle, PreKeyStatus, SignedPreKey};
 use crate::error::{AppError, Result};
-use crate::proto::obscura::v1 as proto;
 use crate::services::crypto_service::CryptoService;
 use opentelemetry::{global, metrics::Counter};
 use sqlx::PgConnection;
@@ -76,13 +75,13 @@ impl KeyService {
     /// # Errors
     /// Returns `AppError::Database` if the database operation fails.
     #[tracing::instrument(err, skip(self), fields(user_id = %user_id))]
-    pub async fn check_pre_key_status(&self, user_id: Uuid) -> Result<Option<proto::PreKeyStatus>> {
+    pub async fn check_pre_key_status(&self, user_id: Uuid) -> Result<Option<PreKeyStatus>> {
         let mut conn = self.pool.acquire().await?;
         let count = self.repo.count_one_time_pre_keys(&mut conn, user_id).await?;
         if count < i64::from(self.config.pre_key_refill_threshold) {
             self.metrics.prekey_low_total.add(1, &[]);
 
-            Ok(Some(proto::PreKeyStatus {
+            Ok(Some(PreKeyStatus {
                 one_time_pre_key_count: i32::try_from(count).unwrap_or(i32::MAX),
                 min_threshold: self.config.pre_key_refill_threshold,
             }))

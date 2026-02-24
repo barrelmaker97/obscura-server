@@ -22,8 +22,7 @@ async fn test_messaging_flow() {
 
     let mut ws = app.connect_ws(&user_b.token).await;
     let env = ws.receive_envelope().await.expect("Did not receive message");
-    let received_msg = env.message.expect("Envelope missing message");
-    assert_eq!(received_msg.content, content);
+    assert_eq!(env.message, content);
 
     ws.send_ack(env.id).await;
 }
@@ -111,7 +110,7 @@ async fn test_send_message_recipient_not_found() {
         messages: vec![proto::send_message_request::Submission {
             submission_id: submission_id.as_bytes().to_vec(),
             recipient_id: bad_id.as_bytes().to_vec(),
-            message: Some(proto::EncryptedMessage { r#type: 2, content: b"Hello".to_vec() }),
+            message: b"Hello".to_vec(),
         }],
     };
     let mut buf = Vec::new();
@@ -173,7 +172,7 @@ async fn test_message_idempotency() {
         messages: vec![proto::send_message_request::Submission {
             submission_id: Uuid::new_v4().as_bytes().to_vec(),
             recipient_id: user_b.user_id.as_bytes().to_vec(),
-            message: Some(proto::EncryptedMessage { r#type: 2, content: content.clone() }),
+            message: content.clone(),
         }],
     };
     let mut buf = Vec::new();
@@ -232,22 +231,22 @@ async fn test_batch_partial_success() {
     let request = proto::SendMessageRequest {
         messages: vec![
             // 1. Valid (Bob)
-            obscura_server::proto::obscura::v1::send_message_request::Submission {
+            proto::send_message_request::Submission {
                 submission_id: submission_id_b.as_bytes().to_vec(),
                 recipient_id: user_b.user_id.as_bytes().to_vec(),
-                message: Some(proto::EncryptedMessage { r#type: 2, content: b"Msg for Bob".to_vec() }),
+                message: b"Msg for Bob".to_vec(),
             },
             // 2. Invalid (Bad ID)
-            obscura_server::proto::obscura::v1::send_message_request::Submission {
+            proto::send_message_request::Submission {
                 submission_id: submission_id_bad.as_bytes().to_vec(),
                 recipient_id: bad_id.as_bytes().to_vec(),
-                message: Some(proto::EncryptedMessage { r#type: 2, content: b"Msg for Nowhere".to_vec() }),
+                message: b"Msg for Nowhere".to_vec(),
             },
             // 3. Valid (Charlie)
-            obscura_server::proto::obscura::v1::send_message_request::Submission {
+            proto::send_message_request::Submission {
                 submission_id: submission_id_c.as_bytes().to_vec(),
                 recipient_id: user_c.user_id.as_bytes().to_vec(),
-                message: Some(proto::EncryptedMessage { r#type: 2, content: b"Msg for Charlie".to_vec() }),
+                message: b"Msg for Charlie".to_vec(),
             },
         ],
     };
@@ -323,7 +322,7 @@ async fn test_batch_too_large() {
         messages.push(proto::send_message_request::Submission {
             submission_id: Uuid::new_v4().as_bytes().to_vec(),
             recipient_id: user.user_id.as_bytes().to_vec(),
-            message: Some(proto::EncryptedMessage { r#type: 2, content: b"Msg".to_vec() }),
+            message: b"Msg".to_vec(),
         });
     }
 
@@ -484,9 +483,9 @@ async fn test_send_message_invalid_uuid_bytes() {
 
     let request = proto::SendMessageRequest {
         messages: vec![proto::send_message_request::Submission {
-            submission_id: vec![1, 2, 3], // Invalid length
-            recipient_id: vec![4, 5, 6],  // Invalid length
-            message: Some(proto::EncryptedMessage { r#type: 2, content: b"Hello".to_vec() }),
+            submission_id: Uuid::new_v4().as_bytes().to_vec(), // Valid
+            recipient_id: vec![4, 5, 6],                       // Invalid length
+            message: b"Hello".to_vec(),
         }],
     };
     let mut buf = Vec::new();
@@ -552,7 +551,7 @@ async fn test_send_message_malformed_submission_id() {
         messages: vec![proto::send_message_request::Submission {
             submission_id: vec![1, 2, 3], // Invalid length
             recipient_id: recipient.user_id.as_bytes().to_vec(),
-            message: Some(proto::EncryptedMessage { r#type: 2, content: b"Hello".to_vec() }),
+            message: b"Hello".to_vec(),
         }],
     };
     let mut buf = Vec::new();
@@ -590,7 +589,7 @@ async fn test_send_message_missing_payload() {
         messages: vec![proto::send_message_request::Submission {
             submission_id: Uuid::new_v4().as_bytes().to_vec(),
             recipient_id: recipient.user_id.as_bytes().to_vec(),
-            message: None, // Missing payload
+            message: Vec::new(), // Missing payload
         }],
     };
     let mut buf = Vec::new();

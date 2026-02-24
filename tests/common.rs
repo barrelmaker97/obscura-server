@@ -340,7 +340,7 @@ impl TestApp {
             .map(|(recipient_id, content)| proto::send_message_request::Submission {
                 submission_id: Uuid::new_v4().as_bytes().to_vec(),
                 recipient_id: recipient_id.as_bytes().to_vec(),
-                message: Some(proto::EncryptedMessage { r#type: 2, content: content.to_vec() }),
+                message: content.to_vec(),
             })
             .collect();
 

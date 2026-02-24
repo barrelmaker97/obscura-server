@@ -27,8 +27,7 @@ async fn test_multi_node_notification() {
     app_a.send_message(&user_alice.token, user_bob.user_id, &content).await;
 
     let env = ws_bob.receive_envelope().await.expect("Bob did not receive message on Node B");
-    let received_msg = env.message.expect("Envelope missing message");
-    assert_eq!(received_msg.content, content);
+    assert_eq!(env.message, content);
 }
 
 #[tokio::test]

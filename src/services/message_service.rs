@@ -1,17 +1,14 @@
 use crate::adapters::database::DbPool;
 use crate::adapters::database::message_repo::MessageRepository;
-use crate::adapters::redis::IdempotencyRepository;
 use crate::config::MessagingConfig;
-use crate::domain::message::Message;
+use crate::domain::message::{FailedSubmission, Message, RawSubmission, SubmissionErrorCode, SubmissionOutcome};
 use crate::domain::notification::UserEvent;
-use crate::error::{AppError, Result};
-use crate::proto::obscura::v1 as proto;
+use crate::error::Result;
 use crate::services::notification_service::NotificationService;
 use opentelemetry::{
     KeyValue, global,
     metrics::{Counter, Histogram},
 };
-use prost::Message as _;
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
@@ -37,19 +34,10 @@ impl Metrics {
 }
 
 #[derive(Clone, Debug)]
-struct ParsedMessage {
-    recipient_id: Uuid,
-    submission_id: Uuid,
-    content: Vec<u8>,
-}
-
-#[derive(Clone, Debug)]
 pub struct MessageService {
     pool: DbPool,
     repo: MessageRepository,
-    idempotency_repo: IdempotencyRepository,
     notifier: NotificationService,
-    config: MessagingConfig,
     ttl_days: i64,
     metrics: Metrics,
 }
@@ -59,141 +47,97 @@ impl MessageService {
     pub fn new(
         pool: DbPool,
         repo: MessageRepository,
-        idempotency_repo: IdempotencyRepository,
         notifier: NotificationService,
-        config: MessagingConfig,
+        _config: MessagingConfig,
         ttl_days: i64,
     ) -> Self {
-        Self { pool, repo, idempotency_repo, notifier, config, ttl_days, metrics: Metrics::new() }
+        Self { pool, repo, notifier, ttl_days, metrics: Metrics::new() }
     }
 
-    /// Sends a batch of messages with idempotency support.
+    /// Processes a batch of raw submissions.
+    /// Performs structural validation, recipient checking, and bulk insertion.
     ///
     /// # Errors
-    /// Returns `AppError::Internal` if idempotency caching fails.
+    /// Returns `AppError::Database` if any database operation fails.
     #[tracing::instrument(
         err(level = "warn"),
-        skip(self, messages),
-        fields(sender_id = %sender_id, count = messages.len())
+        skip(self, submissions),
+        fields(sender_id = %sender_id, count = submissions.len())
     )]
-    pub async fn send(
-        &self,
-        sender_id: Uuid,
-        idempotency_key: Uuid,
-        messages: Vec<proto::send_message_request::Submission>,
-    ) -> Result<proto::SendMessageResponse> {
-        // 1. Check Idempotency
-        if let Ok(Some(cached)) = self.idempotency_repo.get_response(&idempotency_key.to_string()).await {
-            tracing::info!(key = %idempotency_key, "Returning cached idempotency response");
-            return proto::SendMessageResponse::decode(cached.as_slice())
-                .map_err(|e| AppError::InternalMsg(format!("Failed to decode cached idempotency response: {e}")));
-        }
-
-        if messages.is_empty() {
-            return Ok(proto::SendMessageResponse { failed_submissions: Vec::new() });
-        }
-
-        // 2. Parse and Validate Input
-        let (parsed_batch, mut failed_submissions, recipient_ids_to_check) = Self::parse_incoming_batch(messages);
-
-        // 3. Pre-Flight Check: Validate Recipients
-        let mut tx = self.pool.begin().await?;
-        let valid_recipients_set = if recipient_ids_to_check.is_empty() {
-            std::collections::HashSet::new()
-        } else {
-            let ids: Vec<Uuid> = recipient_ids_to_check.into_iter().collect();
-            self.repo.check_recipients_exist(&mut tx, &ids).await?.into_iter().collect()
-        };
-
-        // 4. Filter and Prepare Bulk Insert
-        let mut valid_messages = Vec::with_capacity(parsed_batch.len());
-        for parsed in parsed_batch {
-            if valid_recipients_set.contains(&parsed.recipient_id) {
-                valid_messages.push((parsed.recipient_id, parsed.submission_id, parsed.content));
-            } else {
-                failed_submissions.push(proto::send_message_response::FailedSubmission {
-                    submission_id: parsed.submission_id.as_bytes().to_vec(),
-                    error_code: proto::send_message_response::ErrorCode::InvalidRecipient as i32,
-                    error_message: "Recipient not found".to_string(),
-                });
-            }
-        }
-
-        // 5. Bulk Insert
-        if !valid_messages.is_empty() {
-            match self.repo.create_batch(&mut tx, sender_id, valid_messages, self.ttl_days).await {
-                Ok(inserted) => {
-                    tx.commit().await?;
-                    self.metrics.sent_total.add(inserted.len() as u64, &[KeyValue::new("status", "success")]);
-
-                    // Notify only for newly inserted messages
-                    let recipient_ids: Vec<Uuid> = inserted.into_iter().map(|(id, _)| id).collect();
-                    self.notifier.notify(&recipient_ids, UserEvent::MessageReceived).await;
-                }
-                Err(e) => {
-                    tracing::error!(error = ?e, "Failed to insert batch messages");
-                    return Err(e);
-                }
-            }
-        }
-
-        let response = proto::SendMessageResponse { failed_submissions };
-
-        // 6. Cache Result
-        let encoded = response.encode_to_vec();
-        if let Err(e) = self
-            .idempotency_repo
-            .save_response(&idempotency_key.to_string(), &encoded, self.config.idempotency_ttl_secs)
-            .await
-        {
-            tracing::error!(error = %e, "Failed to cache idempotency response");
-        }
-
-        Ok(response)
-    }
-
-    /// Internal helper to parse Protobuf messages into domain types.
-    fn parse_incoming_batch(
-        messages: Vec<proto::send_message_request::Submission>,
-    ) -> (Vec<ParsedMessage>, Vec<proto::send_message_response::FailedSubmission>, std::collections::HashSet<Uuid>)
-    {
+    pub async fn send(&self, sender_id: Uuid, submissions: Vec<RawSubmission>) -> Result<SubmissionOutcome> {
         let mut failed_submissions = Vec::new();
-        let mut parsed = Vec::with_capacity(messages.len());
-        let mut recipient_ids = std::collections::HashSet::new();
+        let mut potential_valid = Vec::with_capacity(submissions.len());
+        let mut recipient_ids_to_check = std::collections::HashSet::new();
 
-        for outgoing in messages {
-            let Ok(recipient_id) = Uuid::from_slice(&outgoing.recipient_id) else {
-                failed_submissions.push(proto::send_message_response::FailedSubmission {
-                    submission_id: outgoing.submission_id,
-                    error_code: proto::send_message_response::ErrorCode::MalformedRecipientId as i32,
-                    error_message: "Invalid recipient UUID bytes (expected 16)".to_string(),
-                });
-                continue;
-            };
-
-            let Ok(submission_id) = Uuid::from_slice(&outgoing.submission_id) else {
-                failed_submissions.push(proto::send_message_response::FailedSubmission {
-                    submission_id: outgoing.submission_id,
-                    error_code: proto::send_message_response::ErrorCode::MalformedSubmissionId as i32,
+        // Pass 1: Structural Validation
+        for raw in submissions {
+            let Ok(submission_id) = Uuid::from_slice(&raw.submission_id) else {
+                failed_submissions.push(FailedSubmission {
+                    submission_id: raw.submission_id,
+                    error_code: SubmissionErrorCode::MalformedSubmissionId,
                     error_message: "Invalid submission_id UUID bytes (expected 16)".to_string(),
                 });
                 continue;
             };
 
-            let Some(msg) = outgoing.message else {
-                failed_submissions.push(proto::send_message_response::FailedSubmission {
-                    submission_id: outgoing.submission_id,
-                    error_code: proto::send_message_response::ErrorCode::MessageMissing as i32,
-                    error_message: "Missing EncryptedMessage payload".to_string(),
+            let Ok(recipient_id) = Uuid::from_slice(&raw.recipient_id) else {
+                failed_submissions.push(FailedSubmission {
+                    submission_id: raw.submission_id,
+                    error_code: SubmissionErrorCode::MalformedRecipientId,
+                    error_message: "Invalid recipient UUID bytes (expected 16)".to_string(),
                 });
                 continue;
             };
 
-            parsed.push(ParsedMessage { recipient_id, submission_id, content: msg.encode_to_vec() });
-            recipient_ids.insert(recipient_id);
+            if raw.message.is_empty() {
+                failed_submissions.push(FailedSubmission {
+                    submission_id: raw.submission_id,
+                    error_code: SubmissionErrorCode::MessageMissing,
+                    error_message: "Missing message payload".to_string(),
+                });
+                continue;
+            }
+
+            recipient_ids_to_check.insert(recipient_id);
+            potential_valid.push((recipient_id, submission_id, raw.message));
         }
 
-        (parsed, failed_submissions, recipient_ids)
+        if potential_valid.is_empty() {
+            return Ok(SubmissionOutcome { failed_submissions });
+        }
+
+        // Pass 2: Business Validation (Recipient Existence)
+        let mut tx = self.pool.begin().await?;
+        let check_ids: Vec<Uuid> = recipient_ids_to_check.into_iter().collect();
+        let valid_recipients_set: std::collections::HashSet<Uuid> =
+            self.repo.check_recipients_exist(&mut tx, &check_ids).await?.into_iter().collect();
+
+        let mut to_insert = Vec::with_capacity(potential_valid.len());
+        for (r_id, s_id, msg) in potential_valid {
+            if valid_recipients_set.contains(&r_id) {
+                to_insert.push((r_id, s_id, msg));
+            } else {
+                failed_submissions.push(FailedSubmission {
+                    submission_id: s_id.as_bytes().to_vec(),
+                    error_code: SubmissionErrorCode::InvalidRecipient,
+                    error_message: "Recipient not found".to_string(),
+                });
+            }
+        }
+
+        // Pass 3: Bulk Insert
+        if !to_insert.is_empty() {
+            let inserted = self.repo.create_batch(&mut tx, sender_id, to_insert, self.ttl_days).await?;
+            tx.commit().await?;
+
+            self.metrics.sent_total.add(inserted.len() as u64, &[KeyValue::new("status", "success")]);
+
+            // Notify Recipients
+            let inserted_recipient_ids: Vec<Uuid> = inserted.into_iter().map(|(id, _)| id).collect();
+            self.notifier.notify(&inserted_recipient_ids, UserEvent::MessageReceived).await;
+        }
+
+        Ok(SubmissionOutcome { failed_submissions })
     }
 
     /// Fetches a batch of pending messages for a recipient.

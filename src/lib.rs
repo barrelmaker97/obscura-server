@@ -101,6 +101,7 @@ pub struct Services {
     pub notification_service: NotificationService,
     pub push_token_service: PushTokenService,
     pub rate_limit_service: RateLimitService,
+    pub idempotency_repo: IdempotencyRepository,
 }
 
 #[derive(Debug)]
@@ -252,10 +253,10 @@ impl AppBuilder {
         let key_service = KeyService::new(pool.clone(), adapters.key.clone(), crypto_service, config.messaging.clone());
         let auth_service =
             AuthService::new(config.auth.clone(), pool.clone(), adapters.user.clone(), adapters.refresh.clone());
+        let idempotency_repo = IdempotencyRepository::new(Arc::clone(&pubsub));
         let message_service = MessageService::new(
             pool.clone(),
             adapters.message.clone(),
-            IdempotencyRepository::new(Arc::clone(&pubsub)),
             notifier.clone(),
             config.messaging.clone(),
             config.ttl_days,
@@ -308,6 +309,7 @@ impl AppBuilder {
             notification_service: notifier.clone(),
             push_token_service,
             rate_limit_service,
+            idempotency_repo,
         };
 
         let workers = Self::init_workers(config, pool, &adapters, notifier);

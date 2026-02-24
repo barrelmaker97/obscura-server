@@ -102,7 +102,7 @@ impl MessagePump {
                 id: msg.id.as_bytes().to_vec(),
                 sender_id: msg.sender_id.as_bytes().to_vec(),
                 timestamp,
-                message: proto::EncryptedMessage::decode(msg.content.as_slice()).ok(),
+                message: msg.content,
             };
 
             let frame = proto::WebSocketFrame { payload: Some(proto::web_socket_frame::Payload::Envelope(envelope)) };

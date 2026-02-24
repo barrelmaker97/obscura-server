@@ -54,7 +54,7 @@ async fn test_full_system_flow() {
         messages.push(proto::send_message_request::Submission {
             submission_id: Uuid::new_v4().as_bytes().to_vec(),
             recipient_id: receiver.user_id.as_bytes().to_vec(),
-            message: Some(proto::EncryptedMessage { r#type: 1, content }),
+            message: content.clone(),
         });
     }
 
@@ -63,7 +63,7 @@ async fn test_full_system_flow() {
     messages.push(proto::send_message_request::Submission {
         submission_id: Uuid::new_v4().as_bytes().to_vec(),
         recipient_id: invalid_id.as_bytes().to_vec(),
-        message: Some(proto::EncryptedMessage { r#type: 1, content: b"Invalid".to_vec() }),
+        message: b"Invalid".to_vec(),
     });
 
     // Next 29 Valid
@@ -73,7 +73,7 @@ async fn test_full_system_flow() {
         messages.push(proto::send_message_request::Submission {
             submission_id: Uuid::new_v4().as_bytes().to_vec(),
             recipient_id: receiver.user_id.as_bytes().to_vec(),
-            message: Some(proto::EncryptedMessage { r#type: 1, content }),
+            message: content.clone(),
         });
     }
 
@@ -127,7 +127,7 @@ async fn test_full_system_flow() {
         if let Some(env) = ws.receive_envelope_timeout(Duration::from_millis(500)).await {
             assert_eq!(env.sender_id, sender.user_id.as_bytes().to_vec());
 
-            let content = env.message.unwrap().content;
+            let content = env.message;
             if expected_content.remove(&content) {
                 received_count += 1;
             }
@@ -161,7 +161,7 @@ async fn test_full_system_flow() {
     app_a.send_message(&sender.token, receiver.user_id, &single_msg_content).await;
 
     let env = ws.receive_envelope().await.expect("Failed to receive fast-path message");
-    assert_eq!(env.message.unwrap().content, single_msg_content);
+    assert_eq!(env.message, single_msg_content);
 
     // Ensure NO extra push was sent for this fast-path message
     // Wait a bit to be sure

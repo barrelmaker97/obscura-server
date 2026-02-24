@@ -32,7 +32,7 @@ async fn test_message_limit_fifo() {
     let mut ws = app.connect_ws(&user_b.token).await;
 
     if let Some(env) = ws.receive_envelope().await {
-        let content = env.message.unwrap().content;
+        let content = env.message;
         assert_eq!(content, b"msg_5", "First message should be msg_5 (0-4 should have been pruned)");
     } else {
         panic!("No messages received");
