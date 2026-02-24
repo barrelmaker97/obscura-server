@@ -16,7 +16,7 @@ anyhow = "1.0"
 argon2 = "0.5"
 aws-config = "1.8"
 aws-credential-types = "1.2"
-aws-sdk-s3 = { version = "1.120", features = ["http-1x"] }
+aws-sdk-s3 = { version = "1.124", features = ["http-1x"] }
 axum = { version = "0.8", features = ["ws"] }
 base64 = "0.22"
 bytes = "1.9"
@@ -52,7 +52,7 @@ opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic", "metrics", "l
 opentelemetry-appender-tracing = "0.31"
 tracing-opentelemetry = "0.32"
 opentelemetry-semantic-conventions = "0.31"
-redis = { version = "1.0.3", features = ["tokio-comp", "connection-manager"] }
+redis = { version = "1.0.4", features = ["tokio-comp", "connection-manager"] }
 async-trait = "0.1.89"
 backon = "1.6.0"
 tokio-stream = { version = "0.1.18", features = ["sync"] }
