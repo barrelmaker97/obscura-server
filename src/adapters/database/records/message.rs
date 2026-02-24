@@ -7,8 +7,7 @@ pub struct MessageRecord {
     pub(crate) id: Uuid,
     pub(crate) sender_id: Uuid,
     pub(crate) recipient_id: Uuid,
-    #[sqlx(rename = "message_type")]
-    pub(crate) r#type: i32,
+    pub(crate) submission_id: Uuid,
     pub(crate) content: Vec<u8>,
     pub(crate) created_at: Option<OffsetDateTime>,
     pub(crate) expires_at: OffsetDateTime,
@@ -20,7 +19,7 @@ impl From<MessageRecord> for Message {
             id: record.id,
             sender_id: record.sender_id,
             recipient_id: record.recipient_id,
-            message_type: record.r#type,
+            submission_id: record.submission_id,
             content: record.content,
             created_at: record.created_at,
             expires_at: record.expires_at,

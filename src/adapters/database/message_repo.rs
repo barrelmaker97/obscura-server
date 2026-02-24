@@ -14,46 +14,79 @@ impl MessageRepository {
         Self {}
     }
 
-    /// Records a new message in the database.
+    /// Checks which recipients exist in the database.
     ///
     /// # Errors
-    /// Returns `AppError::NotFound` if the recipient does not exist.
+    /// Returns `AppError::Database` if the query fails.
+    #[tracing::instrument(level = "debug", skip(self, conn))]
+    pub(crate) async fn check_recipients_exist(
+        &self,
+        conn: &mut PgConnection,
+        recipient_ids: &[Uuid],
+    ) -> Result<Vec<Uuid>> {
+        if recipient_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let rows: Vec<(Uuid,)> = sqlx::query_as("SELECT id FROM users WHERE id = ANY($1)")
+            .bind(recipient_ids)
+            .fetch_all(conn)
+            .await
+            .map_err(AppError::Database)?;
+
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
+    /// Inserts a batch of messages.
+    ///
+    /// Ignores duplicate messages (based on `sender_id` and `submission_id`) via `ON CONFLICT DO NOTHING`.
+    /// Returns the list of `(recipient_id, submission_id)` that were successfully inserted.
+    ///
+    /// # Errors
     /// Returns `AppError::Database` if the insert fails.
-    #[tracing::instrument(level = "debug", skip(self, conn, content))]
-    pub(crate) async fn create(
+    #[tracing::instrument(level = "debug", skip(self, conn, messages))]
+    pub(crate) async fn create_batch(
         &self,
         conn: &mut PgConnection,
         sender_id: Uuid,
-        recipient_id: Uuid,
-        message_type: i32,
-        content: Vec<u8>,
+        messages: Vec<(Uuid, Uuid, Vec<u8>)>,
         ttl_days: i64,
-    ) -> Result<Message> {
+    ) -> Result<Vec<(Uuid, Uuid)>> {
+        if messages.is_empty() {
+            return Ok(Vec::new());
+        }
+
         let expires_at = OffsetDateTime::now_utc() + Duration::days(ttl_days);
 
-        let result = sqlx::query_as::<_, MessageRecord>(
+        let mut recipient_ids = Vec::with_capacity(messages.len());
+        let mut submission_ids = Vec::with_capacity(messages.len());
+        let mut contents = Vec::with_capacity(messages.len());
+
+        for (recipient_id, submission_id, content) in messages {
+            recipient_ids.push(recipient_id);
+            submission_ids.push(submission_id);
+            contents.push(content);
+        }
+
+        let inserted = sqlx::query_as::<_, (Uuid, Uuid)>(
             r#"
-            INSERT INTO messages (sender_id, recipient_id, message_type, content, expires_at)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING id, sender_id, recipient_id, message_type, content, created_at, expires_at
+            INSERT INTO messages (sender_id, recipient_id, submission_id, content, expires_at)
+            SELECT $1, u.r_id, u.s_id, u.content, $5
+            FROM UNNEST($2::uuid[], $3::uuid[], $4::bytea[]) AS u(r_id, s_id, content)
+            ON CONFLICT (sender_id, submission_id) DO NOTHING
+            RETURNING recipient_id, submission_id
             "#,
         )
         .bind(sender_id)
-        .bind(recipient_id)
-        .bind(message_type)
-        .bind(content)
+        .bind(recipient_ids)
+        .bind(submission_ids)
+        .bind(contents)
         .bind(expires_at)
-        .fetch_one(conn)
-        .await;
+        .fetch_all(conn)
+        .await
+        .map_err(AppError::Database)?;
 
-        match result {
-            Ok(record) => Ok(record.into()),
-            Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("23503") => {
-                // Foreign key violation: recipient_id does not exist
-                Err(AppError::NotFound)
-            }
-            Err(e) => Err(AppError::Database(e)),
-        }
+        Ok(inserted)
     }
 
     /// Fetches a batch of pending messages for a recipient.
@@ -72,7 +105,7 @@ impl MessageRepository {
             Some((last_ts, last_id)) => {
                 sqlx::query_as::<_, MessageRecord>(
                     r#"
-                    SELECT id, sender_id, recipient_id, message_type, content, created_at, expires_at
+                    SELECT id, sender_id, recipient_id, submission_id, content, created_at, expires_at
                     FROM messages
                     WHERE recipient_id = $1
                       AND expires_at > NOW()
@@ -91,7 +124,7 @@ impl MessageRepository {
             None => {
                 sqlx::query_as::<_, MessageRecord>(
                     r#"
-                    SELECT id, sender_id, recipient_id, message_type, content, created_at, expires_at
+                    SELECT id, sender_id, recipient_id, submission_id, content, created_at, expires_at
                     FROM messages
                     WHERE recipient_id = $1
                       AND expires_at > NOW()

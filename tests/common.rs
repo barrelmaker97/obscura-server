@@ -8,9 +8,7 @@ use obscura_server::{
     adapters::push::{PushError, PushProvider},
     api::app_router,
     config::{AuthConfig, Config, NotificationConfig, PubSubConfig, RateLimitConfig, ServerConfig, StorageConfig},
-    proto::obscura::v1::{
-        AckMessage, EncryptedMessage, Envelope, PreKeyStatus, WebSocketFrame, web_socket_frame::Payload,
-    },
+    proto::obscura::v1 as proto,
     services::notification_service::NotificationService,
 };
 
@@ -333,21 +331,35 @@ impl TestApp {
     }
 
     pub async fn send_message(&self, token: &str, recipient_id: Uuid, content: &[u8]) {
-        let enc_msg = EncryptedMessage { r#type: 2, content: content.to_vec() };
+        self.send_messages(token, &[(recipient_id, content)]).await;
+    }
+
+    pub async fn send_messages(&self, token: &str, messages: &[(Uuid, &[u8])]) {
+        let outgoing = messages
+            .iter()
+            .map(|(recipient_id, content)| proto::send_message_request::Submission {
+                submission_id: Uuid::new_v4().as_bytes().to_vec(),
+                recipient_id: recipient_id.as_bytes().to_vec(),
+                message: content.to_vec(),
+            })
+            .collect();
+
+        let request = proto::SendMessageRequest { messages: outgoing };
         let mut buf = Vec::new();
-        enc_msg.encode(&mut buf).unwrap();
+        request.encode(&mut buf).unwrap();
 
         let resp = self
             .client
-            .post(format!("{}/v1/messages/{}", self.server_url, recipient_id))
+            .post(format!("{}/v1/messages", self.server_url))
             .header("Authorization", format!("Bearer {}", token))
-            .header("Content-Type", "application/octet-stream")
+            .header("Idempotency-Key", Uuid::new_v4().to_string())
+            .header("Content-Type", "application/x-protobuf")
             .body(buf)
             .send()
             .await
             .unwrap();
 
-        assert_eq!(resp.status(), 201, "Message sending failed");
+        assert_eq!(resp.status(), 200, "Message sending failed: {}", resp.text().await.unwrap());
     }
 
     pub async fn connect_ws(&self, token: &str) -> TestWsClient {
@@ -367,12 +379,12 @@ impl TestApp {
                 }
                 match msg {
                     Ok(Message::Binary(bin)) => {
-                        if let Ok(frame) = WebSocketFrame::decode(bin.as_ref()) {
+                        if let Ok(frame) = proto::WebSocketFrame::decode(bin.as_ref()) {
                             match frame.payload {
-                                Some(Payload::Envelope(e)) => {
+                                Some(proto::web_socket_frame::Payload::Envelope(e)) => {
                                     let _ = tx_env.send(e);
                                 }
-                                Some(Payload::PreKeyStatus(s)) => {
+                                Some(proto::web_socket_frame::Payload::PreKeyStatus(s)) => {
                                     let _ = tx_status.send(s);
                                 }
                                 _ => {}
@@ -434,8 +446,8 @@ impl TestApp {
 pub struct TestWsClient {
     pub sink:
         futures::stream::SplitSink<WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, Message>,
-    pub rx_env: tokio::sync::mpsc::UnboundedReceiver<Envelope>,
-    pub rx_status: tokio::sync::mpsc::UnboundedReceiver<PreKeyStatus>,
+    pub rx_env: tokio::sync::mpsc::UnboundedReceiver<proto::Envelope>,
+    pub rx_status: tokio::sync::mpsc::UnboundedReceiver<proto::PreKeyStatus>,
     pub rx_pong: tokio::sync::mpsc::UnboundedReceiver<tokio_tungstenite::tungstenite::Bytes>,
     pub rx_raw: tokio::sync::mpsc::UnboundedReceiver<Result<Message, tokio_tungstenite::tungstenite::Error>>,
 }
@@ -445,19 +457,19 @@ impl TestWsClient {
         tokio::time::timeout(Duration::from_secs(5), self.rx_pong.recv()).await.ok().flatten().map(|b| b.to_vec())
     }
 
-    pub async fn receive_envelope(&mut self) -> Option<Envelope> {
+    pub async fn receive_envelope(&mut self) -> Option<proto::Envelope> {
         self.receive_envelope_timeout(Duration::from_secs(5)).await
     }
 
-    pub async fn receive_envelope_timeout(&mut self, timeout: Duration) -> Option<Envelope> {
+    pub async fn receive_envelope_timeout(&mut self, timeout: Duration) -> Option<proto::Envelope> {
         tokio::time::timeout(timeout, self.rx_env.recv()).await.ok().flatten()
     }
 
-    pub async fn receive_prekey_status(&mut self) -> Option<PreKeyStatus> {
+    pub async fn receive_prekey_status(&mut self) -> Option<proto::PreKeyStatus> {
         self.receive_prekey_status_timeout(Duration::from_secs(5)).await
     }
 
-    pub async fn receive_prekey_status_timeout(&mut self, timeout: Duration) -> Option<PreKeyStatus> {
+    pub async fn receive_prekey_status_timeout(&mut self, timeout: Duration) -> Option<proto::PreKeyStatus> {
         tokio::time::timeout(timeout, self.rx_status.recv()).await.ok().flatten()
     }
 
@@ -468,9 +480,9 @@ impl TestWsClient {
         tokio::time::timeout(timeout, self.rx_raw.recv()).await.ok().flatten()
     }
 
-    pub async fn send_ack(&mut self, message_id: String) {
-        let ack = AckMessage { message_id, message_ids: vec![] };
-        let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
+    pub async fn send_ack(&mut self, message_id: Vec<u8>) {
+        let ack = proto::AckMessage { message_ids: vec![message_id] };
+        let frame = proto::WebSocketFrame { payload: Some(proto::web_socket_frame::Payload::Ack(ack)) };
         let mut buf = Vec::new();
         frame.encode(&mut buf).unwrap();
         self.sink.send(Message::Binary(buf.into())).await.unwrap();

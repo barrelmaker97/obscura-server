@@ -25,16 +25,25 @@ impl NotificationRepository {
         }
     }
 
-    /// Publishes a realtime event to a specific user.
+    /// Publishes a realtime event to multiple users using a pipeline.
     ///
     /// # Errors
     /// Returns an error if the Redis operation fails.
-    #[tracing::instrument(level = "debug", skip(self), err)]
-    pub async fn publish_realtime(&self, user_id: Uuid, event: UserEvent) -> anyhow::Result<()> {
-        let channel_name = format!("{}{user_id}", self.channel_prefix);
+    #[tracing::instrument(level = "debug", skip(self, user_ids), err)]
+    pub async fn publish_realtime(&self, user_ids: &[Uuid], event: UserEvent) -> anyhow::Result<()> {
+        if user_ids.is_empty() {
+            return Ok(());
+        }
         let payload = [event as u8];
+        let mut pipe = redis::pipe();
+
+        for user_id in user_ids {
+            let channel_name = format!("{}{user_id}", self.channel_prefix);
+            pipe.publish(&channel_name, &payload);
+        }
+
         let mut conn = self.redis.publisher();
-        conn.publish::<_, _, i64>(&channel_name, &payload).await?;
+        let _: () = pipe.query_async(&mut conn).await?;
         Ok(())
     }
 
@@ -65,24 +74,26 @@ impl NotificationRepository {
         Ok(rx)
     }
 
-    /// Schedules a push notification job for a user.
+    /// Schedules push notification jobs for multiple users using a pipeline.
     ///
     /// # Errors
     /// Returns an error if the Redis operation fails.
     #[allow(clippy::cast_precision_loss)]
-    #[tracing::instrument(level = "debug", skip(self), err)]
-    pub async fn push_job(&self, user_id: Uuid, delay_secs: u64) -> anyhow::Result<()> {
+    #[tracing::instrument(level = "debug", skip(self, user_ids), err)]
+    pub async fn push_jobs(&self, user_ids: &[Uuid], delay_secs: u64) -> anyhow::Result<()> {
+        if user_ids.is_empty() {
+            return Ok(());
+        }
+
         let run_at = time::OffsetDateTime::now_utc().unix_timestamp() + i64::try_from(delay_secs).unwrap_or(0);
+        let mut pipe = redis::pipe();
+
+        for user_id in user_ids {
+            pipe.cmd("ZADD").arg(&self.push_queue_key).arg("NX").arg(run_at as f64).arg(user_id.to_string());
+        }
 
         let mut conn = self.redis.publisher();
-        // ZADD key NX score member
-        let _: i64 = redis::cmd("ZADD")
-            .arg(&self.push_queue_key)
-            .arg("NX")
-            .arg(run_at as f64)
-            .arg(user_id.to_string())
-            .query_async(&mut conn)
-            .await?;
+        let _: () = pipe.query_async(&mut conn).await?;
         Ok(())
     }
 

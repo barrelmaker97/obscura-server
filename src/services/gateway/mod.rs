@@ -4,7 +4,7 @@ pub(crate) mod message_pump;
 pub(crate) mod session;
 
 use crate::config::WsConfig;
-use crate::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
+use crate::proto::obscura::v1 as proto;
 use crate::services::gateway::session::Session;
 use crate::services::key_service::KeyService;
 use crate::services::message_service::MessageService;
@@ -24,8 +24,7 @@ pub(crate) struct Metrics {
     pub(crate) outbound_dropped_total: Counter<u64>,
     pub(crate) active_connections: UpDownCounter<i64>,
     pub(crate) ack_queue_dropped_total: Counter<u64>,
-    pub(crate) acks_received_single_total: Counter<u64>,
-    pub(crate) acks_received_bulk_total: Counter<u64>,
+    pub(crate) acks_received_total: Counter<u64>,
 }
 
 impl Metrics {
@@ -49,13 +48,9 @@ impl Metrics {
                 .u64_counter("obscura_websocket_ack_dropped_total")
                 .with_description("Total ACKs dropped due to full buffer")
                 .build(),
-            acks_received_single_total: meter
-                .u64_counter("obscura_websocket_acks_received_single_total")
-                .with_description("Total legacy single ACKs received from clients")
-                .build(),
-            acks_received_bulk_total: meter
-                .u64_counter("obscura_websocket_acks_received_bulk_total")
-                .with_description("Total bulk ACKs received from clients")
+            acks_received_total: meter
+                .u64_counter("obscura_websocket_acks_received_total")
+                .with_description("Total ACKs received from clients")
                 .build(),
         }
     }
@@ -114,12 +109,18 @@ impl GatewayService {
         // to prevent exhausting their bundle during an active session.
         match self.key_service.check_pre_key_status(user_id).await {
             Ok(Some(status)) => {
-                let frame = WebSocketFrame { payload: Some(Payload::PreKeyStatus(status)) };
+                let frame = proto::WebSocketFrame {
+                    payload: Some(proto::web_socket_frame::Payload::PreKeyStatus(proto::PreKeyStatus {
+                        one_time_pre_key_count: status.one_time_pre_key_count,
+                        min_threshold: status.min_threshold,
+                    })),
+                };
                 let mut buf = Vec::new();
                 if frame.encode(&mut buf).is_ok() {
                     let _ = socket.send(WsMessage::Binary(buf.into())).await;
                 }
             }
+
             Err(e) => {
                 tracing::warn!(error = %e, "Failed to check pre-key status");
             }

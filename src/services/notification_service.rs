@@ -132,23 +132,25 @@ impl NotificationService {
         tx.subscribe()
     }
 
-    #[tracing::instrument(skip(self), fields(user_id = %user_id, event = ?event))]
-    pub async fn notify(&self, user_id: Uuid, event: UserEvent) {
+    #[tracing::instrument(skip(self, recipients), fields(count = recipients.len(), event = ?event))]
+    pub async fn notify(&self, recipients: &[Uuid], event: UserEvent) {
+        if recipients.is_empty() {
+            return;
+        }
+
         // Fast Path: WebSocket/PubSub
-        if let Err(e) = self.repo.publish_realtime(user_id, event).await {
-            tracing::error!(error = %e, "Failed to publish to PubSub");
-            self.metrics.sends_total.add(1, &[KeyValue::new("status", "error")]);
+        if let Err(e) = self.repo.publish_realtime(recipients, event).await {
+            tracing::error!(error = %e, "Failed to batch publish to PubSub");
+            self.metrics.sends_total.add(recipients.len() as u64, &[KeyValue::new("status", "error")]);
         } else {
-            self.metrics.sends_total.add(1, &[KeyValue::new("status", "sent")]);
+            self.metrics.sends_total.add(recipients.len() as u64, &[KeyValue::new("status", "sent")]);
         }
 
         // Slow Path: Scheduled Push Fallback
-        // Only trigger push for new messages for now.
-        if event == UserEvent::MessageReceived {
-            // Give the user some time to ACK via WebSocket before the push fires.
-            if let Err(e) = self.repo.push_job(user_id, self.push_delay_secs).await {
-                tracing::error!(error = %e, "Failed to schedule push notification");
-            }
+        if event == UserEvent::MessageReceived
+            && let Err(e) = self.repo.push_jobs(recipients, self.push_delay_secs).await
+        {
+            tracing::error!(error = %e, "Failed to batch schedule push notifications");
         }
     }
 

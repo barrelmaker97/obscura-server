@@ -1,6 +1,6 @@
 use crate::config::WsConfig;
 use crate::domain::notification::UserEvent;
-use crate::proto::obscura::v1::{WebSocketFrame, web_socket_frame::Payload};
+use crate::proto::obscura::v1 as proto;
 use crate::services::gateway::{Metrics, ack_batcher::AckBatcher, message_pump::MessagePump};
 use crate::services::message_service::MessageService;
 use crate::services::notification_service::NotificationService;
@@ -65,7 +65,7 @@ impl Session {
             message_service.clone(),
             outbound_tx,
             metrics.clone(),
-            message_service.batch_limit(),
+            config.message_fetch_batch_size,
         );
 
         message_pump.notify();
@@ -118,29 +118,22 @@ impl Session {
                             last_seen = tokio::time::Instant::now();
                             match msg {
                                 WsMessage::Binary(bin) => {
-                                    if let Ok(frame) = WebSocketFrame::decode(bin.as_ref()) {
-                                        if let Some(Payload::Ack(ack)) = frame.payload {
+                                    if let Ok(frame) = proto::WebSocketFrame::decode(bin.as_ref()) {
+                                        if let Some(proto::web_socket_frame::Payload::Ack(ack)) = frame.payload {
                                             let mut uuids = Vec::new();
 
-                                            // Support legacy single ID
-                                            if !ack.message_id.is_empty() {
-                                                if let Ok(id) = Uuid::parse_str(&ack.message_id) {
-                                                    uuids.push(id);
-                                                    metrics.acks_received_single_total.add(1, &[]);
-                                                } else {
-                                                    tracing::warn!("Received ACK with invalid UUID: {}", ack.message_id);
-                                                }
-                                            }
-
-                                            // Support bulk IDs
                                             if !ack.message_ids.is_empty() {
-                                                metrics.acks_received_bulk_total.add(1, &[]);
+                                                metrics.acks_received_total.add(1, &[]);
                                             }
-                                            for id_str in ack.message_ids {
-                                                if let Ok(id) = Uuid::parse_str(&id_str) {
+                                            for id_bytes in ack.message_ids {
+                                                if let Ok(id) = Uuid::from_slice(&id_bytes) {
                                                     uuids.push(id);
                                                 } else {
-                                                    tracing::warn!("Received ACK with invalid UUID in list: {}", id_str);
+                                                    tracing::warn!(
+                                                        len = id_bytes.len(),
+                                                        hex = %hex::encode(&id_bytes),
+                                                        "Received ACK with invalid UUID bytes in list (expected 16)"
+                                                    );
                                                 }
                                             }
 

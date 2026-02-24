@@ -51,7 +51,7 @@ async fn test_push_visibility_timeout_retry() {
             .await
             .unwrap();
     let notification_repo = Arc::new(NotificationRepository::new(pubsub.clone(), &config.notifications));
-    notification_repo.push_job(user_id, 0).await.unwrap();
+    notification_repo.push_jobs(&[user_id], 0).await.unwrap();
 
     // 3. Run worker with FAILING provider
     let failing_worker = PushNotificationWorker::new(

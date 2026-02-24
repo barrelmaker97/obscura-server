@@ -20,3 +20,9 @@ pub struct PreKeyBundle {
     pub signed_pre_key: SignedPreKey,
     pub one_time_pre_key: Option<OneTimePreKey>,
 }
+
+#[derive(Debug, Clone)]
+pub struct PreKeyStatus {
+    pub one_time_pre_key_count: i32,
+    pub min_threshold: i32,
+}

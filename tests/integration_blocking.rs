@@ -8,7 +8,7 @@ mod common;
 async fn test_ping_pong_under_load() {
     // 1. Setup with large batch limit
     let mut config = common::get_test_config();
-    config.messaging.batch_limit = 100;
+    config.websocket.message_fetch_batch_size = 100;
 
     let app = common::TestApp::spawn_with_config(config).await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();

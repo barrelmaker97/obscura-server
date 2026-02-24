@@ -2,8 +2,9 @@ mod common;
 
 use common::TestApp;
 use futures::SinkExt;
-use obscura_server::proto::obscura::v1::{AckMessage, EncryptedMessage, WebSocketFrame, web_socket_frame::Payload};
+use obscura_server::proto::obscura::v1 as proto;
 use prost::Message as ProstMessage;
+
 use std::time::Duration;
 use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
 use uuid::Uuid;
@@ -21,8 +22,7 @@ async fn test_messaging_flow() {
 
     let mut ws = app.connect_ws(&user_b.token).await;
     let env = ws.receive_envelope().await.expect("Did not receive message");
-    let received_msg = env.message.expect("Envelope missing message");
-    assert_eq!(received_msg.content, content);
+    assert_eq!(env.message, content);
 
     ws.send_ack(env.id).await;
 }
@@ -105,21 +105,37 @@ async fn test_send_message_recipient_not_found() {
     let user_a = app.register_user(&format!("alice_404_{}", run_id)).await;
     let bad_id = Uuid::new_v4();
 
-    let enc_msg = EncryptedMessage { r#type: 2, content: b"Hello".to_vec() };
+    let submission_id = Uuid::new_v4();
+    let request = proto::SendMessageRequest {
+        messages: vec![proto::send_message_request::Submission {
+            submission_id: submission_id.as_bytes().to_vec(),
+            recipient_id: bad_id.as_bytes().to_vec(),
+            message: b"Hello".to_vec(),
+        }],
+    };
     let mut buf = Vec::new();
-    enc_msg.encode(&mut buf).unwrap();
+    request.encode(&mut buf).unwrap();
 
     let resp = app
         .client
-        .post(format!("{}/v1/messages/{}", app.server_url, bad_id))
+        .post(format!("{}/v1/messages", app.server_url))
         .header("Authorization", format!("Bearer {}", user_a.token))
-        .header("Content-Type", "application/octet-stream")
+        .header("Idempotency-Key", Uuid::new_v4().to_string())
+        .header("Content-Type", "application/x-protobuf")
         .body(buf)
         .send()
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), 404);
+    assert_eq!(resp.status(), 200);
+    let body = resp.bytes().await.unwrap();
+    let response = proto::SendMessageResponse::decode(body).unwrap();
+    assert_eq!(response.failed_submissions.len(), 1);
+    assert_eq!(response.failed_submissions[0].submission_id, submission_id.as_bytes().to_vec());
+    assert_eq!(
+        response.failed_submissions[0].error_code,
+        proto::send_message_response::ErrorCode::InvalidRecipient as i32
+    );
 }
 
 #[tokio::test]
@@ -127,19 +143,205 @@ async fn test_send_message_malformed_protobuf() {
     let app = TestApp::spawn().await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
     let user = app.register_user(&format!("malformed_{}", run_id)).await;
-    let recipient = app.register_user(&format!("rec_malformed_{}", run_id)).await;
 
     let resp = app
         .client
-        .post(format!("{}/v1/messages/{}", app.server_url, recipient.user_id))
+        .post(format!("{}/v1/messages", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
-        .header("Content-Type", "application/octet-stream")
+        .header("Idempotency-Key", Uuid::new_v4().to_string())
+        .header("Content-Type", "application/x-protobuf")
         .body(vec![0, 1, 2])
         .send()
         .await
         .unwrap();
 
     assert_eq!(resp.status(), 400);
+}
+
+#[tokio::test]
+async fn test_message_idempotency() {
+    let app = TestApp::spawn().await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user_a = app.register_user(&format!("alice_idem_{}", run_id)).await;
+    let user_b = app.register_user(&format!("bob_idem_{}", run_id)).await;
+
+    let idempotency_key = Uuid::new_v4();
+    let content = b"Idempotent Hello".to_vec();
+
+    let request = proto::SendMessageRequest {
+        messages: vec![proto::send_message_request::Submission {
+            submission_id: Uuid::new_v4().as_bytes().to_vec(),
+            recipient_id: user_b.user_id.as_bytes().to_vec(),
+            message: content.clone(),
+        }],
+    };
+    let mut buf = Vec::new();
+    request.encode(&mut buf).unwrap();
+
+    // First attempt
+    let resp1 = app
+        .client
+        .post(format!("{}/v1/messages", app.server_url))
+        .header("Authorization", format!("Bearer {}", user_a.token))
+        .header("Idempotency-Key", idempotency_key.to_string())
+        .header("Content-Type", "application/x-protobuf")
+        .body(buf.clone())
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp1.status(), 200);
+    let body1 = resp1.bytes().await.unwrap();
+
+    // Second attempt (retry)
+    let resp2 = app
+        .client
+        .post(format!("{}/v1/messages", app.server_url))
+        .header("Authorization", format!("Bearer {}", user_a.token))
+        .header("Idempotency-Key", idempotency_key.to_string())
+        .header("Content-Type", "application/x-protobuf")
+        .body(buf)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp2.status(), 200);
+    let body2 = resp2.bytes().await.unwrap();
+
+    // Verify bodies are identical (cached response)
+    assert_eq!(body1, body2);
+
+    // Verify only ONE message was queued
+    app.assert_message_count(user_b.user_id, 1).await;
+}
+
+#[tokio::test]
+async fn test_batch_partial_success() {
+    let app = TestApp::spawn().await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user_a = app.register_user(&format!("alice_mix_{}", run_id)).await;
+    let user_b = app.register_user(&format!("bob_mix_{}", run_id)).await;
+    let user_c = app.register_user(&format!("charlie_mix_{}", run_id)).await;
+    let bad_id = Uuid::new_v4();
+
+    let submission_id_b = Uuid::new_v4();
+    let submission_id_bad = Uuid::new_v4();
+    let submission_id_c = Uuid::new_v4();
+
+    let request = proto::SendMessageRequest {
+        messages: vec![
+            // 1. Valid (Bob)
+            proto::send_message_request::Submission {
+                submission_id: submission_id_b.as_bytes().to_vec(),
+                recipient_id: user_b.user_id.as_bytes().to_vec(),
+                message: b"Msg for Bob".to_vec(),
+            },
+            // 2. Invalid (Bad ID)
+            proto::send_message_request::Submission {
+                submission_id: submission_id_bad.as_bytes().to_vec(),
+                recipient_id: bad_id.as_bytes().to_vec(),
+                message: b"Msg for Nowhere".to_vec(),
+            },
+            // 3. Valid (Charlie)
+            proto::send_message_request::Submission {
+                submission_id: submission_id_c.as_bytes().to_vec(),
+                recipient_id: user_c.user_id.as_bytes().to_vec(),
+                message: b"Msg for Charlie".to_vec(),
+            },
+        ],
+    };
+    let mut buf = Vec::new();
+    request.encode(&mut buf).unwrap();
+
+    let resp = app
+        .client
+        .post(format!("{}/v1/messages", app.server_url))
+        .header("Authorization", format!("Bearer {}", user_a.token))
+        .header("Idempotency-Key", Uuid::new_v4().to_string())
+        .header("Content-Type", "application/x-protobuf")
+        .body(buf)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.bytes().await.unwrap();
+    let response = proto::SendMessageResponse::decode(body).unwrap();
+
+    // Verify Response: Should list ONLY the failed message
+    assert_eq!(response.failed_submissions.len(), 1);
+    assert_eq!(response.failed_submissions[0].submission_id, submission_id_bad.as_bytes().to_vec());
+    assert_eq!(
+        response.failed_submissions[0].error_code,
+        proto::send_message_response::ErrorCode::InvalidRecipient as i32
+    );
+
+    // Verify Delivery: Bob and Charlie should have messages
+    app.assert_message_count(user_b.user_id, 1).await;
+    app.assert_message_count(user_c.user_id, 1).await;
+}
+
+#[tokio::test]
+async fn test_batch_empty() {
+    let app = TestApp::spawn().await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user = app.register_user(&format!("empty_{}", run_id)).await;
+
+    let request = proto::SendMessageRequest { messages: vec![] };
+    let mut buf = Vec::new();
+    request.encode(&mut buf).unwrap();
+
+    let resp = app
+        .client
+        .post(format!("{}/v1/messages", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("Idempotency-Key", Uuid::new_v4().to_string())
+        .header("Content-Type", "application/x-protobuf")
+        .body(buf)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.bytes().await.unwrap();
+    let response = proto::SendMessageResponse::decode(body).unwrap();
+    assert!(response.failed_submissions.is_empty());
+}
+
+#[tokio::test]
+async fn test_batch_too_large() {
+    let mut config = common::get_test_config();
+    config.messaging.send_batch_limit = 5;
+
+    let app = TestApp::spawn_with_config(config).await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user = app.register_user(&format!("limit_{}", run_id)).await;
+
+    let mut messages = Vec::new();
+    for _ in 0..6 {
+        messages.push(proto::send_message_request::Submission {
+            submission_id: Uuid::new_v4().as_bytes().to_vec(),
+            recipient_id: user.user_id.as_bytes().to_vec(),
+            message: b"Msg".to_vec(),
+        });
+    }
+
+    let request = proto::SendMessageRequest { messages };
+    let mut buf = Vec::new();
+    request.encode(&mut buf).unwrap();
+
+    let resp = app
+        .client
+        .post(format!("{}/v1/messages", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("Idempotency-Key", Uuid::new_v4().to_string())
+        .header("Content-Type", "application/x-protobuf")
+        .body(buf)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 413);
 }
 
 #[tokio::test]
@@ -199,8 +401,8 @@ async fn test_ack_buffer_saturation() {
     let mut client = app.connect_ws(&user.token).await;
 
     for _ in 0..15 {
-        let ack = AckMessage { message_id: Uuid::new_v4().to_string(), message_ids: vec![] };
-        let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
+        let ack = proto::AckMessage { message_ids: vec![Uuid::new_v4().as_bytes().to_vec()] };
+        let frame = proto::WebSocketFrame { payload: Some(proto::web_socket_frame::Payload::Ack(ack)) };
         let mut buf = Vec::new();
         frame.encode(&mut buf).unwrap();
         client.sink.send(WsMessage::Binary(buf.into())).await.unwrap();
@@ -235,55 +437,13 @@ async fn test_bulk_ack_processing() {
     assert_eq!(message_ids.len(), 5);
 
     // Send ONE bulk ACK
-    let ack = AckMessage {
-        message_id: String::new(), // Legacy field empty
-        message_ids: message_ids.clone(),
-    };
-    let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
+    let ack = proto::AckMessage { message_ids: message_ids.clone() };
+    let frame = proto::WebSocketFrame { payload: Some(proto::web_socket_frame::Payload::Ack(ack)) };
     let mut buf = Vec::new();
     frame.encode(&mut buf).unwrap();
     ws.sink.send(WsMessage::Binary(buf.into())).await.unwrap();
 
     // Verify all 5 are deleted
-    app.assert_message_count(user_b.user_id, 0).await;
-}
-
-#[tokio::test]
-async fn test_mixed_ack_processing() {
-    let app = TestApp::spawn().await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-
-    let user_a = app.register_user(&format!("alice_mix_{}", run_id)).await;
-    let user_b = app.register_user(&format!("bob_mix_{}", run_id)).await;
-
-    // Send 3 messages
-    for i in 0..3 {
-        app.send_message(&user_a.token, user_b.user_id, format!("msg {}", i).as_bytes()).await;
-    }
-
-    let mut ws = app.connect_ws(&user_b.token).await;
-
-    let mut message_ids = Vec::new();
-    for _ in 0..3 {
-        if let Some(env) = ws.receive_envelope().await {
-            message_ids.push(env.id);
-        }
-    }
-    assert_eq!(message_ids.len(), 3);
-
-    // Send ACK with BOTH fields
-    // message_id = First message
-    // message_ids = Remaining two messages
-    let ack = AckMessage {
-        message_id: message_ids[0].clone(),
-        message_ids: vec![message_ids[1].clone(), message_ids[2].clone()],
-    };
-    let frame = WebSocketFrame { payload: Some(Payload::Ack(ack)) };
-    let mut buf = Vec::new();
-    frame.encode(&mut buf).unwrap();
-    ws.sink.send(WsMessage::Binary(buf.into())).await.unwrap();
-
-    // Verify all 3 are deleted
     app.assert_message_count(user_b.user_id, 0).await;
 }
 
@@ -313,4 +473,145 @@ async fn test_ack_security_cross_user_deletion() {
 
     // Assert message is STILL there for B (count should be 1)
     app.assert_message_count(user_b.user_id, 1).await;
+}
+
+#[tokio::test]
+async fn test_send_message_invalid_uuid_bytes() {
+    let app = TestApp::spawn().await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user = app.register_user(&format!("malformed_bytes_{}", run_id)).await;
+
+    let request = proto::SendMessageRequest {
+        messages: vec![proto::send_message_request::Submission {
+            submission_id: Uuid::new_v4().as_bytes().to_vec(), // Valid
+            recipient_id: vec![4, 5, 6],                       // Invalid length
+            message: b"Hello".to_vec(),
+        }],
+    };
+    let mut buf = Vec::new();
+    request.encode(&mut buf).unwrap();
+
+    let resp = app
+        .client
+        .post(format!("{}/v1/messages", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("Idempotency-Key", Uuid::new_v4().to_string())
+        .header("Content-Type", "application/x-protobuf")
+        .body(buf)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body = resp.bytes().await.unwrap();
+    let response = proto::SendMessageResponse::decode(body).unwrap();
+
+    assert_eq!(response.failed_submissions.len(), 1);
+    assert_eq!(response.failed_submissions[0].error_message, "Invalid recipient UUID bytes (expected 16)");
+    assert_eq!(
+        response.failed_submissions[0].error_code,
+        proto::send_message_response::ErrorCode::MalformedRecipientId as i32
+    );
+}
+
+#[tokio::test]
+async fn test_ack_invalid_uuid_bytes() {
+    let app = TestApp::spawn().await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user = app.register_user(&format!("ack_malformed_{}", run_id)).await;
+    let mut client = app.connect_ws(&user.token).await;
+
+    // Send ACK with invalid length ID
+    let ack = proto::AckMessage {
+        message_ids: vec![
+            vec![1, 2, 3, 4, 5], // 5 bytes instead of 16
+            vec![0u8; 32],       // 32 bytes instead of 16
+        ],
+    };
+    let frame = proto::WebSocketFrame { payload: Some(proto::web_socket_frame::Payload::Ack(ack)) };
+    let mut buf = Vec::new();
+
+    frame.encode(&mut buf).unwrap();
+
+    client.sink.send(WsMessage::Binary(buf.into())).await.unwrap();
+
+    // Verify connection stays alive (non-fatal error)
+    client.sink.send(WsMessage::Ping(vec![].into())).await.unwrap();
+    assert!(client.receive_pong().await.is_some());
+}
+
+#[tokio::test]
+async fn test_send_message_malformed_submission_id() {
+    let app = TestApp::spawn().await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user = app.register_user(&format!("malformed_sub_{}", run_id)).await;
+    let recipient = app.register_user(&format!("recipient_sub_{}", run_id)).await;
+
+    let request = proto::SendMessageRequest {
+        messages: vec![proto::send_message_request::Submission {
+            submission_id: vec![1, 2, 3], // Invalid length
+            recipient_id: recipient.user_id.as_bytes().to_vec(),
+            message: b"Hello".to_vec(),
+        }],
+    };
+    let mut buf = Vec::new();
+    request.encode(&mut buf).unwrap();
+
+    let resp = app
+        .client
+        .post(format!("{}/v1/messages", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("Idempotency-Key", Uuid::new_v4().to_string())
+        .header("Content-Type", "application/x-protobuf")
+        .body(buf)
+        .send()
+        .await
+        .unwrap();
+
+    let body = resp.bytes().await.unwrap();
+    let response = proto::SendMessageResponse::decode(body).unwrap();
+
+    assert_eq!(response.failed_submissions.len(), 1);
+    assert_eq!(
+        response.failed_submissions[0].error_code,
+        proto::send_message_response::ErrorCode::MalformedSubmissionId as i32
+    );
+}
+
+#[tokio::test]
+async fn test_send_message_missing_payload() {
+    let app = TestApp::spawn().await;
+    let run_id = Uuid::new_v4().to_string()[..8].to_string();
+    let user = app.register_user(&format!("missing_payload_{}", run_id)).await;
+    let recipient = app.register_user(&format!("recipient_payload_{}", run_id)).await;
+
+    let request = proto::SendMessageRequest {
+        messages: vec![proto::send_message_request::Submission {
+            submission_id: Uuid::new_v4().as_bytes().to_vec(),
+            recipient_id: recipient.user_id.as_bytes().to_vec(),
+            message: Vec::new(), // Missing payload
+        }],
+    };
+    let mut buf = Vec::new();
+    request.encode(&mut buf).unwrap();
+
+    let resp = app
+        .client
+        .post(format!("{}/v1/messages", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("Idempotency-Key", Uuid::new_v4().to_string())
+        .header("Content-Type", "application/x-protobuf")
+        .body(buf)
+        .send()
+        .await
+        .unwrap();
+
+    let body = resp.bytes().await.unwrap();
+    let response = proto::SendMessageResponse::decode(body).unwrap();
+
+    assert_eq!(response.failed_submissions.len(), 1);
+    assert_eq!(
+        response.failed_submissions[0].error_code,
+        proto::send_message_response::ErrorCode::MessageMissing as i32
+    );
 }
