@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used, clippy::panic, clippy::todo)]
+#![allow(clippy::unwrap_used, clippy::panic, clippy::todo, clippy::missing_panics_doc, clippy::must_use_candidate, missing_debug_implementations, clippy::cast_precision_loss, clippy::clone_on_ref_ptr, clippy::match_same_arms, clippy::items_after_statements, unreachable_pub, clippy::print_stdout, clippy::similar_names)]
 mod common;
 
 use async_trait::async_trait;
@@ -34,7 +34,7 @@ async fn test_scheduled_push_delivery() {
             .unwrap();
 
         let token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
-        token_repo.upsert_token(&mut conn, user_id, &format!("token:{}", user_id)).await.unwrap();
+        token_repo.upsert_token(&mut conn, user_id, &format!("token:{user_id}")).await.unwrap();
     }
 
     // 1. Notify MessageReceived
@@ -44,14 +44,14 @@ async fn test_scheduled_push_delivery() {
     let start = std::time::Instant::now();
     let mut delivered = false;
     while start.elapsed() < Duration::from_secs(10) {
-        if notification_counts().get(&user_id).map(|c| *c).unwrap_or(0) > 0 {
+        if notification_counts().get(&user_id).map_or(0, |c| *c) > 0 {
             delivered = true;
             break;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
-    assert!(delivered, "Push notification was not delivered for unique user {}", user_id);
+    assert!(delivered, "Push notification was not delivered for unique user {user_id}");
     assert_eq!(*notification_counts().get(&user_id).unwrap(), 1);
 }
 
@@ -81,7 +81,7 @@ async fn test_push_cancellation_on_ack() {
             || {
                 let config = app.config.clone();
                 let pubsub_url = config.pubsub.url.clone();
-                let queue_key = config.notifications.push_queue_key.clone();
+                let queue_key = config.notifications.push_queue_key;
                 let user_id = user.user_id;
                 async move {
                     let client = redis::Client::open(pubsub_url).unwrap();
@@ -124,7 +124,7 @@ async fn test_push_cancellation_on_websocket_connect() {
             || {
                 let config = app.config.clone();
                 let pubsub_url = config.pubsub.url.clone();
-                let queue_key = config.notifications.push_queue_key.clone();
+                let queue_key = config.notifications.push_queue_key;
                 let user_id = user.user_id;
                 async move {
                     let client = redis::Client::open(pubsub_url).unwrap();
@@ -164,7 +164,7 @@ async fn test_delivery_exactly_once_under_competition() {
             .unwrap();
 
         let token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
-        token_repo.upsert_token(&mut conn, user_id, &format!("token:{}", user_id)).await.unwrap();
+        token_repo.upsert_token(&mut conn, user_id, &format!("token:{user_id}")).await.unwrap();
     }
 
     // Access internal components via Resources/Config
@@ -202,8 +202,8 @@ async fn test_delivery_exactly_once_under_competition() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
-    let count = notification_counts().get(&user_id).map(|c| *c).unwrap_or(0);
-    assert_eq!(count, 1, "Notification delivered {} times, expected exactly 1", count);
+    let count = notification_counts().get(&user_id).map_or(0, |c| *c);
+    assert_eq!(count, 1, "Notification delivered {count} times, expected exactly 1");
 
     let _ = shutdown_tx.send(true);
 }
@@ -227,7 +227,7 @@ async fn test_push_coalescing() {
             .unwrap();
 
         let token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
-        token_repo.upsert_token(&mut conn, user_id, &format!("token:{}", user_id)).await.unwrap();
+        token_repo.upsert_token(&mut conn, user_id, &format!("token:{user_id}")).await.unwrap();
     }
 
     for _ in 0..5 {
@@ -236,8 +236,8 @@ async fn test_push_coalescing() {
 
     tokio::time::sleep(Duration::from_secs(5)).await;
 
-    let count = notification_counts().get(&user_id).map(|c| *c).unwrap_or(0);
-    assert_eq!(count, 1, "Expected 1 coalesced notification, got {}", count);
+    let count = notification_counts().get(&user_id).map_or(0, |c| *c);
+    assert_eq!(count, 1, "Expected 1 coalesced notification, got {count}");
 }
 
 static IN_FLIGHT_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -307,7 +307,7 @@ async fn test_notification_worker_concurrency_limit() {
                 .unwrap();
 
             let token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
-            token_repo.upsert_token(&mut conn, user_id, &format!("token:{}", user_id)).await.unwrap();
+            token_repo.upsert_token(&mut conn, user_id, &format!("token:{user_id}")).await.unwrap();
         }
         let _: anyhow::Result<()> = notification_repo.push_jobs(&[user_id], 0).await;
     }
@@ -316,7 +316,7 @@ async fn test_notification_worker_concurrency_limit() {
 
     let peak = PEAK_IN_FLIGHT.load(Ordering::SeqCst);
     assert!(peak > 0);
-    assert!(peak <= concurrency, "Peak concurrency {} exceeded limit {}", peak, concurrency);
+    assert!(peak <= concurrency, "Peak concurrency {peak} exceeded limit {concurrency}");
 
     let _ = shutdown_tx.send(true);
 }
@@ -393,31 +393,31 @@ async fn test_notification_lag_recovery() {
     let mut config = common::get_test_config();
     config.websocket.outbound_buffer_size = 10;
 
-    let app = common::TestApp::spawn_with_config(config).await;
+    let app = TestApp::spawn_with_config(config).await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
 
-    let user_a = app.register_user(&format!("alice_{}", run_id)).await;
-    let user_b = app.register_user(&format!("bob_{}", run_id)).await;
+    let user_a = app.register_user(&format!("alice_{run_id}")).await;
+    let user_b = app.register_user(&format!("bob_{run_id}")).await;
 
     let mut ws = app.connect_ws(&user_b.token).await;
 
     let message_count = 100;
     for i in 0..message_count {
-        let content = format!("Message {}", i).into_bytes();
+        let content = format!("Message {i}").into_bytes();
         app.send_message(&user_a.token, user_b.user_id, &content).await;
     }
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
 
     let mut received = 0;
     let start = std::time::Instant::now();
-    let timeout = std::time::Duration::from_secs(10);
+    let timeout = Duration::from_secs(10);
 
     while received < message_count && start.elapsed() < timeout {
-        if ws.receive_envelope_timeout(std::time::Duration::from_millis(100)).await.is_some() {
+        if ws.receive_envelope_timeout(Duration::from_millis(100)).await.is_some() {
             received += 1;
         }
     }
 
-    assert_eq!(received, message_count, "Should receive all {} messages despite notification lag", message_count);
+    assert_eq!(received, message_count, "Should receive all {message_count} messages despite notification lag");
 }

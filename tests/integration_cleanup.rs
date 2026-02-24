@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used, clippy::panic, clippy::todo)]
+#![allow(clippy::unwrap_used, clippy::panic, clippy::todo, clippy::missing_panics_doc, clippy::must_use_candidate, missing_debug_implementations, clippy::cast_precision_loss, clippy::clone_on_ref_ptr, clippy::match_same_arms, clippy::items_after_statements, unreachable_pub, clippy::print_stdout, clippy::similar_names)]
 use obscura_server::adapters::database::message_repo::MessageRepository;
 use obscura_server::config::MessagingConfig;
 use obscura_server::workers::MessageCleanupWorker;
@@ -22,7 +22,7 @@ async fn test_message_cleanup_worker_full_orchestration() {
     let user_a = Uuid::new_v4();
     sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
         .bind(user_a)
-        .bind(format!("worker_user_a_{}", user_a))
+        .bind(format!("worker_user_a_{user_a}"))
         .execute(&pool)
         .await
         .unwrap();
@@ -33,7 +33,7 @@ async fn test_message_cleanup_worker_full_orchestration() {
         sqlx::query("INSERT INTO messages (id, submission_id, sender_id, recipient_id, content, created_at, expires_at) VALUES ($1, $6, $2, $2, $3, $4, $5)")
             .bind(msg_id)
             .bind(user_a)
-            .bind(format!("msg {}", i).into_bytes())
+            .bind(format!("msg {i}").into_bytes())
             .bind(OffsetDateTime::now_utc() + Duration::seconds(i))
             .bind(OffsetDateTime::now_utc() + Duration::days(1))
             .bind(Uuid::new_v4())
@@ -46,7 +46,7 @@ async fn test_message_cleanup_worker_full_orchestration() {
     let user_b = Uuid::new_v4();
     sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
         .bind(user_b)
-        .bind(format!("worker_user_b_{}", user_b))
+        .bind(format!("worker_user_b_{user_b}"))
         .execute(&pool)
         .await
         .unwrap();

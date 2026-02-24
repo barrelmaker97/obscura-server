@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used, clippy::panic, clippy::todo)]
+#![allow(clippy::unwrap_used, clippy::panic, clippy::todo, clippy::missing_panics_doc, clippy::must_use_candidate, missing_debug_implementations, clippy::cast_precision_loss, clippy::clone_on_ref_ptr, clippy::match_same_arms, clippy::items_after_statements, unreachable_pub, clippy::print_stdout, clippy::similar_names)]
 mod common;
 
 use async_trait::async_trait;
@@ -30,7 +30,7 @@ async fn test_push_visibility_timeout_retry() {
 
     let app = TestApp::spawn_with_config(config.clone()).await;
     let user_id = Uuid::new_v4();
-    let token = format!("token:{}", user_id);
+    let token = format!("token:{user_id}");
 
     // 1. Setup User and Token
     {
@@ -78,7 +78,7 @@ async fn test_push_visibility_timeout_retry() {
     };
 
     let now = time::OffsetDateTime::now_utc().unix_timestamp() as f64;
-    assert!(score > now, "Job should have a future score (lease), got {} vs now {}", score, now);
+    assert!(score > now, "Job should have a future score (lease), got {score} vs now {now}");
 
     // 5. Wait for the visibility timeout to expire naturally
     tokio::time::sleep(Duration::from_secs(3)).await;
@@ -97,7 +97,7 @@ async fn test_push_visibility_timeout_retry() {
     // 7. Verify delivered and removed
     let mut delivered = false;
     for _ in 0..50 {
-        if notification_counts().get(&user_id).map(|c| *c).unwrap_or(0) > 0 {
+        if notification_counts().get(&user_id).map_or(0, |c| *c) > 0 {
             delivered = true;
             break;
         }

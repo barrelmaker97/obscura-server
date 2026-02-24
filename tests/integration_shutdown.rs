@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used, clippy::panic, clippy::todo)]
+#![allow(clippy::unwrap_used, clippy::panic, clippy::todo, clippy::missing_panics_doc, clippy::must_use_candidate, missing_debug_implementations, clippy::cast_precision_loss, clippy::clone_on_ref_ptr, clippy::match_same_arms, clippy::items_after_statements, unreachable_pub, clippy::print_stdout, clippy::similar_names)]
 use std::time::Duration;
 use tokio_tungstenite::tungstenite::protocol::Message;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
@@ -10,7 +10,7 @@ mod common;
 async fn test_graceful_websocket_shutdown() {
     let app = common::TestApp::spawn().await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let username = format!("shutdown_user_{}", run_id);
+    let username = format!("shutdown_user_{run_id}");
 
     // 1. Register and connect WS
     let user = app.register_user(&username).await;

@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used, clippy::panic, clippy::todo)]
+#![allow(clippy::unwrap_used, clippy::panic, clippy::todo, clippy::missing_panics_doc, clippy::must_use_candidate, missing_debug_implementations, clippy::cast_precision_loss, clippy::clone_on_ref_ptr, clippy::match_same_arms, clippy::items_after_statements, unreachable_pub, clippy::print_stdout, clippy::similar_names)]
 mod common;
 
 use async_trait::async_trait;
@@ -157,7 +157,6 @@ async fn test_push_worker_removes_job_when_user_has_no_token() {
 
     assert!(
         leased.is_empty(),
-        "Job should have been removed because user has no token, but it was still present: {:?}",
-        leased
+        "Job should have been removed because user has no token, but it was still present: {leased:?}"
     );
 }

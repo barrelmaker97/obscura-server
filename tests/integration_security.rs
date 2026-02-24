@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used, clippy::panic, clippy::todo)]
+#![allow(clippy::unwrap_used, clippy::panic, clippy::todo, clippy::missing_panics_doc, clippy::must_use_candidate, missing_debug_implementations, clippy::cast_precision_loss, clippy::clone_on_ref_ptr, clippy::match_same_arms, clippy::items_after_statements, unreachable_pub, clippy::print_stdout, clippy::similar_names)]
 mod common;
 
 use common::TestApp;
@@ -37,9 +37,7 @@ async fn test_unauthenticated_access_denied() {
         assert_eq!(
             resp.status(),
             StatusCode::UNAUTHORIZED,
-            "Endpoint {} {} should require authentication",
-            method,
-            url
+            "Endpoint {method} {url} should require authentication"
         );
     }
 }
