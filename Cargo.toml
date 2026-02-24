@@ -64,3 +64,22 @@ prost-build = "0.14.1"
 curve25519-dalek = "4.1"
 tokio-tungstenite = "0.28.0"
 reqwest = { version = "0.13.2", features = ["json", "stream"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+unreachable_pub = "warn"
+missing_debug_implementations = "warn"
+unused_qualifications = "warn"
+unused_must_use = "deny"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"
+nursery = "warn"
+unwrap_used = "warn"
+todo = "warn"
+panic = "warn"
+dbg_macro = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+clone_on_ref_ptr = "warn"
