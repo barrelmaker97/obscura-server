@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::panic, clippy::todo)]
 use futures::stream;
 use reqwest::StatusCode;
 use std::time::Duration;

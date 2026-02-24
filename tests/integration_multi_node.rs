@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::panic, clippy::todo)]
 mod common;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;

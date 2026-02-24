@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::panic, clippy::todo)]
 use obscura_server::adapters::database::backup_repo::BackupRepository;
 use obscura_server::adapters::storage::S3Storage;
 use obscura_server::workers::BackupCleanupWorker;

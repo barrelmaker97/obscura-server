@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::panic, clippy::todo)]
 mod common;
 
 use axum::http::StatusCode;

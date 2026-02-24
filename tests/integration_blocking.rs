@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::panic, clippy::todo)]
 use futures::SinkExt;
 use tokio_tungstenite::tungstenite::protocol::Message;
 use uuid::Uuid;

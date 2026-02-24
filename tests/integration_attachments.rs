@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::panic, clippy::todo)]
 use reqwest::StatusCode;
 use uuid::Uuid;
 

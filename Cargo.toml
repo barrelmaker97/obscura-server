@@ -71,15 +71,18 @@ unreachable_pub = "warn"
 missing_debug_implementations = "warn"
 unused_qualifications = "warn"
 unused_must_use = "deny"
+unused_imports = "warn"
+unused_variables = "warn"
 
 [lints.clippy]
-all = "warn"
-pedantic = "warn"
-nursery = "warn"
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+
 unwrap_used = "warn"
 todo = "warn"
 panic = "warn"
-dbg_macro = "warn"
+dbg_macro = "deny"
 print_stdout = "warn"
 print_stderr = "warn"
 clone_on_ref_ptr = "warn"

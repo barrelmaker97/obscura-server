@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::panic, clippy::todo)]
 use futures::{StreamExt, stream};
 use obscura_server::adapters::storage::{ObjectStorage, S3Storage};
 use std::sync::Arc;

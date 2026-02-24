@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::panic, clippy::todo)]
 use base64::Engine;
 use reqwest::StatusCode;
 use serde_json::json;
