@@ -24,25 +24,4 @@ impl PushTokenService {
         let mut conn = self.pool.acquire().await?;
         self.repo.upsert_token(&mut conn, user_id, &token).await
     }
-
-    /// Retrieves all tokens for a batch of users.
-    ///
-    /// # Errors
-    /// Returns an error if the database operation fails.
-    pub async fn get_tokens_for_users(&self, user_ids: &[Uuid]) -> Result<Vec<(Uuid, String)>> {
-        let mut conn = self.pool.acquire().await?;
-        self.repo.find_tokens_for_users(&mut conn, user_ids).await
-    }
-
-    /// Invalidate a batch of tokens.
-    ///
-    /// # Errors
-    /// Returns an error if the database operation fails.
-    pub async fn invalidate_tokens_batch(&self, tokens: &[String]) -> Result<()> {
-        if tokens.is_empty() {
-            return Ok(());
-        }
-        let mut conn = self.pool.acquire().await?;
-        self.repo.delete_tokens_batch(&mut conn, tokens).await
-    }
 }
