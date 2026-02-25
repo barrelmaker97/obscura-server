@@ -12,12 +12,7 @@ pub struct Message {
     pub expires_at: OffsetDateTime,
 }
 
-impl Message {
-    #[must_use]
-    pub fn is_expired_at(&self, now: OffsetDateTime) -> bool {
-        self.expires_at < now
-    }
-}
+impl Message {}
 
 #[derive(Debug, Clone)]
 pub struct RawSubmission {

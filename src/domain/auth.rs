@@ -10,12 +10,7 @@ pub struct RefreshToken {
     pub created_at: OffsetDateTime,
 }
 
-impl RefreshToken {
-    #[must_use]
-    pub fn is_expired_at(&self, now: OffsetDateTime) -> bool {
-        self.expires_at < now
-    }
-}
+impl RefreshToken {}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Claims {
