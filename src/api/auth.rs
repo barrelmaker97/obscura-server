@@ -10,7 +10,10 @@ use std::convert::TryInto;
 ///
 /// # Errors
 /// Returns `AppError::AuthError` if the credentials are invalid.
-pub(crate) async fn login(State(state): State<AppState>, Json(payload): Json<LoginRequest>) -> Result<impl IntoResponse> {
+pub(crate) async fn login(
+    State(state): State<AppState>,
+    Json(payload): Json<LoginRequest>,
+) -> Result<impl IntoResponse> {
     let session = state.auth_service.login(payload.username, payload.password).await?;
     let auth_response = map_session(session);
     Ok(Json(auth_response))
@@ -52,7 +55,10 @@ pub(crate) async fn register(
 ///
 /// # Errors
 /// Returns `AppError::AuthError` if the refresh token is invalid or expired.
-pub(crate) async fn refresh(State(state): State<AppState>, Json(payload): Json<RefreshRequest>) -> Result<impl IntoResponse> {
+pub(crate) async fn refresh(
+    State(state): State<AppState>,
+    Json(payload): Json<RefreshRequest>,
+) -> Result<impl IntoResponse> {
     let session = state.auth_service.refresh_session(payload.refresh_token).await?;
     let auth_response = map_session(session);
     Ok(Json(auth_response))
