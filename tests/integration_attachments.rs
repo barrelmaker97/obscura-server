@@ -106,7 +106,6 @@ async fn test_attachment_cleanup() {
 
     let mut config = common::get_test_config();
     config.storage.bucket = format!("test-att-cleanup-{}", &Uuid::new_v4().to_string()[..8]);
-    config.attachment.cleanup_interval_secs = 3600; // Prevent background worker from racing with our manual call
 
     let app = common::TestApp::spawn_with_config(config.clone()).await;
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;

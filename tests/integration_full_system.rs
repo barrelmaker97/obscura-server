@@ -34,9 +34,9 @@ async fn test_full_system_flow() {
     config.messaging.send_batch_limit = 100;
 
     // 2. Spawn 3 Nodes (A, B, C) sharing the same resources (DB, Redis)
-    let app_a = TestApp::spawn_with_config(config.clone()).await;
-    let app_b = TestApp::spawn_with_config(config.clone()).await;
-    let app_c = TestApp::spawn_with_config(config.clone()).await;
+    let app_a = TestApp::spawn_with_workers(config.clone()).await;
+    let app_b = TestApp::spawn_with_workers(config.clone()).await;
+    let app_c = TestApp::spawn_with_workers(config.clone()).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
 
