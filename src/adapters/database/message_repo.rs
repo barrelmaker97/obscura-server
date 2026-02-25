@@ -105,7 +105,7 @@ impl MessageRepository {
             Some((last_ts, last_id)) => {
                 sqlx::query_as::<_, MessageRecord>(
                     r#"
-                    SELECT id, sender_id, recipient_id, submission_id, content, created_at, expires_at
+                    SELECT id, sender_id, content, created_at
                     FROM messages
                     WHERE recipient_id = $1
                       AND expires_at > NOW()
@@ -124,7 +124,7 @@ impl MessageRepository {
             None => {
                 sqlx::query_as::<_, MessageRecord>(
                     r#"
-                    SELECT id, sender_id, recipient_id, submission_id, content, created_at, expires_at
+                    SELECT id, sender_id, content, created_at
                     FROM messages
                     WHERE recipient_id = $1
                       AND expires_at > NOW()

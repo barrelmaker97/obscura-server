@@ -55,7 +55,7 @@ impl BackupRepository {
     /// # Errors
     /// Returns `sqlx::Error` if the query fails.
     #[tracing::instrument(level = "debug", skip(self, conn), err)]
-    pub(crate) async fn reserve_slot(
+    pub(crate) async fn reserve_active_slot(
         &self,
         conn: &mut PgConnection,
         user_id: Uuid,

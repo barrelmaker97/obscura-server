@@ -11,7 +11,7 @@ use uuid::Uuid;
 ///
 /// # Errors
 /// Returns `AppError::BadRequest` if the request protobuf is malformed.
-pub async fn send_messages(
+pub(crate) async fn send_messages(
     auth_user: AuthUser,
     State(state): State<AppState>,
     headers: HeaderMap,

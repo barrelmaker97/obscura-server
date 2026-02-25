@@ -9,7 +9,7 @@ use axum::response::Response;
 ///
 /// # Panics
 /// Panics if the `x-ratelimit-after` header value cannot be parsed as a string.
-pub async fn log_rate_limit_events(State(state): State<AppState>, req: Request<Body>, next: Next) -> Response {
+pub(crate) async fn log_rate_limit_events(State(state): State<AppState>, req: Request<Body>, next: Next) -> Response {
     let mut response = next.run(req).await;
 
     let status = response.status();

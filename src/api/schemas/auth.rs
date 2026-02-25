@@ -91,7 +91,7 @@ mod tests {
     #[test]
     fn test_registration_validation_username_empty() {
         let mut reg = mock_registration("password12345");
-        reg.username = "".into();
+        reg.username = String::new();
         let res = reg.validate();
         assert!(res.is_err());
         assert_eq!(res.expect_err("Empty username should fail"), "Username cannot be empty");

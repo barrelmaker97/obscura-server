@@ -16,7 +16,7 @@ use uuid::Uuid;
 ///
 /// # Errors
 /// Returns `AppError::NotFound` if the user or their keys do not exist.
-pub async fn get_pre_key_bundle(
+pub(crate) async fn get_pre_key_bundle(
     _auth_user: AuthUser,
     State(state): State<AppState>,
     Path(user_id): Path<Uuid>,
@@ -30,7 +30,7 @@ pub async fn get_pre_key_bundle(
 ///
 /// # Errors
 /// Returns `AppError::BadRequest` if the keys are malformed or validation fails.
-pub async fn upload_keys(
+pub(crate) async fn upload_keys(
     auth_user: AuthUser,
     State(state): State<AppState>,
     Json(payload): Json<PreKeyUploadRequest>,

@@ -168,7 +168,7 @@ impl AuthService {
 
         let user_id = self
             .refresh_repo
-            .rotate(&mut conn, &old_hash, &new_hash, self.config.refresh_token_ttl_days)
+            .rotate_unexpired(&mut conn, &old_hash, &new_hash, self.config.refresh_token_ttl_days)
             .await?
             .ok_or(AppError::AuthError)?;
 

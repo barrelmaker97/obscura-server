@@ -1,33 +1,20 @@
 use serde::{Deserialize, Serialize};
-use time::OffsetDateTime;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RefreshToken {
-    pub token_hash: String,
-    pub user_id: Uuid,
-    pub expires_at: OffsetDateTime,
-    pub created_at: OffsetDateTime,
-}
-
-impl RefreshToken {}
-
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Claims {
+pub(crate) struct Claims {
     pub sub: Uuid,
     pub exp: usize,
 }
-
 impl Claims {
     #[must_use]
-    pub const fn new(user_id: Uuid, exp: usize) -> Self {
+    pub(crate) const fn new(user_id: Uuid, exp: usize) -> Self {
         Self { sub: user_id, exp }
     }
 }
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Jwt(pub String);
-
 impl Jwt {
     #[must_use]
     pub const fn new(token: String) -> Self {
