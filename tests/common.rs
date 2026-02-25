@@ -247,10 +247,18 @@ pub struct TestApp {
 
 impl TestApp {
     pub(crate) async fn spawn() -> Self {
-        Self::spawn_with_config(get_test_config()).await
+        Self::spawn_internal(get_test_config(), false).await
     }
 
     pub(crate) async fn spawn_with_config(config: Config) -> Self {
+        Self::spawn_internal(config, false).await
+    }
+
+    pub(crate) async fn spawn_with_workers(config: Config) -> Self {
+        Self::spawn_internal(config, true).await
+    }
+
+    async fn spawn_internal(config: Config, start_workers: bool) -> Self {
         let pool = get_test_pool().await;
         let mut config = config;
 
@@ -285,8 +293,10 @@ impl TestApp {
             .await
             .expect("Failed to build application for tests");
 
-        // Spawn workers explicitly in tests if needed (some tests might want to control this)
-        let _worker_tasks = app.workers.spawn_all(shutdown_rx.clone());
+        // Spawn workers explicitly in tests only if requested
+        if start_workers {
+            let _worker_tasks = app.workers.spawn_all(shutdown_rx.clone());
+        }
 
         let notifier = app.services.notification_service.clone();
         let app_router = app_router(&config, app.services, shutdown_rx.clone());

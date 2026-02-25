@@ -10,7 +10,6 @@ use crate::services::gateway::GatewayService;
 use crate::services::health_service::HealthService;
 use crate::services::key_service::KeyService;
 use crate::services::message_service::MessageService;
-use crate::services::notification_service::NotificationService;
 use crate::services::push_token_service::PushTokenService;
 use crate::services::rate_limit_service::RateLimitService;
 use axum::body::Body;
@@ -42,20 +41,19 @@ pub mod rate_limit;
 pub mod schemas;
 
 #[derive(Clone, Debug)]
-pub struct AppState {
-    pub config: Config,
-    pub key_service: KeyService,
-    pub attachment_service: AttachmentService,
-    pub backup_service: BackupService,
-    pub account_service: AccountService,
-    pub auth_service: AuthService,
-    pub message_service: MessageService,
-    pub gateway_service: GatewayService,
-    pub notification_service: NotificationService,
-    pub push_token_service: PushTokenService,
-    pub rate_limit_service: RateLimitService,
-    pub submission_cache: SubmissionCache,
-    pub shutdown_rx: tokio::sync::watch::Receiver<bool>,
+pub(crate) struct AppState {
+    pub(crate) config: Config,
+    pub(crate) key_service: KeyService,
+    pub(crate) attachment_service: AttachmentService,
+    pub(crate) backup_service: BackupService,
+    pub(crate) account_service: AccountService,
+    pub(crate) auth_service: AuthService,
+    pub(crate) message_service: MessageService,
+    pub(crate) gateway_service: GatewayService,
+    pub(crate) push_token_service: PushTokenService,
+    pub(crate) rate_limit_service: RateLimitService,
+    pub(crate) submission_cache: SubmissionCache,
+    pub(crate) shutdown_rx: tokio::sync::watch::Receiver<bool>,
 }
 
 #[derive(Clone, Debug)]
@@ -99,7 +97,6 @@ pub fn app_router(config: &Config, services: Services, shutdown_rx: tokio::sync:
         auth_service: services.auth_service,
         message_service: services.message_service,
         gateway_service: services.gateway_service,
-        notification_service: services.notification_service,
         push_token_service: services.push_token_service,
         rate_limit_service: services.rate_limit_service,
         submission_cache: services.submission_cache,

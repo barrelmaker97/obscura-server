@@ -1,12 +1,8 @@
 use crate::domain::crypto::{PublicKey, Signature};
 use crate::domain::keys::{OneTimePreKey, SignedPreKey};
-use time::OffsetDateTime;
-use uuid::Uuid;
 
 #[derive(Debug, sqlx::FromRow)]
 pub struct IdentityKeyRecord {
-    #[sqlx(rename = "user_id")]
-    pub(crate) _user_id: Uuid,
     #[sqlx(rename = "identity_key")]
     pub(crate) key: Vec<u8>,
     pub(crate) registration_id: i32,
@@ -22,12 +18,8 @@ impl TryFrom<IdentityKeyRecord> for PublicKey {
 #[derive(Debug, sqlx::FromRow)]
 pub struct SignedPreKeyRecord {
     pub(crate) id: i32,
-    #[sqlx(rename = "user_id")]
-    pub(crate) _user_id: Uuid,
     pub(crate) public_key: Vec<u8>,
     pub(crate) signature: Vec<u8>,
-    #[sqlx(rename = "created_at")]
-    pub(crate) _created_at: Option<OffsetDateTime>,
 }
 
 impl TryFrom<SignedPreKeyRecord> for SignedPreKey {
@@ -42,11 +34,7 @@ impl TryFrom<SignedPreKeyRecord> for SignedPreKey {
 #[derive(Debug, sqlx::FromRow)]
 pub struct OneTimePreKeyRecord {
     pub(crate) id: i32,
-    #[sqlx(rename = "user_id")]
-    pub(crate) _user_id: Uuid,
     pub(crate) public_key: Vec<u8>,
-    #[sqlx(rename = "created_at")]
-    pub(crate) _created_at: Option<OffsetDateTime>,
 }
 
 impl TryFrom<OneTimePreKeyRecord> for OneTimePreKey {

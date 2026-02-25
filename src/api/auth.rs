@@ -10,7 +10,10 @@ use std::convert::TryInto;
 ///
 /// # Errors
 /// Returns `AppError::AuthError` if the credentials are invalid.
-pub async fn login(State(state): State<AppState>, Json(payload): Json<LoginRequest>) -> Result<impl IntoResponse> {
+pub(crate) async fn login(
+    State(state): State<AppState>,
+    Json(payload): Json<LoginRequest>,
+) -> Result<impl IntoResponse> {
     let session = state.auth_service.login(payload.username, payload.password).await?;
     let auth_response = map_session(session);
     Ok(Json(auth_response))
@@ -21,7 +24,7 @@ pub async fn login(State(state): State<AppState>, Json(payload): Json<LoginReque
 /// # Errors
 /// Returns `AppError::BadRequest` if validation fails or keys are malformed.
 /// Returns `AppError::Conflict` if the username is already taken.
-pub async fn register(
+pub(crate) async fn register(
     State(state): State<AppState>,
     Json(payload): Json<RegistrationRequest>,
 ) -> Result<impl IntoResponse> {
@@ -52,7 +55,10 @@ pub async fn register(
 ///
 /// # Errors
 /// Returns `AppError::AuthError` if the refresh token is invalid or expired.
-pub async fn refresh(State(state): State<AppState>, Json(payload): Json<RefreshRequest>) -> Result<impl IntoResponse> {
+pub(crate) async fn refresh(
+    State(state): State<AppState>,
+    Json(payload): Json<RefreshRequest>,
+) -> Result<impl IntoResponse> {
     let session = state.auth_service.refresh_session(payload.refresh_token).await?;
     let auth_response = map_session(session);
     Ok(Json(auth_response))
@@ -62,7 +68,7 @@ pub async fn refresh(State(state): State<AppState>, Json(payload): Json<RefreshR
 ///
 /// # Errors
 /// Returns `AppError::AuthError` if the user is not authorized.
-pub async fn logout(
+pub(crate) async fn logout(
     auth_user: AuthUser,
     State(state): State<AppState>,
     Json(payload): Json<LogoutRequest>,

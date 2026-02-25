@@ -95,7 +95,7 @@ impl BackupService {
 
         let _ = self.repo.create_if_not_exists(&mut conn, user_id).await?;
 
-        let backup = if let Some(b) = self.repo.reserve_slot(&mut conn, user_id, if_match_version).await? {
+        let backup = if let Some(b) = self.repo.reserve_active_slot(&mut conn, user_id, if_match_version).await? {
             b
         } else {
             let current = self.repo.find_by_user_id(&mut conn, user_id).await?.ok_or(AppError::Internal)?;

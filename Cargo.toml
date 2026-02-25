@@ -40,7 +40,6 @@ sqlx = { version = "0.8", features = ["postgres", "runtime-tokio-rustls", "macro
 thiserror = "2.0"
 time = { version = "0.3", features = ["serde"] }
 tokio = { version = "1.49", features = ["full"] }
-tokio-util = { version = "0.7", features = ["io", "codec"] }
 tower_governor = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
@@ -49,7 +48,6 @@ tower-http = { version = "0.6", features = ["trace", "request-id", "util", "time
 opentelemetry = { version = "0.31", features = ["metrics", "logs"] }
 opentelemetry_sdk = { version = "0.31", features = ["metrics", "logs"] }
 opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic", "metrics", "logs"] }
-opentelemetry-appender-tracing = "0.31"
 tracing-opentelemetry = "0.32"
 opentelemetry-semantic-conventions = "0.31"
 redis = { version = "1.0.3", features = ["tokio-comp", "connection-manager"] }

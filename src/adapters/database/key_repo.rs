@@ -126,7 +126,7 @@ impl KeyRepository {
     ) -> Result<Option<PreKeyBundle>> {
         // Fetch identity
         let identity_rec = sqlx::query_as::<_, IdentityKeyRecord>(
-            "SELECT user_id, identity_key, registration_id FROM identity_keys WHERE user_id = $1",
+            "SELECT identity_key, registration_id FROM identity_keys WHERE user_id = $1",
         )
         .bind(user_id)
         .fetch_optional(&mut *conn)
@@ -145,7 +145,7 @@ impl KeyRepository {
         // Fetch latest signed pre key
         let signed_rec = sqlx::query_as::<_, SignedPreKeyRecord>(
             r#"
-            SELECT id, user_id, public_key, signature, created_at 
+            SELECT id, public_key, signature 
             FROM signed_pre_keys WHERE user_id = $1
             ORDER BY created_at DESC LIMIT 1
             "#,
@@ -170,7 +170,7 @@ impl KeyRepository {
             WHERE id = (
                 SELECT id FROM one_time_pre_keys WHERE user_id = $1 LIMIT 1
             ) AND user_id = $1
-            RETURNING id, user_id, public_key, created_at
+            RETURNING id, public_key
             "#,
         )
         .bind(user_id)
@@ -199,7 +199,7 @@ impl KeyRepository {
     #[tracing::instrument(level = "debug", skip(self, conn), err)]
     pub(crate) async fn fetch_identity_key(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Option<PublicKey>> {
         let rec = sqlx::query_as::<_, IdentityKeyRecord>(
-            "SELECT user_id, identity_key, registration_id FROM identity_keys WHERE user_id = $1",
+            "SELECT identity_key, registration_id FROM identity_keys WHERE user_id = $1",
         )
         .bind(user_id)
         .fetch_optional(conn)
@@ -229,7 +229,7 @@ impl KeyRepository {
         user_id: Uuid,
     ) -> Result<Option<PublicKey>> {
         let rec = sqlx::query_as::<_, IdentityKeyRecord>(
-            "SELECT user_id, identity_key, registration_id FROM identity_keys WHERE user_id = $1 FOR UPDATE",
+            "SELECT identity_key, registration_id FROM identity_keys WHERE user_id = $1 FOR UPDATE",
         )
         .bind(user_id)
         .fetch_optional(conn)

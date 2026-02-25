@@ -15,7 +15,7 @@ use futures::StreamExt;
 /// Returns `AppError::BadRequest` if headers are invalid.
 /// Returns `AppError::LengthRequired` if the Content-Length header is missing.
 /// Returns `AppError::Internal` if the upload fails.
-pub async fn upload_backup(
+pub(crate) async fn upload_backup(
     auth_user: AuthUser,
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -64,7 +64,7 @@ pub async fn upload_backup(
 /// # Errors
 /// Returns `AppError::NotFound` if the backup does not exist.
 /// Returns `AppError::Internal` if there is an error during download.
-pub async fn download_backup(
+pub(crate) async fn download_backup(
     auth_user: AuthUser,
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -105,7 +105,7 @@ pub async fn download_backup(
 /// # Errors
 /// Returns `AppError::NotFound` if the backup does not exist.
 /// Returns `AppError::Internal` if there is an error.
-pub async fn head_backup(auth_user: AuthUser, State(state): State<AppState>) -> Result<impl IntoResponse> {
+pub(crate) async fn head_backup(auth_user: AuthUser, State(state): State<AppState>) -> Result<impl IntoResponse> {
     let (version, len) = state.backup_service.head(auth_user.user_id).await?;
 
     let mut response = Response::new(Body::empty());

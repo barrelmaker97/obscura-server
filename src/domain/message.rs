@@ -2,25 +2,17 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
-pub struct Message {
+pub(crate) struct Message {
     pub id: Uuid,
     pub sender_id: Uuid,
-    pub recipient_id: Uuid,
-    pub submission_id: Uuid,
     pub content: Vec<u8>,
     pub created_at: Option<OffsetDateTime>,
-    pub expires_at: OffsetDateTime,
 }
 
-impl Message {
-    #[must_use]
-    pub fn is_expired_at(&self, now: OffsetDateTime) -> bool {
-        self.expires_at < now
-    }
-}
+impl Message {}
 
 #[derive(Debug, Clone)]
-pub struct RawSubmission {
+pub(crate) struct RawSubmission {
     pub submission_id: Vec<u8>,
     pub recipient_id: Vec<u8>,
     pub message: Vec<u8>,

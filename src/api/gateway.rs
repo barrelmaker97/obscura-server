@@ -13,7 +13,7 @@ pub struct WsParams {
     token: String,
 }
 
-pub async fn websocket_handler(
+pub(crate) async fn websocket_handler(
     ws: WebSocketUpgrade,
     Query(params): Query<WsParams>,
     extensions: Extensions,

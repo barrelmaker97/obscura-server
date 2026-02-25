@@ -35,7 +35,7 @@ async fn test_scheduled_push_delivery() {
     config.notifications.push_delay_secs = 1;
     config.notifications.worker_interval_secs = 1;
 
-    let app = TestApp::spawn_with_config(config).await;
+    let app = TestApp::spawn_with_workers(config).await;
     let user_id = Uuid::new_v4();
 
     {
@@ -75,7 +75,7 @@ async fn test_push_cancellation_on_ack() {
     let mut config = common::get_test_config();
     config.notifications.push_delay_secs = 15;
 
-    let app = TestApp::spawn_with_config(config).await;
+    let app = TestApp::spawn_with_workers(config).await;
     let username = format!("u_ack_{}", &Uuid::new_v4().to_string()[..8]);
     let user = app.register_user(&username).await;
 
@@ -122,7 +122,7 @@ async fn test_push_cancellation_on_websocket_connect() {
     let mut config = common::get_test_config();
     config.notifications.push_delay_secs = 10;
 
-    let app = TestApp::spawn_with_config(config).await;
+    let app = TestApp::spawn_with_workers(config).await;
     let username = format!("u_ws_{}", &Uuid::new_v4().to_string()[..8]);
     let user = app.register_user(&username).await;
 
@@ -228,7 +228,7 @@ async fn test_push_coalescing() {
     config.notifications.push_delay_secs = 2;
     config.notifications.worker_interval_secs = 1;
 
-    let app = TestApp::spawn_with_config(config).await;
+    let app = TestApp::spawn_with_workers(config).await;
     let user_id = Uuid::new_v4();
 
     {
@@ -407,7 +407,7 @@ async fn test_notification_lag_recovery() {
     let mut config = common::get_test_config();
     config.websocket.outbound_buffer_size = 10;
 
-    let app = TestApp::spawn_with_config(config).await;
+    let app = TestApp::spawn_with_workers(config).await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
 
     let user_a = app.register_user(&format!("alice_{run_id}")).await;

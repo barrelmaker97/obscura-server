@@ -10,7 +10,7 @@ use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 /// Returns `AppError::AuthError` if the user is not authenticated.
 /// Returns `AppError::BadRequest` if the token format is invalid.
 /// Returns `AppError::Database` if the database operation fails.
-pub async fn register_token(
+pub(crate) async fn register_token(
     auth_user: AuthUser,
     State(state): State<AppState>,
     Json(payload): Json<RegisterPushTokenRequest>,

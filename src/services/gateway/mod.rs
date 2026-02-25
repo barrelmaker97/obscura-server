@@ -63,7 +63,7 @@ impl Default for Metrics {
 }
 
 #[derive(Clone, Debug)]
-pub struct GatewayService {
+pub(crate) struct GatewayService {
     message_service: MessageService,
     key_service: KeyService,
     notifier: NotificationService,
@@ -73,7 +73,7 @@ pub struct GatewayService {
 
 impl GatewayService {
     #[must_use]
-    pub fn new(
+    pub(crate) fn new(
         message_service: MessageService,
         key_service: KeyService,
         notifier: NotificationService,

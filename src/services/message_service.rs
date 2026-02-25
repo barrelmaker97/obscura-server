@@ -34,7 +34,7 @@ impl Metrics {
 }
 
 #[derive(Clone, Debug)]
-pub struct MessageService {
+pub(crate) struct MessageService {
     pool: DbPool,
     repo: MessageRepository,
     notifier: NotificationService,
@@ -44,7 +44,7 @@ pub struct MessageService {
 
 impl MessageService {
     #[must_use]
-    pub fn new(
+    pub(crate) fn new(
         pool: DbPool,
         repo: MessageRepository,
         notifier: NotificationService,
@@ -64,7 +64,7 @@ impl MessageService {
         skip(self, submissions),
         fields(sender_id = %sender_id, count = submissions.len())
     )]
-    pub async fn send(&self, sender_id: Uuid, submissions: Vec<RawSubmission>) -> Result<SubmissionOutcome> {
+    pub(crate) async fn send(&self, sender_id: Uuid, submissions: Vec<RawSubmission>) -> Result<SubmissionOutcome> {
         let mut failed_submissions = Vec::new();
         let mut potential_valid = Vec::with_capacity(submissions.len());
         let mut recipient_ids_to_check = std::collections::HashSet::new();
@@ -149,7 +149,7 @@ impl MessageService {
         skip(self),
         fields(recipient_id = %recipient_id, batch_limit = %limit)
     )]
-    pub async fn fetch_pending_batch(
+    pub(crate) async fn fetch_pending_batch(
         &self,
         recipient_id: Uuid,
         cursor: Option<(time::OffsetDateTime, Uuid)>,
@@ -172,7 +172,7 @@ impl MessageService {
         skip(self),
         fields(batch_count = message_ids.len())
     )]
-    pub async fn delete_batch(&self, user_id: Uuid, message_ids: &[Uuid]) -> Result<()> {
+    pub(crate) async fn delete_batch(&self, user_id: Uuid, message_ids: &[Uuid]) -> Result<()> {
         let mut conn = self.pool.acquire().await?;
         self.repo.delete_batch(&mut conn, user_id, message_ids).await
     }
