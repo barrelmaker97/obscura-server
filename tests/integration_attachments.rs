@@ -1,3 +1,18 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    missing_debug_implementations,
+    clippy::cast_precision_loss,
+    clippy::clone_on_ref_ptr,
+    clippy::match_same_arms,
+    clippy::items_after_statements,
+    unreachable_pub,
+    clippy::print_stdout,
+    clippy::similar_names
+)]
 use reqwest::StatusCode;
 use uuid::Uuid;
 
@@ -13,7 +28,7 @@ async fn test_attachment_lifecycle() {
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("att_life_{}", run_id)).await;
+    let user = app.register_user(&format!("att_life_{run_id}")).await;
 
     // 1. Upload Success
     let content = b"Hello Obscura!";
@@ -154,7 +169,7 @@ async fn test_attachment_min_size() {
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("att_min_{}", run_id)).await;
+    let user = app.register_user(&format!("att_min_{run_id}")).await;
 
     // 1. Upload too small (Header check)
     let resp = app
@@ -190,7 +205,7 @@ async fn test_attachment_conditional_download() {
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("att_cond_{}", run_id)).await;
+    let user = app.register_user(&format!("att_cond_{run_id}")).await;
 
     // 1. Initial Upload
     let content = b"Attachment Data";
@@ -211,7 +226,7 @@ async fn test_attachment_conditional_download() {
         .client
         .get(format!("{}/v1/attachments/{}", app.server_url, id))
         .header("Authorization", format!("Bearer {}", user.token))
-        .header("If-None-Match", format!("\"{}\"", id))
+        .header("If-None-Match", format!("\"{id}\""))
         .send()
         .await
         .unwrap();

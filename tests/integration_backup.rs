@@ -1,3 +1,18 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    missing_debug_implementations,
+    clippy::cast_precision_loss,
+    clippy::clone_on_ref_ptr,
+    clippy::match_same_arms,
+    clippy::items_after_statements,
+    unreachable_pub,
+    clippy::print_stdout,
+    clippy::similar_names
+)]
 use obscura_server::adapters::database::backup_repo::BackupRepository;
 use obscura_server::adapters::storage::S3Storage;
 use obscura_server::workers::BackupCleanupWorker;
@@ -17,7 +32,7 @@ async fn test_backup_lifecycle() {
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("backup_user_{}", run_id)).await;
+    let user = app.register_user(&format!("backup_user_{run_id}")).await;
 
     // 1. Initial State: No backup
     let resp_404 = app
@@ -131,7 +146,7 @@ async fn test_backup_min_size() {
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("backup_min_{}", run_id)).await;
+    let user = app.register_user(&format!("backup_min_{run_id}")).await;
 
     // Upload too small
     let content = b"TooSmall"; // 8 bytes
@@ -160,7 +175,7 @@ async fn test_backup_max_size() {
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("backup_max_{}", run_id)).await;
+    let user = app.register_user(&format!("backup_max_{run_id}")).await;
 
     // 1. Upload too large (Header check)
     let content = vec![0u8; 101]; // Over 100 limit
@@ -183,7 +198,7 @@ async fn test_backup_max_size() {
 async fn test_backup_head_404() {
     let app = common::TestApp::spawn().await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("head_404_{}", run_id)).await;
+    let user = app.register_user(&format!("head_404_{run_id}")).await;
 
     let resp = app
         .client
@@ -207,7 +222,7 @@ async fn test_backup_takeover_stale_upload() {
     common::ensure_storage_bucket(&app.s3_client, &app.config.storage.bucket).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("takeover_{}", run_id)).await;
+    let user = app.register_user(&format!("takeover_{run_id}")).await;
 
     // 1. Act: Start an upload (Version 1)
     let resp_v1 = app
@@ -268,7 +283,7 @@ async fn test_backup_concurrent_upload_conflict() {
     common::ensure_storage_bucket(&app.s3_client, &app.config.storage.bucket).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("conflict_{}", run_id)).await;
+    let user = app.register_user(&format!("conflict_{run_id}")).await;
 
     // 1. Act: Start a legitimate upload
     // We simulate a "stuck" concurrent upload by manually putting the record into UPLOADING state
@@ -300,7 +315,7 @@ async fn test_backup_cleanup() {
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("cleanup_{}", run_id)).await;
+    let user = app.register_user(&format!("cleanup_{run_id}")).await;
     let user_id = user.user_id;
 
     // 1. Setup Stale DB State (2 minutes ago)
@@ -360,7 +375,7 @@ async fn test_backup_version_rotation_and_cleanup() {
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("version_{}", run_id)).await;
+    let user = app.register_user(&format!("version_{run_id}")).await;
     let user_id = user.user_id;
 
     // 1. Upload Version 1
@@ -434,7 +449,7 @@ async fn test_backup_stream_limits() {
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
 
     // 1. Chunked Upload - Rejected (Missing Content-Length)
-    let user1 = app.register_user(&format!("backup_stream_1_{}", run_id)).await;
+    let user1 = app.register_user(&format!("backup_stream_1_{run_id}")).await;
     let stream_small = futures::stream::iter(vec![Ok::<_, std::io::Error>(axum::body::Bytes::from(vec![0u8; 5]))]);
     let resp_rejected = app
         .client
@@ -448,7 +463,7 @@ async fn test_backup_stream_limits() {
     assert_eq!(resp_rejected.status(), StatusCode::LENGTH_REQUIRED);
 
     // 2. Upload - Too Small (Header fast-fail)
-    let user2 = app.register_user(&format!("backup_stream_2_{}", run_id)).await;
+    let user2 = app.register_user(&format!("backup_stream_2_{run_id}")).await;
     let resp_small = app
         .client
         .post(format!("{}/v1/backup", app.server_url))
@@ -462,7 +477,7 @@ async fn test_backup_stream_limits() {
     assert_eq!(resp_small.status(), StatusCode::BAD_REQUEST);
 
     // 3. Upload - Too Large (Header fast-fail)
-    let user3 = app.register_user(&format!("backup_stream_3_{}", run_id)).await;
+    let user3 = app.register_user(&format!("backup_stream_3_{run_id}")).await;
     let resp_large = app
         .client
         .post(format!("{}/v1/backup", app.server_url))
@@ -476,7 +491,7 @@ async fn test_backup_stream_limits() {
     assert_eq!(resp_large.status(), StatusCode::PAYLOAD_TOO_LARGE);
 
     // 4. Stream Upload - OK
-    let user4 = app.register_user(&format!("backup_stream_4_{}", run_id)).await;
+    let user4 = app.register_user(&format!("backup_stream_4_{run_id}")).await;
     let stream_ok = futures::stream::iter(vec![Ok::<_, std::io::Error>(axum::body::Bytes::from(vec![0u8; 15]))]);
     let resp_ok = app
         .client
@@ -501,7 +516,7 @@ async fn test_backup_conditional_download() {
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("cond_user_{}", run_id)).await;
+    let user = app.register_user(&format!("cond_user_{run_id}")).await;
 
     // 1. Initial Upload
     let content = b"Backup Data v1";
@@ -549,7 +564,7 @@ async fn test_backup_header_conflicts() {
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("headers_user_{}", run_id)).await;
+    let user = app.register_user(&format!("headers_user_{run_id}")).await;
 
     // 1. Both If-Match and If-None-Match (Standard Precedence check)
     // Client sends both. RFC 7232 says If-None-Match takes precedence.

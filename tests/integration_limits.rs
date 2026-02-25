@@ -1,3 +1,18 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    missing_debug_implementations,
+    clippy::cast_precision_loss,
+    clippy::clone_on_ref_ptr,
+    clippy::match_same_arms,
+    clippy::items_after_statements,
+    unreachable_pub,
+    clippy::print_stdout,
+    clippy::similar_names
+)]
 use obscura_server::adapters::database::message_repo::MessageRepository;
 use reqwest::StatusCode;
 use uuid::Uuid;
@@ -14,12 +29,12 @@ async fn test_message_limit_fifo() {
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
 
-    let user_a = app.register_user(&format!("alice_{}", run_id)).await;
-    let user_b = app.register_user(&format!("bob_{}", run_id)).await;
+    let user_a = app.register_user(&format!("alice_{run_id}")).await;
+    let user_b = app.register_user(&format!("bob_{run_id}")).await;
 
     // Flood 1005 messages
     for i in 0..1005 {
-        let payload = format!("msg_{}", i).into_bytes();
+        let payload = format!("msg_{i}").into_bytes();
         app.send_message(&user_a.token, user_b.user_id, &payload).await;
     }
 

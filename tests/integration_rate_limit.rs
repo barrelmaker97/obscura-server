@@ -1,3 +1,18 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    missing_debug_implementations,
+    clippy::cast_precision_loss,
+    clippy::clone_on_ref_ptr,
+    clippy::match_same_arms,
+    clippy::items_after_statements,
+    unreachable_pub,
+    clippy::print_stdout,
+    clippy::similar_names
+)]
 use axum::http::StatusCode;
 use futures::future::join_all;
 use reqwest::Client;
@@ -27,7 +42,7 @@ async fn test_rate_limit_isolation() {
             .send()
             .await
             .unwrap();
-        assert_eq!(resp.status(), StatusCode::NOT_FOUND, "Request {} for User A should succeed", i);
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND, "Request {i} for User A should succeed");
     }
 
     let resp_a = app
@@ -102,9 +117,9 @@ async fn test_rate_limit_concurrency() {
         let c = client.clone();
         let token = user.token.clone();
         tasks.push(tokio::spawn(async move {
-            let ip = format!("10.10.10.{}", i);
+            let ip = format!("10.10.10.{i}");
             c.get(format!("{}/v1/keys/{}", url, Uuid::new_v4()))
-                .header("Authorization", format!("Bearer {}", token))
+                .header("Authorization", format!("Bearer {token}"))
                 .header("X-Forwarded-For", ip)
                 .send()
                 .await
@@ -163,7 +178,7 @@ async fn test_rate_limit_spoofing_protection() {
         .client
         .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
         .header("Authorization", format!("Bearer {}", user.token))
-        .header("X-Forwarded-For", format!("{}, {}", spoofed_ip, real_attacker_ip))
+        .header("X-Forwarded-For", format!("{spoofed_ip}, {real_attacker_ip}"))
         .send()
         .await
         .unwrap();
@@ -172,7 +187,7 @@ async fn test_rate_limit_spoofing_protection() {
         .client
         .get(format!("{}/v1/keys/{}", app.server_url, Uuid::new_v4()))
         .header("Authorization", format!("Bearer {}", user.token))
-        .header("X-Forwarded-For", format!("9.9.9.9, {}", real_attacker_ip))
+        .header("X-Forwarded-For", format!("9.9.9.9, {real_attacker_ip}"))
         .send()
         .await
         .unwrap();

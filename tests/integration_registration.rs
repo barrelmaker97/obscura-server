@@ -1,3 +1,18 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    missing_debug_implementations,
+    clippy::cast_precision_loss,
+    clippy::clone_on_ref_ptr,
+    clippy::match_same_arms,
+    clippy::items_after_statements,
+    unreachable_pub,
+    clippy::print_stdout,
+    clippy::similar_names
+)]
 use base64::Engine;
 use reqwest::StatusCode;
 use serde_json::json;
@@ -11,7 +26,7 @@ mod common;
 async fn test_register_flow() {
     let app = common::TestApp::spawn().await;
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let username = format!("user_{}", run_id);
+    let username = format!("user_{run_id}");
 
     let identity_key = common::generate_signing_key();
     let ik_priv = PrivateKey(identity_key);
@@ -79,7 +94,7 @@ async fn test_register_flow() {
     let resp_keys = app
         .client
         .get(format!("{}/v1/keys/{}", app.server_url, user_id))
-        .header("Authorization", format!("Bearer {}", token))
+        .header("Authorization", format!("Bearer {token}"))
         .send()
         .await
         .unwrap();

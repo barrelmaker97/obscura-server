@@ -1,3 +1,18 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    missing_debug_implementations,
+    clippy::cast_precision_loss,
+    clippy::clone_on_ref_ptr,
+    clippy::match_same_arms,
+    clippy::items_after_statements,
+    unreachable_pub,
+    clippy::print_stdout,
+    clippy::similar_names
+)]
 mod common;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -127,7 +142,7 @@ async fn test_key_limit_enforced() {
     let resp = app
         .client
         .post(format!("{}/v1/keys", app.server_url))
-        .header("Authorization", format!("Bearer {}", token))
+        .header("Authorization", format!("Bearer {token}"))
         .json(&refill_payload)
         .send()
         .await
@@ -159,7 +174,7 @@ async fn test_key_rotation_monotonic_check() {
     // 2. Rotate to 11
     let (spk_pub_11, spk_sig_11) = common::generate_signed_pre_key(&identity_key);
     let resp_11 = app.client.post(format!("{}/v1/keys", app.server_url))
-        .header("Authorization", format!("Bearer {}", token))
+        .header("Authorization", format!("Bearer {token}"))
         .json(&json!({
             "registrationId": 123,
             "signedPreKey": { "keyId": 11, "publicKey": STANDARD.encode(&spk_pub_11), "signature": STANDARD.encode(&spk_sig_11) },
@@ -170,7 +185,7 @@ async fn test_key_rotation_monotonic_check() {
     // 3. Replay 10 (Fail - ID is smaller than current max)
     let (spk_pub_10, spk_sig_10) = common::generate_signed_pre_key(&identity_key);
     let resp_10 = app.client.post(format!("{}/v1/keys", app.server_url))
-        .header("Authorization", format!("Bearer {}", token))
+        .header("Authorization", format!("Bearer {token}"))
         .json(&json!({
             "registrationId": 123,
             "signedPreKey": { "keyId": 10, "publicKey": STANDARD.encode(&spk_pub_10), "signature": STANDARD.encode(&spk_sig_10) },
@@ -199,7 +214,7 @@ async fn test_key_rotation_cleanup() {
     // Rotate to ID 10
     let (spk_pub, spk_sig) = common::generate_signed_pre_key(&identity_key);
     app.client.post(format!("{}/v1/keys", app.server_url))
-        .header("Authorization", format!("Bearer {}", token))
+        .header("Authorization", format!("Bearer {token}"))
         .json(&json!({
             "registrationId": 123,
             "signedPreKey": { "keyId": 10, "publicKey": STANDARD.encode(&spk_pub), "signature": STANDARD.encode(&spk_sig) },

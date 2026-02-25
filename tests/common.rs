@@ -1,3 +1,18 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    missing_debug_implementations,
+    clippy::cast_precision_loss,
+    clippy::clone_on_ref_ptr,
+    clippy::match_same_arms,
+    clippy::items_after_statements,
+    unreachable_pub,
+    clippy::print_stdout,
+    clippy::similar_names
+)]
 #![allow(dead_code)]
 use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -127,8 +142,8 @@ pub fn get_test_config() -> Config {
             ..Default::default()
         },
         notifications: NotificationConfig {
-            push_queue_key: format!("jobs:test:{}", run_id),
-            channel_prefix: format!("test:{}:", run_id),
+            push_queue_key: format!("jobs:test:{run_id}"),
+            channel_prefix: format!("test:{run_id}:"),
             ..Default::default()
         },
         ..Default::default()
@@ -231,11 +246,11 @@ pub struct TestApp {
 }
 
 impl TestApp {
-    pub async fn spawn() -> Self {
+    pub(crate) async fn spawn() -> Self {
         Self::spawn_with_config(get_test_config()).await
     }
 
-    pub async fn spawn_with_config(config: Config) -> Self {
+    pub(crate) async fn spawn_with_config(config: Config) -> Self {
         let pool = get_test_pool().await;
         let mut config = config;
 
@@ -278,9 +293,9 @@ impl TestApp {
         let mgmt_app =
             obscura_server::api::mgmt_router(obscura_server::api::MgmtState { health_service: app.health_service });
 
-        let server_url = format!("http://{}", addr);
-        let mgmt_url = format!("http://{}", mgmt_addr);
-        let ws_url = format!("ws://{}/v1/gateway", addr);
+        let server_url = format!("http://{addr}");
+        let mgmt_url = format!("http://{mgmt_addr}");
+        let ws_url = format!("ws://{addr}/v1/gateway");
 
         tokio::spawn(async move {
             axum::serve(listener, app_router.into_make_service_with_connect_info::<std::net::SocketAddr>())
@@ -294,7 +309,7 @@ impl TestApp {
                 .unwrap();
         });
 
-        TestApp {
+        Self {
             pool,
             config,
             resources: app.resources,
@@ -308,11 +323,11 @@ impl TestApp {
         }
     }
 
-    pub async fn register_user(&self, username: &str) -> TestUser {
+    pub(crate) async fn register_user(&self, username: &str) -> TestUser {
         self.register_user_with_keys(username, 123, 1).await
     }
 
-    pub async fn register_user_with_keys(&self, username: &str, reg_id: u32, otpk_count: usize) -> TestUser {
+    pub(crate) async fn register_user_with_keys(&self, username: &str, reg_id: u32, otpk_count: usize) -> TestUser {
         let (reg_payload, identity_key) = generate_registration_payload(username, "password12345", reg_id, otpk_count);
 
         let resp = self.client.post(format!("{}/v1/users", self.server_url)).json(&reg_payload).send().await.unwrap();
@@ -330,11 +345,11 @@ impl TestApp {
         TestUser { user_id, token, refresh_token, identity_key }
     }
 
-    pub async fn send_message(&self, token: &str, recipient_id: Uuid, content: &[u8]) {
+    pub(crate) async fn send_message(&self, token: &str, recipient_id: Uuid, content: &[u8]) {
         self.send_messages(token, &[(recipient_id, content)]).await;
     }
 
-    pub async fn send_messages(&self, token: &str, messages: &[(Uuid, &[u8])]) {
+    pub(crate) async fn send_messages(&self, token: &str, messages: &[(Uuid, &[u8])]) {
         let outgoing = messages
             .iter()
             .map(|(recipient_id, content)| proto::send_message_request::Submission {
@@ -351,7 +366,7 @@ impl TestApp {
         let resp = self
             .client
             .post(format!("{}/v1/messages", self.server_url))
-            .header("Authorization", format!("Bearer {}", token))
+            .header("Authorization", format!("Bearer {token}"))
             .header("Idempotency-Key", Uuid::new_v4().to_string())
             .header("Content-Type", "application/x-protobuf")
             .body(buf)
@@ -362,7 +377,7 @@ impl TestApp {
         assert_eq!(resp.status(), 200, "Message sending failed: {}", resp.text().await.unwrap());
     }
 
-    pub async fn connect_ws(&self, token: &str) -> TestWsClient {
+    pub(crate) async fn connect_ws(&self, token: &str) -> TestWsClient {
         let (ws_stream, _) =
             connect_async(format!("{}?token={}", self.ws_url, token)).await.expect("Failed to connect WS");
         let (sink, stream) = ws_stream.split();
@@ -402,10 +417,10 @@ impl TestApp {
         TestWsClient { sink, rx_env, rx_status, rx_pong, rx_raw }
     }
 
-    pub async fn wait_until<F, Fut>(&self, mut condition: F, timeout: Duration) -> bool
+    pub(crate) async fn wait_until<F, Fut>(&self, mut condition: F, timeout: Duration) -> bool
     where
         F: FnMut() -> Fut,
-        Fut: std::future::Future<Output = bool>,
+        Fut: Future<Output = bool>,
     {
         let start = std::time::Instant::now();
         while start.elapsed() < timeout {
@@ -417,7 +432,7 @@ impl TestApp {
         false
     }
 
-    pub async fn assert_message_count(&self, user_id: Uuid, expected: i64) {
+    pub(crate) async fn assert_message_count(&self, user_id: Uuid, expected: i64) {
         let success = self
             .wait_until(
                 || async {
@@ -438,7 +453,7 @@ impl TestApp {
                 .fetch_one(&self.pool)
                 .await
                 .unwrap();
-            panic!("Message count assertion failed. Expected {}, got {}", expected, actual);
+            panic!("Message count assertion failed. Expected {expected}, got {actual}");
         }
     }
 }
@@ -453,34 +468,34 @@ pub struct TestWsClient {
 }
 
 impl TestWsClient {
-    pub async fn receive_pong(&mut self) -> Option<Vec<u8>> {
+    pub(crate) async fn receive_pong(&mut self) -> Option<Vec<u8>> {
         tokio::time::timeout(Duration::from_secs(5), self.rx_pong.recv()).await.ok().flatten().map(|b| b.to_vec())
     }
 
-    pub async fn receive_envelope(&mut self) -> Option<proto::Envelope> {
+    pub(crate) async fn receive_envelope(&mut self) -> Option<proto::Envelope> {
         self.receive_envelope_timeout(Duration::from_secs(5)).await
     }
 
-    pub async fn receive_envelope_timeout(&mut self, timeout: Duration) -> Option<proto::Envelope> {
+    pub(crate) async fn receive_envelope_timeout(&mut self, timeout: Duration) -> Option<proto::Envelope> {
         tokio::time::timeout(timeout, self.rx_env.recv()).await.ok().flatten()
     }
 
-    pub async fn receive_prekey_status(&mut self) -> Option<proto::PreKeyStatus> {
+    pub(crate) async fn receive_prekey_status(&mut self) -> Option<proto::PreKeyStatus> {
         self.receive_prekey_status_timeout(Duration::from_secs(5)).await
     }
 
-    pub async fn receive_prekey_status_timeout(&mut self, timeout: Duration) -> Option<proto::PreKeyStatus> {
+    pub(crate) async fn receive_prekey_status_timeout(&mut self, timeout: Duration) -> Option<proto::PreKeyStatus> {
         tokio::time::timeout(timeout, self.rx_status.recv()).await.ok().flatten()
     }
 
-    pub async fn receive_raw_timeout(
+    pub(crate) async fn receive_raw_timeout(
         &mut self,
         timeout: Duration,
     ) -> Option<Result<Message, tokio_tungstenite::tungstenite::Error>> {
         tokio::time::timeout(timeout, self.rx_raw.recv()).await.ok().flatten()
     }
 
-    pub async fn send_ack(&mut self, message_id: Vec<u8>) {
+    pub(crate) async fn send_ack(&mut self, message_id: Vec<u8>) {
         let ack = proto::AckMessage { message_ids: vec![message_id] };
         let frame = proto::WebSocketFrame { payload: Some(proto::web_socket_frame::Payload::Ack(ack)) };
         let mut buf = Vec::new();

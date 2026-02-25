@@ -1,3 +1,18 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    missing_debug_implementations,
+    clippy::cast_precision_loss,
+    clippy::clone_on_ref_ptr,
+    clippy::match_same_arms,
+    clippy::items_after_statements,
+    unreachable_pub,
+    clippy::print_stdout,
+    clippy::similar_names
+)]
 mod common;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
@@ -15,8 +30,8 @@ async fn test_multi_node_notification() {
     let app_b = common::TestApp::spawn_with_config(config).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let alice_name = format!("alice_{}", run_id);
-    let bob_name = format!("bob_{}", run_id);
+    let alice_name = format!("alice_{run_id}");
+    let bob_name = format!("bob_{run_id}");
 
     let user_alice = app_a.register_user(&alice_name).await;
     let user_bob = app_b.register_user(&bob_name).await;
@@ -37,7 +52,7 @@ async fn test_multi_node_push_cancellation() {
     let app_b = common::TestApp::spawn_with_config(config.clone()).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app_a.register_user(&format!("multi_cancel_{}", run_id)).await;
+    let user = app_a.register_user(&format!("multi_cancel_{run_id}")).await;
 
     // 1. Manually schedule a push on the shared Redis queue
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
@@ -95,7 +110,7 @@ async fn test_multi_node_disconnect_notification() {
     let app_b = common::TestApp::spawn_with_config(config).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let alice_name = format!("alice_takeover_{}", run_id);
+    let alice_name = format!("alice_takeover_{run_id}");
 
     let user_alice = app_a.register_user(&alice_name).await;
 
@@ -137,7 +152,7 @@ async fn test_multi_node_disconnect_notification() {
     let start = std::time::Instant::now();
     while start.elapsed() < Duration::from_secs(5) {
         match ws_a.receive_raw_timeout(Duration::from_millis(100)).await {
-            Some(Ok(tokio_tungstenite::tungstenite::Message::Close(_))) | Some(Err(_)) | None => {
+            Some(Ok(tokio_tungstenite::tungstenite::Message::Close(_)) | Err(_)) | None => {
                 disconnected = true;
                 break;
             }
@@ -156,8 +171,8 @@ async fn test_distributed_fan_out_disconnect() {
     let app_c = common::TestApp::spawn_with_config(config).await;
 
     let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user_alice = app_a.register_user(&format!("alice_fanout_{}", run_id)).await;
-    let user_bob = app_a.register_user(&format!("bob_fanout_{}", run_id)).await;
+    let user_alice = app_a.register_user(&format!("alice_fanout_{run_id}")).await;
+    let user_bob = app_a.register_user(&format!("bob_fanout_{run_id}")).await;
 
     let mut ws_a1 = app_a.connect_ws(&user_alice.token).await;
     let mut ws_b1 = app_b.connect_ws(&user_alice.token).await;
@@ -198,14 +213,14 @@ async fn test_distributed_fan_out_disconnect() {
         let start = std::time::Instant::now();
         while start.elapsed() < Duration::from_secs(5) {
             match ws.receive_raw_timeout(Duration::from_millis(100)).await {
-                Some(Ok(tokio_tungstenite::tungstenite::Message::Close(_))) | Some(Err(_)) | None => {
+                Some(Ok(tokio_tungstenite::tungstenite::Message::Close(_)) | Err(_)) | None => {
                     disconnected = true;
                     break;
                 }
                 _ => {}
             }
         }
-        assert!(disconnected, "Alice session {} was not disconnected", name);
+        assert!(disconnected, "Alice session {name} was not disconnected");
     }
 
     ws_bob.sink.send(tokio_tungstenite::tungstenite::Message::Ping(vec![1].into())).await.unwrap();

@@ -1,3 +1,18 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    missing_debug_implementations,
+    clippy::cast_precision_loss,
+    clippy::clone_on_ref_ptr,
+    clippy::match_same_arms,
+    clippy::items_after_statements,
+    unreachable_pub,
+    clippy::print_stdout,
+    clippy::similar_names
+)]
 mod common;
 
 use common::TestApp;
@@ -13,7 +28,7 @@ async fn test_server_sends_ping() {
 
     let app = TestApp::spawn_with_config(config).await;
     let run_id = uuid::Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("ping_test_{}", run_id)).await;
+    let user = app.register_user(&format!("ping_test_{run_id}")).await;
 
     let mut client = app.connect_ws(&user.token).await;
 
@@ -40,7 +55,7 @@ async fn test_heartbeat_timeout_closes_connection() {
 
     let app = TestApp::spawn_with_config(config).await;
     let run_id = uuid::Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("timeout_test_{}", run_id)).await;
+    let user = app.register_user(&format!("timeout_test_{run_id}")).await;
 
     // Connect manually so we can control Pong behavior (or just not read from it)
     let url = format!("{}?token={}", app.ws_url, user.token);
@@ -83,6 +98,6 @@ async fn test_heartbeat_timeout_closes_connection() {
         }
     }
 
-    assert!(closed, "Connection was not closed after timeout. Received: {:?}", messages);
-    println!("Successfully verified connection closure. Buffered messages: {:?}", messages);
+    assert!(closed, "Connection was not closed after timeout. Received: {messages:?}");
+    println!("Successfully verified connection closure. Buffered messages: {messages:?}");
 }

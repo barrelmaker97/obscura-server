@@ -1,3 +1,18 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::todo,
+    clippy::missing_panics_doc,
+    clippy::must_use_candidate,
+    missing_debug_implementations,
+    clippy::cast_precision_loss,
+    clippy::clone_on_ref_ptr,
+    clippy::match_same_arms,
+    clippy::items_after_statements,
+    unreachable_pub,
+    clippy::print_stdout,
+    clippy::similar_names
+)]
 mod common;
 
 use common::{TestApp, notification_counts};
@@ -27,9 +42,9 @@ async fn test_full_system_flow() {
 
     // 3. Register Users
     // Sender on Node A
-    let sender = app_a.register_user(&format!("sender_{}", run_id)).await;
+    let sender = app_a.register_user(&format!("sender_{run_id}")).await;
     // Receiver on Node B (initially)
-    let receiver = app_b.register_user(&format!("receiver_{}", run_id)).await;
+    let receiver = app_b.register_user(&format!("receiver_{run_id}")).await;
 
     // 4. Register Push Token for Receiver (so they get offline notifications)
     // We can use the helper or direct SQL. Helper is cleaner if available, but TestApp doesn't expose one.
@@ -49,7 +64,7 @@ async fn test_full_system_flow() {
 
     // First 20 Valid
     for i in 0..20 {
-        let content = format!("Valid Message {}", i).into_bytes();
+        let content = format!("Valid Message {i}").into_bytes();
         expected_content.insert(content.clone());
         messages.push(proto::send_message_request::Submission {
             submission_id: Uuid::new_v4().as_bytes().to_vec(),
@@ -68,7 +83,7 @@ async fn test_full_system_flow() {
 
     // Next 29 Valid
     for i in 20..49 {
-        let content = format!("Valid Message {}", i).into_bytes();
+        let content = format!("Valid Message {i}").into_bytes();
         expected_content.insert(content.clone());
         messages.push(proto::send_message_request::Submission {
             submission_id: Uuid::new_v4().as_bytes().to_vec(),
@@ -112,8 +127,8 @@ async fn test_full_system_flow() {
     // Wait for the push delay (2s) + buffer.
     tokio::time::sleep(Duration::from_secs(4)).await;
 
-    let push_count = notification_counts().get(&receiver.user_id).map(|c| *c).unwrap_or(0);
-    assert_eq!(push_count, 1, "Expected exactly 1 coalesced push notification, got {}", push_count);
+    let push_count = notification_counts().get(&receiver.user_id).map_or(0, |c| *c);
+    assert_eq!(push_count, 1, "Expected exactly 1 coalesced push notification, got {push_count}");
 
     // 9. Connect Receiver to Node C (WebSocket)
     // This simulates roaming or load balancing.
@@ -138,7 +153,7 @@ async fn test_full_system_flow() {
     }
 
     assert_eq!(received_count, 49, "Did not receive all 49 valid messages on Node C");
-    assert!(expected_content.is_empty(), "Some messages were missed or mismatched: {:?}", expected_content);
+    assert!(expected_content.is_empty(), "Some messages were missed or mismatched: {expected_content:?}");
 
     // 11. Verify Push Job Cleanup (Explicit Redis Check)
     // The push job should be removed from the ZSET because the user connected (or acknowledged).
@@ -166,6 +181,6 @@ async fn test_full_system_flow() {
     // Ensure NO extra push was sent for this fast-path message
     // Wait a bit to be sure
     tokio::time::sleep(Duration::from_secs(3)).await;
-    let final_push_count = notification_counts().get(&receiver.user_id).map(|c| *c).unwrap_or(0);
+    let final_push_count = notification_counts().get(&receiver.user_id).map_or(0, |c| *c);
     assert_eq!(final_push_count, 1, "Fast-path message should not trigger push");
 }
