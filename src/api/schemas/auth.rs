@@ -19,6 +19,13 @@ impl RegistrationRequest {
     /// # Errors
     /// Returns an error if the password is too short or if there are duplicate pre-key IDs.
     pub fn validate(&self) -> Result<(), String> {
+        if self.username.trim().is_empty() {
+            return Err("Username cannot be empty".into());
+        }
+        if self.username.len() > 50 {
+            return Err("Username cannot be longer than 50 characters".into());
+        }
+
         if self.password.len() < 12 {
             return Err("Password must be at least 12 characters long".into());
         }
@@ -79,6 +86,33 @@ mod tests {
         let res = reg.validate();
         assert!(res.is_err());
         assert_eq!(res.expect_err("Duplicate prekey IDs should fail"), "Duplicate prekey ID: 1");
+    }
+
+    #[test]
+    fn test_registration_validation_username_empty() {
+        let mut reg = mock_registration("password12345");
+        reg.username = "".into();
+        let res = reg.validate();
+        assert!(res.is_err());
+        assert_eq!(res.expect_err("Empty username should fail"), "Username cannot be empty");
+    }
+
+    #[test]
+    fn test_registration_validation_username_whitespace() {
+        let mut reg = mock_registration("password12345");
+        reg.username = "   ".into();
+        let res = reg.validate();
+        assert!(res.is_err());
+        assert_eq!(res.expect_err("Whitespace username should fail"), "Username cannot be empty");
+    }
+
+    #[test]
+    fn test_registration_validation_username_too_long() {
+        let mut reg = mock_registration("password12345");
+        reg.username = "a".repeat(51);
+        let res = reg.validate();
+        assert!(res.is_err());
+        assert_eq!(res.expect_err("Username too long should fail"), "Username cannot be longer than 50 characters");
     }
 }
 
