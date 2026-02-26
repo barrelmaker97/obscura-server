@@ -27,7 +27,7 @@ async fn test_standard_request_timeout() {
     config.server.request_timeout_secs = 2;
 
     let app = common::TestApp::spawn_with_config(config).await;
-    let username = format!("timeout_std_{}", &Uuid::new_v4().to_string()[..8]);
+    let username = common::generate_username("timeout_std");
     let user = app.register_user(&username).await;
 
     // Create a stream that waits 3 seconds (exceeding 2s timeout)
@@ -63,7 +63,7 @@ async fn test_backup_upload_timeout() {
     let app = common::TestApp::spawn_with_config(config.clone()).await;
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
-    let username = format!("timeout_up_backup_{}", &Uuid::new_v4().to_string()[..8]);
+    let username = common::generate_username("timeout_up_backup");
     let user = app.register_user(&username).await;
 
     // Create a stream that waits 3 seconds before sending data
@@ -98,7 +98,7 @@ async fn test_attachment_upload_timeout() {
     let app = common::TestApp::spawn_with_config(config.clone()).await;
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
-    let username = format!("timeout_up_att_{}", &Uuid::new_v4().to_string()[..8]);
+    let username = common::generate_username("timeout_up_att");
     let user = app.register_user(&username).await;
 
     // Create a stream that waits 3 seconds
@@ -132,7 +132,7 @@ async fn test_global_safety_timeout() {
     config.server.request_timeout_secs = 30;
 
     let app = common::TestApp::spawn_with_config(config).await;
-    let username = format!("timeout_global_{}", &Uuid::new_v4().to_string()[..8]);
+    let username = common::generate_username("timeout_global");
     let user = app.register_user(&username).await;
 
     // Create a stream that takes 4 seconds (longer than global 3s, but shorter than request 30s)
@@ -170,7 +170,7 @@ async fn test_attachment_timeout_independence() {
     let app = common::TestApp::spawn_with_config(config.clone()).await;
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
-    let username = format!("timeout_indep_{}", &Uuid::new_v4().to_string()[..8]);
+    let username = common::generate_username("timeout_indep");
     let user = app.register_user(&username).await;
 
     // Create a stream that takes 2 seconds (Longer than Backup's 1s, shorter than Attachment's 5s)

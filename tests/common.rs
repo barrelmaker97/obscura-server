@@ -150,6 +150,10 @@ pub fn get_test_config() -> Config {
     }
 }
 
+pub fn generate_username(prefix: &str) -> String {
+    format!("{prefix}_{}", &Uuid::new_v4().to_string()[..8])
+}
+
 pub fn generate_signing_key() -> [u8; 32] {
     let mut bytes = [0u8; 32];
     OsRng.fill_bytes(&mut bytes);

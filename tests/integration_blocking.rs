@@ -15,7 +15,6 @@
 )]
 use futures::SinkExt;
 use tokio_tungstenite::tungstenite::protocol::Message;
-use uuid::Uuid;
 
 mod common;
 
@@ -26,11 +25,10 @@ async fn test_ping_pong_under_load() {
     config.websocket.message_fetch_batch_size = 100;
 
     let app = common::TestApp::spawn_with_config(config).await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
 
     // 2. Register Users
-    let user_a = app.register_user(&format!("alice_{run_id}")).await;
-    let user_b = app.register_user(&format!("bob_{run_id}")).await;
+    let user_a = app.register_user(&common::generate_username("alice")).await;
+    let user_b = app.register_user(&common::generate_username("bob")).await;
 
     // 3. Fill Inbox with LARGE messages to fill TCP buffer
     // 100 messages * 500KB = 50MB.

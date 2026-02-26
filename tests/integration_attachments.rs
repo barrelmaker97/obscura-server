@@ -27,8 +27,7 @@ async fn test_attachment_lifecycle() {
     let app = common::TestApp::spawn_with_config(config.clone()).await;
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("att_life_{run_id}")).await;
+    let user = app.register_user(&common::generate_username("att_life")).await;
 
     // 1. Upload Success
     let content = b"Hello Obscura!";
@@ -168,8 +167,7 @@ async fn test_attachment_min_size() {
     let app = common::TestApp::spawn_with_config(config.clone()).await;
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("att_min_{run_id}")).await;
+    let user = app.register_user(&common::generate_username("att_min")).await;
 
     // 1. Upload too small (Header check)
     let resp = app
@@ -204,8 +202,7 @@ async fn test_attachment_conditional_download() {
     let app = common::TestApp::spawn_with_config(config.clone()).await;
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("att_cond_{run_id}")).await;
+    let user = app.register_user(&common::generate_username("att_cond")).await;
 
     // 1. Initial Upload
     let content = b"Attachment Data";

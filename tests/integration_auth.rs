@@ -15,15 +15,13 @@
 )]
 use reqwest::StatusCode;
 use serde_json::json;
-use uuid::Uuid;
 
 mod common;
 
 #[tokio::test]
 async fn test_refresh_token_flow() {
     let app = common::TestApp::spawn().await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let username = format!("refresh_user_{run_id}");
+    let username = common::generate_username("refresh_user");
 
     // 1. Register and get initial tokens
     let user = app.register_user(&username).await;
@@ -62,8 +60,7 @@ async fn test_refresh_token_flow() {
 #[tokio::test]
 async fn test_logout_revokes_refresh_token() {
     let app = common::TestApp::spawn().await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let username = format!("logout_user_{run_id}");
+    let username = common::generate_username("logout_user");
 
     // 1. Register
     let user = app.register_user(&username).await;
@@ -99,8 +96,7 @@ async fn test_refresh_token_expiration() {
     config.auth.refresh_token_ttl_days = 0;
 
     let app = common::TestApp::spawn_with_config(config).await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let username = format!("expire_user_{run_id}");
+    let username = common::generate_username("expire_user");
 
     // 2. Register
     let user = app.register_user(&username).await;
@@ -122,8 +118,7 @@ async fn test_refresh_token_expiration() {
 #[tokio::test]
 async fn test_password_strength() {
     let app = common::TestApp::spawn().await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let username = format!("weak_user_{run_id}");
+    let username = common::generate_username("weak_user");
 
     // Try to register with a weak password
     let (mut reg_payload, _) = common::generate_registration_payload(&username, "too_short", 123, 1);

@@ -16,15 +16,13 @@
 use std::time::Duration;
 use tokio_tungstenite::tungstenite::protocol::Message;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
-use uuid::Uuid;
 
 mod common;
 
 #[tokio::test]
 async fn test_graceful_websocket_shutdown() {
     let app = common::TestApp::spawn().await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let username = format!("shutdown_user_{run_id}");
+    let username = common::generate_username("shutdown_user");
 
     // 1. Register and connect WS
     let user = app.register_user(&username).await;

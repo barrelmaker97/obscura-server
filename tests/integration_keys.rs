@@ -26,7 +26,7 @@ use xeddsa::{CalculateKeyPair, Sign};
 #[tokio::test]
 async fn test_format_typescript_standard() {
     let app = TestApp::spawn().await;
-    let username = format!("ts_std_{}", &Uuid::new_v4().to_string()[..8]);
+    let username = common::generate_username("ts_std");
 
     let identity_key = common::generate_signing_key();
     let ik_priv = PrivateKey(identity_key);
@@ -68,7 +68,7 @@ async fn test_format_typescript_standard() {
 #[tokio::test]
 async fn test_format_pure_math_32_byte() {
     let app = TestApp::spawn().await;
-    let username = format!("pure_math_{}", &Uuid::new_v4().to_string()[..8]);
+    let username = common::generate_username("pure_math");
 
     let identity_key = common::generate_signing_key();
     let ik_priv = PrivateKey(identity_key);
@@ -113,7 +113,7 @@ async fn test_key_limit_enforced() {
     config.messaging.max_pre_keys = 50;
     let app = TestApp::spawn_with_config(config).await;
 
-    let username = format!("limit_{}", &Uuid::new_v4().to_string()[..8]);
+    let username = common::generate_username("limit");
 
     let (reg_payload, identity_key) = common::generate_registration_payload(&username, "password12345", 123, 40);
     let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&reg_payload).send().await.unwrap();
@@ -163,7 +163,7 @@ async fn test_key_limit_enforced() {
 #[tokio::test]
 async fn test_key_rotation_monotonic_check() {
     let app = TestApp::spawn().await;
-    let username = format!("rotate_{}", &Uuid::new_v4().to_string()[..8]);
+    let username = common::generate_username("rotate");
 
     // 1. Initial Registration
     let (reg_payload, identity_key) = common::generate_registration_payload(&username, "password12345", 123, 0);
@@ -197,7 +197,7 @@ async fn test_key_rotation_monotonic_check() {
 #[tokio::test]
 async fn test_key_rotation_cleanup() {
     let app = TestApp::spawn().await;
-    let username = format!("cleanup_{}", &Uuid::new_v4().to_string()[..8]);
+    let username = common::generate_username("cleanup");
 
     let (reg_payload, identity_key) = common::generate_registration_payload(&username, "password12345", 123, 0);
     let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&reg_payload).send().await.unwrap();
@@ -240,7 +240,7 @@ async fn test_key_rotation_cleanup() {
 #[tokio::test]
 async fn test_prekey_status_low_keys() {
     let app = TestApp::spawn().await;
-    let username = format!("status_low_{}", &Uuid::new_v4().to_string()[..8]);
+    let username = common::generate_username("status_low");
     let user = app.register_user_with_keys(&username, 123, 0).await;
     let mut ws = app.connect_ws(&user.token).await;
     let status = ws.receive_prekey_status().await.expect("Did not receive PreKeyStatus");
@@ -250,7 +250,7 @@ async fn test_prekey_status_low_keys() {
 #[tokio::test]
 async fn test_device_takeover_success() {
     let app = TestApp::spawn().await;
-    let username = format!("takeover_{}", &Uuid::new_v4().to_string()[..8]);
+    let username = common::generate_username("takeover");
     let user = app.register_user_with_keys(&username, 111, 1).await;
 
     app.send_message(&user.token, user.user_id, b"hello").await;
@@ -284,7 +284,7 @@ async fn test_device_takeover_success() {
 #[tokio::test]
 async fn test_upload_keys_bad_signature() {
     let app = TestApp::spawn().await;
-    let username = format!("bad_sig_{}", &Uuid::new_v4().to_string()[..8]);
+    let username = common::generate_username("bad_sig");
     let user = app.register_user(&username).await;
 
     let payload = json!({
