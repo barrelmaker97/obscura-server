@@ -10,7 +10,7 @@ CREATE TABLE signed_pre_keys (
     public_key BYTEA NOT NULL,
     signature BYTEA NOT NULL,
     created_at TIMESTAMPTZ DEFAULT now(),
-    PRIMARY KEY (id, user_id)
+    PRIMARY KEY (user_id, id)
 );
 
 CREATE TABLE one_time_pre_keys (
@@ -18,5 +18,5 @@ CREATE TABLE one_time_pre_keys (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     public_key BYTEA NOT NULL,
     created_at TIMESTAMPTZ DEFAULT now(),
-    PRIMARY KEY (id, user_id)
+    PRIMARY KEY (user_id, id)
 );

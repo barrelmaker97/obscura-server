@@ -267,6 +267,14 @@ pub struct AuthConfig {
     /// Refresh token time-to-live in days
     #[arg(long = "auth-refresh-token-ttl-days", env = "OBSCURA_AUTH_REFRESH_TOKEN_TTL_DAYS", default_value_t = AuthConfig::default().refresh_token_ttl_days)]
     pub refresh_token_ttl_days: i64,
+
+    /// How often to run the refresh token cleanup task in seconds
+    #[arg(
+        long = "auth-refresh-token-cleanup-interval-secs",
+        env = "OBSCURA_AUTH_REFRESH_TOKEN_CLEANUP_INTERVAL_SECS",
+        default_value_t = AuthConfig::default().refresh_token_cleanup_interval_secs
+    )]
+    pub refresh_token_cleanup_interval_secs: u64,
 }
 
 impl Default for AuthConfig {
@@ -275,6 +283,7 @@ impl Default for AuthConfig {
             jwt_secret: "change_me_in_production".to_string(),
             access_token_ttl_secs: 900,
             refresh_token_ttl_days: 30,
+            refresh_token_cleanup_interval_secs: 86400, // 24 hours
         }
     }
 }

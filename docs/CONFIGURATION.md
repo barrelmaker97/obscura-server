@@ -46,6 +46,7 @@ Obscura Server is configured via command-line flags or environment variables usi
 | `--auth-jwt-secret` | `OBSCURA_AUTH_JWT_SECRET` | `change_me_in_production` | Secret key for signing JWT access tokens. |
 | `--auth-token-ttl-secs` | `OBSCURA_AUTH_TOKEN_TTL_SECS` | `900` | Access token time-to-live in seconds. |
 | `--auth-refresh-token-ttl-days` | `OBSCURA_AUTH_REFRESH_TOKEN_TTL_DAYS` | `30` | Refresh token time-to-live in days. |
+| `--auth-refresh-token-cleanup-interval-secs` | `OBSCURA_AUTH_REFRESH_TOKEN_CLEANUP_INTERVAL_SECS` | `86400` | How often to run the refresh token cleanup task in seconds. |
 
 ## Rate Limiting
 

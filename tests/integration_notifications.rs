@@ -338,7 +338,7 @@ async fn test_notification_worker_concurrency_limit() {
 #[tokio::test]
 async fn test_register_push_token() {
     let app = TestApp::spawn().await;
-    let username = format!("token_user_{}", Uuid::new_v4());
+    let username = format!("token_user_{}", Uuid::new_v4().simple());
     let user = app.register_user(&username).await;
 
     let token = "test_fcm_token_123";
