@@ -173,23 +173,39 @@ pub enum LogFormat {
 pub struct TelemetryConfig {
     /// OTLP Endpoint for traces and metrics (e.g. <http://localhost:4318>)
     /// If not set, OTLP export is disabled (logs only).
-    #[arg(long, env = "OBSCURA_TELEMETRY_OTLP_ENDPOINT")]
+    #[arg(long = "telemetry-otlp-endpoint", env = "OBSCURA_TELEMETRY_OTLP_ENDPOINT")]
     pub otlp_endpoint: Option<String>,
 
     /// Log format (text or json)
-    #[arg(long, env = "OBSCURA_TELEMETRY_LOG_FORMAT", default_value_t = TelemetryConfig::default().log_format)]
+    #[arg(
+        long = "telemetry-log-format",
+        env = "OBSCURA_TELEMETRY_LOG_FORMAT",
+        default_value_t = TelemetryConfig::default().log_format
+    )]
     pub log_format: LogFormat,
 
     /// Trace sampling ratio (0.0 to 1.0)
-    #[arg(long, env = "OBSCURA_TELEMETRY_TRACE_SAMPLING_RATIO", default_value_t = TelemetryConfig::default().trace_sampling_ratio)]
+    #[arg(
+        long = "telemetry-trace-sampling-ratio",
+        env = "OBSCURA_TELEMETRY_TRACE_SAMPLING_RATIO",
+        default_value_t = TelemetryConfig::default().trace_sampling_ratio
+    )]
     pub trace_sampling_ratio: f64,
 
     /// Metric export interval in seconds
-    #[arg(long, env = "OBSCURA_TELEMETRY_METRICS_EXPORT_INTERVAL_SECS", default_value_t = TelemetryConfig::default().metrics_export_interval_secs)]
+    #[arg(
+        long = "telemetry-metrics-export-interval-secs",
+        env = "OBSCURA_TELEMETRY_METRICS_EXPORT_INTERVAL_SECS",
+        default_value_t = TelemetryConfig::default().metrics_export_interval_secs
+    )]
     pub metrics_export_interval_secs: u64,
 
     /// OTLP export timeout in seconds
-    #[arg(long, env = "OBSCURA_TELEMETRY_EXPORT_TIMEOUT_SECS", default_value_t = TelemetryConfig::default().export_timeout_secs)]
+    #[arg(
+        long = "telemetry-export-timeout-secs",
+        env = "OBSCURA_TELEMETRY_EXPORT_TIMEOUT_SECS",
+        default_value_t = TelemetryConfig::default().export_timeout_secs
+    )]
     pub export_timeout_secs: u64,
 }
 
@@ -225,7 +241,11 @@ pub struct ServerConfig {
     pub port: u16,
 
     /// Management port for health checks and metrics
-    #[arg(long, env = "OBSCURA_SERVER_MGMT_PORT", default_value_t = ServerConfig::default().mgmt_port)]
+    #[arg(
+        long = "server-mgmt-port",
+        env = "OBSCURA_SERVER_MGMT_PORT",
+        default_value_t = ServerConfig::default().mgmt_port
+    )]
     pub mgmt_port: u16,
 
     /// How long to wait for background tasks to finish during shutdown in seconds
@@ -360,11 +380,19 @@ pub struct MessagingConfig {
     pub idempotency_ttl_secs: u64,
 
     /// Threshold of one-time prekeys to trigger a refill notification
-    #[arg(long = "pre-key-refill-threshold", env = "OBSCURA_PRE_KEY_REFILL_THRESHOLD", default_value_t = MessagingConfig::default().pre_key_refill_threshold)]
+    #[arg(
+        long = "messaging-pre-key-refill-threshold",
+        env = "OBSCURA_PRE_KEY_REFILL_THRESHOLD",
+        default_value_t = MessagingConfig::default().pre_key_refill_threshold
+    )]
     pub pre_key_refill_threshold: i32,
 
     /// Maximum number of one-time prekeys allowed per user
-    #[arg(long = "pre-keys-max", env = "OBSCURA_PRE_KEYS_MAX", default_value_t = MessagingConfig::default().max_pre_keys)]
+    #[arg(
+        long = "messaging-pre-keys-max",
+        env = "OBSCURA_PRE_KEYS_MAX",
+        default_value_t = MessagingConfig::default().max_pre_keys
+    )]
     pub max_pre_keys: i64,
 }
 
@@ -469,8 +497,13 @@ pub struct WsConfig {
     #[arg(long = "ws-ack-flush-interval-ms", env = "OBSCURA_WS_ACK_FLUSH_INTERVAL_MS", default_value_t = WsConfig::default().ack_flush_interval_ms)]
     pub ack_flush_interval_ms: u64,
 
-    /// How often to send a WebSocket ping frame in seconds (0 to disable)
-    #[arg(long = "ws-ping-interval-secs", env = "OBSCURA_WS_PING_INTERVAL_SECS", default_value_t = WsConfig::default().ping_interval_secs)]
+    /// How often to send a WebSocket ping frame in seconds.
+    /// A value of 0 results in a 1-second interval.
+    #[arg(
+            long = "ws-ping-interval-secs",
+            env = "OBSCURA_WS_PING_INTERVAL_SECS",
+            default_value_t = WsConfig::default().ping_interval_secs
+        )]
     pub ping_interval_secs: u64,
 
     /// How long to wait for a pong response before closing the connection in seconds

@@ -14,7 +14,7 @@ Obscura Server is configured via command-line flags or environment variables usi
 |------|----------------------|---------|-------------|
 | `--server-host` | `OBSCURA_SERVER_HOST` | `0.0.0.0` | Interface to bind the server to. |
 | `--server-port` | `OBSCURA_SERVER_PORT` | `3000` | Primary port for API and WebSockets. |
-| `--mgmt-port` | `OBSCURA_SERVER_MGMT_PORT` | `9090` | Management port for health checks and metrics. |
+| `--server-mgmt-port` | `OBSCURA_SERVER_MGMT_PORT` | `9090` | Management port for health checks and metrics. |
 | `--server-shutdown-timeout-secs` | `OBSCURA_SERVER_SHUTDOWN_TIMEOUT_SECS` | `5` | How long to wait for background tasks to finish during shutdown in seconds. |
 | `--server-request-timeout-secs` | `OBSCURA_SERVER_REQUEST_TIMEOUT_SECS` | `30` | Timeout for standard API requests in seconds. |
 | `--server-global-timeout-secs` | `OBSCURA_SERVER_GLOBAL_TIMEOUT_SECS` | `600` | Global catch-all safety timeout for all requests in seconds. |
@@ -65,8 +65,8 @@ Obscura Server is configured via command-line flags or environment variables usi
 | `--messaging-cleanup-interval-secs` | `OBSCURA_MESSAGING_CLEANUP_INTERVAL_SECS` | `300` | How often to run the message cleanup task in seconds. |
 | `--messaging-send-batch-limit` | `OBSCURA_MESSAGING_SEND_BATCH_LIMIT` | `100` | Maximum number of messages to accept in a single send request. |
 | `--messaging-idempotency-ttl-secs` | `OBSCURA_MESSAGING_IDEMPOTENCY_TTL_SECS` | `86400` | Time-to-live for idempotency keys in seconds. |
-| `--pre-key-refill-threshold` | `OBSCURA_PRE_KEY_REFILL_THRESHOLD` | `20` | Threshold of one-time prekeys to trigger a refill notification. |
-| `--pre-keys-max` | `OBSCURA_PRE_KEYS_MAX` | `100` | Maximum number of one-time prekeys allowed per user. |
+| `--messaging-pre-key-refill-threshold` | `OBSCURA_PRE_KEY_REFILL_THRESHOLD` | `20` | Threshold of one-time prekeys to trigger a refill notification. |
+| `--messaging-pre-keys-max` | `OBSCURA_PRE_KEYS_MAX` | `100` | Maximum number of one-time prekeys allowed per user. |
 
 ## Notifications
 
@@ -126,7 +126,7 @@ Obscura Server is configured via command-line flags or environment variables usi
 | `--ws-ack-buffer-size` | `OBSCURA_WS_ACK_BUFFER_SIZE` | `1000` | Capacity of the message acknowledgment buffer. |
 | `--ws-ack-batch-size` | `OBSCURA_WS_ACK_BATCH_SIZE` | `100` | Number of acknowledgments to batch before database deletion. |
 | `--ws-ack-flush-interval-ms` | `OBSCURA_WS_ACK_FLUSH_INTERVAL_MS` | `500` | Interval in milliseconds to flush pending ACKs to the database. |
-| `--ws-ping-interval-secs` | `OBSCURA_WS_PING_INTERVAL_SECS` | `30` | WebSocket heartbeat interval in seconds (A value of 0 results in a 1-second interval). |
+| `--ws-ping-interval-secs` | `OBSCURA_WS_PING_INTERVAL_SECS` | `30` | WebSocket heartbeat interval in seconds. |
 | `--ws-ping-timeout-secs` | `OBSCURA_WS_PING_TIMEOUT_SECS` | `10` | Wait time for a pong response before closing the connection. |
 | `--ws-message-fetch-batch-size` | `OBSCURA_WS_MESSAGE_FETCH_BATCH_SIZE` | `50` | Maximum number of messages to fetch in a single database query loop. |
 
@@ -142,8 +142,8 @@ Obscura Server is configured via command-line flags or environment variables usi
 
 | Flag | Environment Variable | Default | Description |
 |------|----------------------|---------|-------------|
-| `--otlp-endpoint` | `OBSCURA_TELEMETRY_OTLP_ENDPOINT` | None | OTLP gRPC endpoint for exporting traces and metrics. |
-| `--log-format` | `OBSCURA_TELEMETRY_LOG_FORMAT` | `text` | Log output format: `text` or `json`. |
-| `--trace-sampling-ratio` | `OBSCURA_TELEMETRY_TRACE_SAMPLING_RATIO` | `1` | Ratio of traces to sample (1.0 = 100%). |
-| `--metrics-export-interval-secs` | `OBSCURA_TELEMETRY_METRICS_EXPORT_INTERVAL_SECS` | `60` | Frequency of OTLP metric exports in seconds. |
-| `--export-timeout-secs` | `OBSCURA_TELEMETRY_EXPORT_TIMEOUT_SECS` | `10` | Timeout for OTLP export requests in seconds. |
+| `--telemetry-otlp-endpoint` | `OBSCURA_TELEMETRY_OTLP_ENDPOINT` | None | OTLP gRPC endpoint for exporting traces and metrics. |
+| `--telemetry-log-format` | `OBSCURA_TELEMETRY_LOG_FORMAT` | `text` | Log output format: `text` or `json`. |
+| `--telemetry-trace-sampling-ratio` | `OBSCURA_TELEMETRY_TRACE_SAMPLING_RATIO` | `1` | Ratio of traces to sample (1.0 = 100%). |
+| `--telemetry-metrics-export-interval-secs` | `OBSCURA_TELEMETRY_METRICS_EXPORT_INTERVAL_SECS` | `60` | Frequency of OTLP metric exports in seconds. |
+| `--telemetry-export-timeout-secs` | `OBSCURA_TELEMETRY_EXPORT_TIMEOUT_SECS` | `10` | Timeout for OTLP export requests in seconds. |
