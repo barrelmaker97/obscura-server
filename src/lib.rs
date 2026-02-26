@@ -33,6 +33,7 @@ use crate::services::push_token_service::PushTokenService;
 use crate::services::rate_limit_service::RateLimitService;
 use crate::workers::{
     AttachmentCleanupWorker, BackupCleanupWorker, MessageCleanupWorker, NotificationWorker, PushNotificationWorker,
+    RefreshTokenCleanupWorker,
 };
 use std::sync::Arc;
 use tokio::sync::watch;
@@ -103,6 +104,7 @@ pub struct Workers {
     pub backup_worker: BackupCleanupWorker,
     pub push_worker: PushNotificationWorker,
     pub notification_worker: NotificationWorker,
+    pub refresh_token_worker: RefreshTokenCleanupWorker,
 }
 
 impl Workers {
@@ -135,9 +137,14 @@ impl Workers {
         }));
 
         let notification_worker = self.notification_worker;
-        let notification_rx = shutdown_rx;
+        let notification_rx = shutdown_rx.clone();
         tasks.push(tokio::spawn(async move {
             notification_worker.run(notification_rx).await;
+        }));
+
+        let refresh_token_worker = self.refresh_token_worker;
+        tasks.push(tokio::spawn(async move {
+            refresh_token_worker.run(shutdown_rx).await;
         }));
 
         tasks
@@ -296,14 +303,14 @@ impl AppBuilder {
             submission_cache,
         };
 
-        let workers = Self::init_workers(config, pool, &adapters, notifier);
+        let workers = Self::init_workers(config, &pool, &adapters, notifier);
 
         Ok(App { resources, services, health_service, workers })
     }
 
     fn init_workers(
         config: &Config,
-        pool: adapters::database::DbPool,
+        pool: &adapters::database::DbPool,
         adapters: &Adapters,
         notifier: NotificationService,
     ) -> Workers {
@@ -322,7 +329,7 @@ impl AppBuilder {
                 config.backup.clone(),
             ),
             push_worker: PushNotificationWorker::new(
-                pool,
+                pool.clone(),
                 Arc::clone(&adapters.notification),
                 Arc::clone(&adapters.push),
                 adapters.push_token.clone(),
@@ -332,6 +339,11 @@ impl AppBuilder {
                 notifier,
                 Arc::clone(&adapters.notification),
                 config.notifications.cleanup_interval_secs,
+            ),
+            refresh_token_worker: RefreshTokenCleanupWorker::new(
+                pool.clone(),
+                adapters.refresh.clone(),
+                config.auth.refresh_token_cleanup_interval_secs,
             ),
         }
     }

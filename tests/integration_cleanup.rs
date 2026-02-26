@@ -36,7 +36,7 @@ async fn test_message_cleanup_worker_full_orchestration() {
     let user_a = Uuid::new_v4();
     sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
         .bind(user_a)
-        .bind(format!("worker_user_a_{user_a}"))
+        .bind(format!("worker_a_{}", &user_a.to_string()[..8]))
         .execute(&pool)
         .await
         .unwrap();
@@ -60,7 +60,7 @@ async fn test_message_cleanup_worker_full_orchestration() {
     let user_b = Uuid::new_v4();
     sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
         .bind(user_b)
-        .bind(format!("worker_user_b_{user_b}"))
+        .bind(format!("worker_b_{}", &user_b.to_string()[..8]))
         .execute(&pool)
         .await
         .unwrap();

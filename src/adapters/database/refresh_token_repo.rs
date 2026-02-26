@@ -91,4 +91,17 @@ impl RefreshTokenRepository {
             .map_err(AppError::Database)?;
         Ok(())
     }
+
+    /// Deletes all expired refresh tokens.
+    ///
+    /// # Errors
+    /// Returns `AppError::Database` if the deletion fails.
+    #[tracing::instrument(level = "debug", skip(self, conn), err)]
+    pub async fn delete_expired(&self, conn: &mut PgConnection) -> Result<u64> {
+        let result = sqlx::query("DELETE FROM refresh_tokens WHERE expires_at < NOW()")
+            .execute(conn)
+            .await
+            .map_err(AppError::Database)?;
+        Ok(result.rows_affected())
+    }
 }

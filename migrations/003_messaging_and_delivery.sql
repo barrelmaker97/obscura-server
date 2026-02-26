@@ -11,6 +11,7 @@ CREATE TABLE messages (
 );
 
 CREATE INDEX idx_messages_fetch ON messages(recipient_id, created_at);
+CREATE INDEX idx_messages_expires_at ON messages(expires_at);
 
 CREATE TABLE attachments (
     id UUID PRIMARY KEY DEFAULT uuidv7(),
@@ -26,6 +27,7 @@ CREATE TABLE push_tokens (
 );
 
 CREATE INDEX idx_push_tokens_updated_at ON push_tokens(updated_at);
+CREATE INDEX idx_push_tokens_token ON push_tokens(token);
 
 CREATE TABLE backups (
     user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

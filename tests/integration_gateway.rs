@@ -27,8 +27,7 @@ async fn test_server_sends_ping() {
     config.websocket.ping_timeout_secs = 1;
 
     let app = TestApp::spawn_with_config(config).await;
-    let run_id = uuid::Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("ping_test_{run_id}")).await;
+    let user = app.register_user(&common::generate_username("ping_test")).await;
 
     let mut client = app.connect_ws(&user.token).await;
 
@@ -54,8 +53,7 @@ async fn test_heartbeat_timeout_closes_connection() {
     config.websocket.ping_timeout_secs = 1;
 
     let app = TestApp::spawn_with_config(config).await;
-    let run_id = uuid::Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("timeout_test_{run_id}")).await;
+    let user = app.register_user(&common::generate_username("timeout_test")).await;
 
     // Connect manually so we can control Pong behavior (or just not read from it)
     let url = format!("{}?token={}", app.ws_url, user.token);

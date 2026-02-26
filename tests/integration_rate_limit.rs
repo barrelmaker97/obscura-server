@@ -27,8 +27,7 @@ async fn test_rate_limit_isolation() {
     config.rate_limit.per_second = 1;
     config.rate_limit.burst = 2;
     let app = common::TestApp::spawn_with_config(config).await;
-    let run_id = Uuid::new_v4().to_string();
-    let user = app.register_user(&format!("rate_user_iso_{}", &run_id[..8])).await;
+    let user = app.register_user(&common::generate_username("rate_user_iso")).await;
 
     let user_a = "1.1.1.1";
     let user_b = "2.2.2.2";
@@ -72,8 +71,7 @@ async fn test_rate_limit_proxy_chain() {
     config.rate_limit.per_second = 1;
     config.rate_limit.burst = 2;
     let app = common::TestApp::spawn_with_config(config).await;
-    let run_id = Uuid::new_v4().to_string();
-    let user = app.register_user(&format!("rate_user_chain_{}", &run_id[..8])).await;
+    let user = app.register_user(&common::generate_username("rate_user_chain")).await;
 
     let chain = "9.9.9.9, 1.1.1.1, 2.2.2.2";
 
@@ -106,8 +104,7 @@ async fn test_rate_limit_concurrency() {
     config.rate_limit.per_second = 1;
     config.rate_limit.burst = 2;
     let app = common::TestApp::spawn_with_config(config).await;
-    let run_id = Uuid::new_v4().to_string();
-    let user = app.register_user(&format!("rate_user_conc_{}", &run_id[..8])).await;
+    let user = app.register_user(&common::generate_username("rate_user_conc")).await;
 
     let mut tasks = vec![];
     let client = Client::new();
@@ -139,8 +136,7 @@ async fn test_rate_limit_fallback_to_peer_ip() {
     config.rate_limit.per_second = 1;
     config.rate_limit.burst = 2;
     let app = common::TestApp::spawn_with_config(config).await;
-    let run_id = Uuid::new_v4().to_string();
-    let user = app.register_user(&format!("rate_user_fall_{}", &run_id[..8])).await;
+    let user = app.register_user(&common::generate_username("rate_user_fall")).await;
 
     for _ in 0..2 {
         let resp = app
@@ -168,8 +164,7 @@ async fn test_rate_limit_spoofing_protection() {
     config.rate_limit.per_second = 1;
     config.rate_limit.burst = 1;
     let app = common::TestApp::spawn_with_config(config).await;
-    let run_id = Uuid::new_v4().to_string();
-    let user = app.register_user(&format!("rate_user_spoof_{}", &run_id[..8])).await;
+    let user = app.register_user(&common::generate_username("rate_user_spoof")).await;
 
     let spoofed_ip = "1.2.3.4";
     let real_attacker_ip = "5.6.7.8";
@@ -221,12 +216,12 @@ async fn test_rate_limit_tiers() {
     let ip = "1.2.3.4";
 
     // 1. Register a user for standard tier requests BEFORE exhausting the auth tier
-    let user = app.register_user(&format!("tier_std_user_{}", &Uuid::new_v4().to_string()[..8])).await;
+    let user = app.register_user(&common::generate_username("tier_std_user")).await;
 
     // 2. Exhaust Auth Tier (Registration)
     // Use unique usernames to avoid 409 logs
     for i in 0..2 {
-        let username = format!("tier_auth_{}_{}", i, &Uuid::new_v4().to_string()[..8]);
+        let username = common::generate_username(&format!("tier_auth_{i}"));
         let (reg_payload, _) = common::generate_registration_payload(&username, "password12345", 123, 0);
         let _ = app.client.post(format!("{}/v1/users", app.server_url)).json(&reg_payload).send().await.unwrap();
     }
@@ -256,8 +251,7 @@ async fn test_rate_limit_recovery() {
     config.rate_limit.per_second = 1;
     config.rate_limit.burst = 1;
     let app = common::TestApp::spawn_with_config(config).await;
-    let run_id = Uuid::new_v4().to_string();
-    let user = app.register_user(&format!("rate_user_recov_{}", &run_id[..8])).await;
+    let user = app.register_user(&common::generate_username("rate_user_recov")).await;
 
     let ip = "5.5.5.5";
 
@@ -299,8 +293,7 @@ async fn test_rate_limit_retry_after_header() {
     config.rate_limit.per_second = 1;
     config.rate_limit.burst = 1;
     let app = common::TestApp::spawn_with_config(config).await;
-    let run_id = Uuid::new_v4().to_string();
-    let user = app.register_user(&format!("rate_user_retry_{}", &run_id[..8])).await;
+    let user = app.register_user(&common::generate_username("rate_user_retry")).await;
 
     let ip = "7.7.7.7";
 

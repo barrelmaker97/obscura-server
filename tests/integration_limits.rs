@@ -15,7 +15,6 @@
 )]
 use obscura_server::adapters::database::message_repo::MessageRepository;
 use reqwest::StatusCode;
-use uuid::Uuid;
 
 mod common;
 
@@ -27,10 +26,8 @@ async fn test_message_limit_fifo() {
     // but here we count exact messages for one user)
     sqlx::query("DELETE FROM messages").execute(&app.pool).await.unwrap();
 
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-
-    let user_a = app.register_user(&format!("alice_{run_id}")).await;
-    let user_b = app.register_user(&format!("bob_{run_id}")).await;
+    let user_a = app.register_user(&common::generate_username("alice")).await;
+    let user_b = app.register_user(&common::generate_username("bob")).await;
 
     // Flood 1005 messages
     for i in 0..1005 {

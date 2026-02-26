@@ -16,7 +16,6 @@
 use base64::Engine;
 use reqwest::StatusCode;
 use serde_json::json;
-use uuid::Uuid;
 use xeddsa::CalculateKeyPair;
 use xeddsa::xed25519::PrivateKey;
 
@@ -25,8 +24,7 @@ mod common;
 #[tokio::test]
 async fn test_register_flow() {
     let app = common::TestApp::spawn().await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let username = format!("user_{run_id}");
+    let username = common::generate_username("user");
 
     let identity_key = common::generate_signing_key();
     let ik_priv = PrivateKey(identity_key);

@@ -14,7 +14,7 @@ pub(crate) async fn login(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
 ) -> Result<impl IntoResponse> {
-    let session = state.auth_service.login(payload.username, payload.password).await?;
+    let session = state.auth_service.login(payload.username.to_lowercase(), payload.password).await?;
     let auth_response = map_session(session);
     Ok(Json(auth_response))
 }
@@ -33,7 +33,7 @@ pub(crate) async fn register(
     let session = state
         .account_service
         .register(
-            payload.username,
+            payload.username.to_lowercase(),
             payload.password,
             payload.identity_key.try_into().map_err(AppError::BadRequest)?,
             payload.registration_id,

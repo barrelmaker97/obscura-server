@@ -1,6 +1,11 @@
 use crate::api::schemas::crypto::PublicKey;
 use crate::api::schemas::keys::{OneTimePreKey, SignedPreKey};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
+
+static USERNAME_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[a-zA-Z0-9_]{3,50}$").expect("Hardcoded username validation regex should compile"));
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,8 +27,12 @@ impl RegistrationRequest {
         if self.username.trim().is_empty() {
             return Err("Username cannot be empty".into());
         }
-        if self.username.len() > 50 {
-            return Err("Username cannot be longer than 50 characters".into());
+
+        if !USERNAME_REGEX.is_match(&self.username) {
+            return Err(
+                "Username must be between 3 and 50 characters and can only contain letters, numbers, and underscores"
+                    .into(),
+            );
         }
 
         if self.password.len() < 12 {
@@ -112,7 +121,10 @@ mod tests {
         reg.username = "a".repeat(51);
         let res = reg.validate();
         assert!(res.is_err());
-        assert_eq!(res.expect_err("Username too long should fail"), "Username cannot be longer than 50 characters");
+        assert_eq!(
+            res.expect_err("Username too long should fail"),
+            "Username must be between 3 and 50 characters and can only contain letters, numbers, and underscores"
+        );
     }
 }
 

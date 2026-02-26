@@ -27,10 +27,9 @@ use uuid::Uuid;
 #[tokio::test]
 async fn test_messaging_flow() {
     let app = TestApp::spawn().await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
 
-    let user_a = app.register_user(&format!("alice_{run_id}")).await;
-    let user_b = app.register_user(&format!("bob_{run_id}")).await;
+    let user_a = app.register_user(&common::generate_username("alice")).await;
+    let user_b = app.register_user(&common::generate_username("bob")).await;
 
     let content = b"Hello World".to_vec();
     app.send_message(&user_a.token, user_b.user_id, &content).await;
@@ -45,10 +44,9 @@ async fn test_messaging_flow() {
 #[tokio::test]
 async fn test_message_pagination_large_backlog() {
     let app = TestApp::spawn().await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
 
-    let user_a = app.register_user(&format!("alice_pag_{run_id}")).await;
-    let user_b = app.register_user(&format!("bob_pag_{run_id}")).await;
+    let user_a = app.register_user(&common::generate_username("alice_pag")).await;
+    let user_b = app.register_user(&common::generate_username("bob_pag")).await;
 
     let message_count = 125;
     for i in 0..message_count {
@@ -82,10 +80,9 @@ async fn test_ack_batching_behavior() {
     config.websocket.ack_flush_interval_ms = 1000;
 
     let app = TestApp::spawn_with_config(config).await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
 
-    let user_a = app.register_user(&format!("alice_ack_{run_id}")).await;
-    let user_b = app.register_user(&format!("bob_ack_{run_id}")).await;
+    let user_a = app.register_user(&common::generate_username("alice_ack")).await;
+    let user_b = app.register_user(&common::generate_username("bob_ack")).await;
 
     for i in 0..3 {
         app.send_message(&user_a.token, user_b.user_id, format!("msg {i}").as_bytes()).await;
@@ -116,8 +113,7 @@ async fn test_ack_batching_behavior() {
 #[tokio::test]
 async fn test_send_message_recipient_not_found() {
     let app = TestApp::spawn().await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user_a = app.register_user(&format!("alice_404_{run_id}")).await;
+    let user_a = app.register_user(&common::generate_username("alice_404")).await;
     let bad_id = Uuid::new_v4();
 
     let submission_id = Uuid::new_v4();
@@ -156,8 +152,7 @@ async fn test_send_message_recipient_not_found() {
 #[tokio::test]
 async fn test_send_message_malformed_protobuf() {
     let app = TestApp::spawn().await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("malformed_{run_id}")).await;
+    let user = app.register_user(&common::generate_username("malformed")).await;
 
     let resp = app
         .client
@@ -176,9 +171,8 @@ async fn test_send_message_malformed_protobuf() {
 #[tokio::test]
 async fn test_message_idempotency() {
     let app = TestApp::spawn().await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user_a = app.register_user(&format!("alice_idem_{run_id}")).await;
-    let user_b = app.register_user(&format!("bob_idem_{run_id}")).await;
+    let user_a = app.register_user(&common::generate_username("alice_idem")).await;
+    let user_b = app.register_user(&common::generate_username("bob_idem")).await;
 
     let idempotency_key = Uuid::new_v4();
     let content = b"Idempotent Hello".to_vec();
@@ -233,10 +227,9 @@ async fn test_message_idempotency() {
 #[tokio::test]
 async fn test_batch_partial_success() {
     let app = TestApp::spawn().await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user_a = app.register_user(&format!("alice_mix_{run_id}")).await;
-    let user_b = app.register_user(&format!("bob_mix_{run_id}")).await;
-    let user_c = app.register_user(&format!("charlie_mix_{run_id}")).await;
+    let user_a = app.register_user(&common::generate_username("alice_mix")).await;
+    let user_b = app.register_user(&common::generate_username("bob_mix")).await;
+    let user_c = app.register_user(&common::generate_username("charlie_mix")).await;
     let bad_id = Uuid::new_v4();
 
     let submission_id_b = Uuid::new_v4();
@@ -299,8 +292,7 @@ async fn test_batch_partial_success() {
 #[tokio::test]
 async fn test_batch_empty() {
     let app = TestApp::spawn().await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("empty_{run_id}")).await;
+    let user = app.register_user(&common::generate_username("empty")).await;
 
     let request = proto::SendMessageRequest { messages: vec![] };
     let mut buf = Vec::new();
@@ -329,8 +321,7 @@ async fn test_batch_too_large() {
     config.messaging.send_batch_limit = 5;
 
     let app = TestApp::spawn_with_config(config).await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("limit_{run_id}")).await;
+    let user = app.register_user(&common::generate_username("limit")).await;
 
     let mut messages = Vec::new();
     for _ in 0..6 {
@@ -369,8 +360,7 @@ async fn test_websocket_auth_failure() {
 #[tokio::test]
 async fn test_gateway_missing_identity_key() {
     let app = TestApp::spawn().await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("miss_id_{run_id}")).await;
+    let user = app.register_user(&common::generate_username("miss_id")).await;
 
     sqlx::query("DELETE FROM identity_keys WHERE user_id = $1").bind(user.user_id).execute(&app.pool).await.unwrap();
 
@@ -408,8 +398,7 @@ async fn test_ack_buffer_saturation() {
     config.websocket.ack_batch_size = 1;
 
     let app = TestApp::spawn_with_config(config).await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("ack_sat_{run_id}")).await;
+    let user = app.register_user(&common::generate_username("ack_sat")).await;
     let mut client = app.connect_ws(&user.token).await;
 
     for _ in 0..15 {
@@ -427,10 +416,9 @@ async fn test_ack_buffer_saturation() {
 #[tokio::test]
 async fn test_bulk_ack_processing() {
     let app = TestApp::spawn().await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
 
-    let user_a = app.register_user(&format!("alice_bulk_{run_id}")).await;
-    let user_b = app.register_user(&format!("bob_bulk_{run_id}")).await;
+    let user_a = app.register_user(&common::generate_username("alice_bulk")).await;
+    let user_b = app.register_user(&common::generate_username("bob_bulk")).await;
 
     // Send 5 messages
     for i in 0..5 {
@@ -462,11 +450,10 @@ async fn test_bulk_ack_processing() {
 #[tokio::test]
 async fn test_ack_security_cross_user_deletion() {
     let app = TestApp::spawn().await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
 
-    let user_a = app.register_user(&format!("alice_sec_{run_id}")).await;
-    let user_b = app.register_user(&format!("bob_sec_{run_id}")).await;
-    let user_c = app.register_user(&format!("eve_sec_{run_id}")).await;
+    let user_a = app.register_user(&common::generate_username("alice_sec")).await;
+    let user_b = app.register_user(&common::generate_username("bob_sec")).await;
+    let user_c = app.register_user(&common::generate_username("eve_sec")).await;
 
     // A sends to B
     app.send_message(&user_a.token, user_b.user_id, b"Secret").await;
@@ -490,8 +477,7 @@ async fn test_ack_security_cross_user_deletion() {
 #[tokio::test]
 async fn test_send_message_invalid_uuid_bytes() {
     let app = TestApp::spawn().await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("malformed_bytes_{run_id}")).await;
+    let user = app.register_user(&common::generate_username("malformed_bytes")).await;
 
     let request = proto::SendMessageRequest {
         messages: vec![proto::send_message_request::Submission {
@@ -529,8 +515,7 @@ async fn test_send_message_invalid_uuid_bytes() {
 #[tokio::test]
 async fn test_ack_invalid_uuid_bytes() {
     let app = TestApp::spawn().await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("ack_malformed_{run_id}")).await;
+    let user = app.register_user(&common::generate_username("ack_malformed")).await;
     let mut client = app.connect_ws(&user.token).await;
 
     // Send ACK with invalid length ID
@@ -555,9 +540,8 @@ async fn test_ack_invalid_uuid_bytes() {
 #[tokio::test]
 async fn test_send_message_malformed_submission_id() {
     let app = TestApp::spawn().await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("malformed_sub_{run_id}")).await;
-    let recipient = app.register_user(&format!("recipient_sub_{run_id}")).await;
+    let user = app.register_user(&common::generate_username("malformed_sub")).await;
+    let recipient = app.register_user(&common::generate_username("recipient_sub")).await;
 
     let request = proto::SendMessageRequest {
         messages: vec![proto::send_message_request::Submission {
@@ -593,9 +577,8 @@ async fn test_send_message_malformed_submission_id() {
 #[tokio::test]
 async fn test_send_message_missing_payload() {
     let app = TestApp::spawn().await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-    let user = app.register_user(&format!("missing_payload_{run_id}")).await;
-    let recipient = app.register_user(&format!("recipient_payload_{run_id}")).await;
+    let user = app.register_user(&common::generate_username("missing_payload")).await;
+    let recipient = app.register_user(&common::generate_username("recipient_payload")).await;
 
     let request = proto::SendMessageRequest {
         messages: vec![proto::send_message_request::Submission {

@@ -76,7 +76,7 @@ async fn test_push_cancellation_on_ack() {
     config.notifications.push_delay_secs = 15;
 
     let app = TestApp::spawn_with_workers(config).await;
-    let username = format!("u_ack_{}", &Uuid::new_v4().to_string()[..8]);
+    let username = common::generate_username("u_ack");
     let user = app.register_user(&username).await;
 
     // 1. Schedule a push
@@ -123,7 +123,7 @@ async fn test_push_cancellation_on_websocket_connect() {
     config.notifications.push_delay_secs = 10;
 
     let app = TestApp::spawn_with_workers(config).await;
-    let username = format!("u_ws_{}", &Uuid::new_v4().to_string()[..8]);
+    let username = common::generate_username("u_ws");
     let user = app.register_user(&username).await;
 
     // 1. Schedule push
@@ -312,7 +312,7 @@ async fn test_notification_worker_concurrency_limit() {
         let user_id = Uuid::new_v4();
         {
             let mut conn = app.pool.acquire().await.unwrap();
-            let username = format!("conc_{}_{}", i, &Uuid::new_v4().to_string()[..8]);
+            let username = common::generate_username(&format!("conc_{i}"));
             sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
                 .bind(user_id)
                 .bind(username)
@@ -338,7 +338,7 @@ async fn test_notification_worker_concurrency_limit() {
 #[tokio::test]
 async fn test_register_push_token() {
     let app = TestApp::spawn().await;
-    let username = format!("token_user_{}", Uuid::new_v4());
+    let username = common::generate_username("token_user");
     let user = app.register_user(&username).await;
 
     let token = "test_fcm_token_123";
@@ -408,10 +408,9 @@ async fn test_notification_lag_recovery() {
     config.websocket.outbound_buffer_size = 10;
 
     let app = TestApp::spawn_with_workers(config).await;
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
 
-    let user_a = app.register_user(&format!("alice_{run_id}")).await;
-    let user_b = app.register_user(&format!("bob_{run_id}")).await;
+    let user_a = app.register_user(&common::generate_username("alice")).await;
+    let user_b = app.register_user(&common::generate_username("bob")).await;
 
     let mut ws = app.connect_ws(&user_b.token).await;
 

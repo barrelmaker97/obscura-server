@@ -38,13 +38,11 @@ async fn test_full_system_flow() {
     let app_b = TestApp::spawn_with_workers(config.clone()).await;
     let app_c = TestApp::spawn_with_workers(config.clone()).await;
 
-    let run_id = Uuid::new_v4().to_string()[..8].to_string();
-
     // 3. Register Users
     // Sender on Node A
-    let sender = app_a.register_user(&format!("sender_{run_id}")).await;
+    let sender = app_a.register_user(&common::generate_username("sender")).await;
     // Receiver on Node B (initially)
-    let receiver = app_b.register_user(&format!("receiver_{run_id}")).await;
+    let receiver = app_b.register_user(&common::generate_username("receiver")).await;
 
     // 4. Register Push Token for Receiver (so they get offline notifications)
     // We can use the helper or direct SQL. Helper is cleaner if available, but TestApp doesn't expose one.
