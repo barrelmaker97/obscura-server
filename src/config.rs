@@ -81,14 +81,19 @@ pub struct DatabaseConfig {
     /// Database connection URL
     #[arg(
         long = "db-url",
-        id = "database_url",
+        id = "DATABASE_URL",
         env = "OBSCURA_DATABASE_URL",
         default_value_t = DatabaseConfig::default().url
     )]
     pub url: String,
 
     /// Maximum number of connections in the pool
-    #[arg(long = "db-max-connections", env = "OBSCURA_DATABASE_MAX_CONNECTIONS", default_value_t = DatabaseConfig::default().max_connections)]
+    #[arg(
+        long = "db-max-connections",
+        id = "DATABASE_MAX_CONNECTIONS",
+        env = "OBSCURA_DATABASE_MAX_CONNECTIONS",
+        default_value_t = DatabaseConfig::default().max_connections
+    )]
     pub max_connections: u32,
 
     /// Minimum number of connections to keep idle in the pool
@@ -126,18 +131,28 @@ pub struct PubSubConfig {
     /// `PubSub` connection URL (e.g. <redis://localhost:6379>)
     #[arg(
         long = "pubsub-url",
-        id = "pubsub_url",
+        id = "PUBSUB_URL",
         env = "OBSCURA_PUBSUB_URL",
         default_value_t = PubSubConfig::default().url
     )]
     pub url: String,
 
     /// Minimum backoff time for `PubSub` reconnection in seconds
-    #[arg(long = "pubsub-min-backoff-secs", env = "OBSCURA_PUBSUB_MIN_BACKOFF_SECS", default_value_t = PubSubConfig::default().min_backoff_secs)]
+    #[arg(
+        long = "pubsub-min-backoff-secs",
+        id = "PUBSUB_MIN_BACKOFF_SECS",
+        env = "OBSCURA_PUBSUB_MIN_BACKOFF_SECS",
+        default_value_t = PubSubConfig::default().min_backoff_secs
+    )]
     pub min_backoff_secs: u64,
 
     /// Maximum backoff time for `PubSub` reconnection in seconds
-    #[arg(long = "pubsub-max-backoff-secs", env = "OBSCURA_PUBSUB_MAX_BACKOFF_SECS", default_value_t = PubSubConfig::default().max_backoff_secs)]
+    #[arg(
+        long = "pubsub-max-backoff-secs",
+        id = "PUBSUB_MAX_BACKOFF_SECS",
+        env = "OBSCURA_PUBSUB_MAX_BACKOFF_SECS",
+        default_value_t = PubSubConfig::default().max_backoff_secs
+    )]
     pub max_backoff_secs: u64,
 }
 
@@ -158,23 +173,39 @@ pub enum LogFormat {
 pub struct TelemetryConfig {
     /// OTLP Endpoint for traces and metrics (e.g. <http://localhost:4318>)
     /// If not set, OTLP export is disabled (logs only).
-    #[arg(long, env = "OBSCURA_TELEMETRY_OTLP_ENDPOINT")]
+    #[arg(long = "telemetry-otlp-endpoint", env = "OBSCURA_TELEMETRY_OTLP_ENDPOINT")]
     pub otlp_endpoint: Option<String>,
 
     /// Log format (text or json)
-    #[arg(long, env = "OBSCURA_TELEMETRY_LOG_FORMAT", default_value_t = TelemetryConfig::default().log_format)]
+    #[arg(
+        long = "telemetry-log-format",
+        env = "OBSCURA_TELEMETRY_LOG_FORMAT",
+        default_value_t = TelemetryConfig::default().log_format
+    )]
     pub log_format: LogFormat,
 
     /// Trace sampling ratio (0.0 to 1.0)
-    #[arg(long, env = "OBSCURA_TELEMETRY_TRACE_SAMPLING_RATIO", default_value_t = TelemetryConfig::default().trace_sampling_ratio)]
+    #[arg(
+        long = "telemetry-trace-sampling-ratio",
+        env = "OBSCURA_TELEMETRY_TRACE_SAMPLING_RATIO",
+        default_value_t = TelemetryConfig::default().trace_sampling_ratio
+    )]
     pub trace_sampling_ratio: f64,
 
     /// Metric export interval in seconds
-    #[arg(long, env = "OBSCURA_TELEMETRY_METRICS_EXPORT_INTERVAL_SECS", default_value_t = TelemetryConfig::default().metrics_export_interval_secs)]
+    #[arg(
+        long = "telemetry-metrics-export-interval-secs",
+        env = "OBSCURA_TELEMETRY_METRICS_EXPORT_INTERVAL_SECS",
+        default_value_t = TelemetryConfig::default().metrics_export_interval_secs
+    )]
     pub metrics_export_interval_secs: u64,
 
     /// OTLP export timeout in seconds
-    #[arg(long, env = "OBSCURA_TELEMETRY_EXPORT_TIMEOUT_SECS", default_value_t = TelemetryConfig::default().export_timeout_secs)]
+    #[arg(
+        long = "telemetry-export-timeout-secs",
+        env = "OBSCURA_TELEMETRY_EXPORT_TIMEOUT_SECS",
+        default_value_t = TelemetryConfig::default().export_timeout_secs
+    )]
     pub export_timeout_secs: u64,
 }
 
@@ -210,7 +241,11 @@ pub struct ServerConfig {
     pub port: u16,
 
     /// Management port for health checks and metrics
-    #[arg(long, env = "OBSCURA_SERVER_MGMT_PORT", default_value_t = ServerConfig::default().mgmt_port)]
+    #[arg(
+        long = "server-mgmt-port",
+        env = "OBSCURA_SERVER_MGMT_PORT",
+        default_value_t = ServerConfig::default().mgmt_port
+    )]
     pub mgmt_port: u16,
 
     /// How long to wait for background tasks to finish during shutdown in seconds
@@ -322,7 +357,7 @@ pub struct MessagingConfig {
     /// How often to run the message cleanup task
     #[arg(
         long = "messaging-cleanup-interval-secs",
-        id = "messaging_cleanup_interval_secs",
+        id = "MESSAGING_CLEANUP_INTERVAL_SECS",
         env = "OBSCURA_MESSAGING_CLEANUP_INTERVAL_SECS",
         default_value_t = MessagingConfig::default().cleanup_interval_secs
     )]
@@ -345,11 +380,19 @@ pub struct MessagingConfig {
     pub idempotency_ttl_secs: u64,
 
     /// Threshold of one-time prekeys to trigger a refill notification
-    #[arg(long = "pre-key-refill-threshold", env = "OBSCURA_PRE_KEY_REFILL_THRESHOLD", default_value_t = MessagingConfig::default().pre_key_refill_threshold)]
+    #[arg(
+        long = "messaging-pre-key-refill-threshold",
+        env = "OBSCURA_PRE_KEY_REFILL_THRESHOLD",
+        default_value_t = MessagingConfig::default().pre_key_refill_threshold
+    )]
     pub pre_key_refill_threshold: i32,
 
     /// Maximum number of one-time prekeys allowed per user
-    #[arg(long = "pre-keys-max", env = "OBSCURA_PRE_KEYS_MAX", default_value_t = MessagingConfig::default().max_pre_keys)]
+    #[arg(
+        long = "messaging-pre-keys-max",
+        env = "OBSCURA_PRE_KEYS_MAX",
+        default_value_t = MessagingConfig::default().max_pre_keys
+    )]
     pub max_pre_keys: i64,
 }
 
@@ -454,8 +497,13 @@ pub struct WsConfig {
     #[arg(long = "ws-ack-flush-interval-ms", env = "OBSCURA_WS_ACK_FLUSH_INTERVAL_MS", default_value_t = WsConfig::default().ack_flush_interval_ms)]
     pub ack_flush_interval_ms: u64,
 
-    /// How often to send a WebSocket ping frame in seconds (0 to disable)
-    #[arg(long = "ws-ping-interval-secs", env = "OBSCURA_WS_PING_INTERVAL_SECS", default_value_t = WsConfig::default().ping_interval_secs)]
+    /// How often to send a WebSocket ping frame in seconds.
+    /// A value of 0 results in a 1-second interval.
+    #[arg(
+            long = "ws-ping-interval-secs",
+            env = "OBSCURA_WS_PING_INTERVAL_SECS",
+            default_value_t = WsConfig::default().ping_interval_secs
+        )]
     pub ping_interval_secs: u64,
 
     /// How long to wait for a pong response before closing the connection in seconds
@@ -490,7 +538,7 @@ pub struct BackupConfig {
     /// S3 prefix for logical namespacing of backups.
     #[arg(
         long = "backup-prefix",
-        id = "backup_prefix",
+        id = "BACKUP_PREFIX",
         env = "OBSCURA_BACKUP_PREFIX",
         default_value_t = BackupConfig::default().prefix
     )]
@@ -499,7 +547,7 @@ pub struct BackupConfig {
     /// Max backup size in bytes (Default: 2MB)
     #[arg(
         long = "backup-max-size-bytes",
-        id = "backup_max_size_bytes",
+        id = "BACKUP_MAX_SIZE_BYTES",
         env = "OBSCURA_BACKUP_MAX_SIZE_BYTES",
         default_value_t = BackupConfig::default().max_size_bytes
     )]
@@ -508,7 +556,7 @@ pub struct BackupConfig {
     /// Min backup size in bytes (Default: 32 bytes)
     #[arg(
         long = "backup-min-size-bytes",
-        id = "backup_min_size_bytes",
+        id = "BACKUP_MIN_SIZE_BYTES",
         env = "OBSCURA_BACKUP_MIN_SIZE_BYTES",
         default_value_t = BackupConfig::default().min_size_bytes
     )]
@@ -517,7 +565,7 @@ pub struct BackupConfig {
     /// S3 streaming timeout in seconds
     #[arg(
         long = "backup-timeout-secs",
-        id = "backup_timeout_secs",
+        id = "BACKUP_TIMEOUT_SECS",
         env = "OBSCURA_BACKUP_TIMEOUT_SECS",
         default_value_t = BackupConfig::default().request_timeout_secs
     )]
@@ -526,7 +574,7 @@ pub struct BackupConfig {
     /// Grace period for "UPLOADING" state before cleanup in minutes
     #[arg(
         long = "backup-stale-threshold-mins",
-        id = "backup_stale_threshold_mins",
+        id = "BACKUP_STALE_THRESHOLD_MINS",
         env = "OBSCURA_BACKUP_STALE_THRESHOLD_MINS",
         default_value_t = BackupConfig::default().stale_threshold_mins
     )]
@@ -535,7 +583,7 @@ pub struct BackupConfig {
     /// Frequency of background cleanup worker cycles in seconds
     #[arg(
         long = "backup-cleanup-interval-secs",
-        id = "backup_cleanup_interval_secs",
+        id = "BACKUP_CLEANUP_INTERVAL_SECS",
         env = "OBSCURA_BACKUP_CLEANUP_INTERVAL_SECS",
         default_value_t = BackupConfig::default().cleanup_interval_secs
     )]
@@ -560,7 +608,7 @@ pub struct AttachmentConfig {
     /// Max attachment size in bytes (Default: 50MB)
     #[arg(
         long = "attachment-max-size-bytes",
-        id = "attachment_max_size_bytes",
+        id = "ATTACHMENT_MAX_SIZE_BYTES",
         env = "OBSCURA_ATTACHMENT_MAX_SIZE_BYTES",
         default_value_t = AttachmentConfig::default().max_size_bytes
     )]
@@ -569,7 +617,7 @@ pub struct AttachmentConfig {
     /// Min attachment size in bytes (Default: 1 byte)
     #[arg(
         long = "attachment-min-size-bytes",
-        id = "attachment_min_size_bytes",
+        id = "ATTACHMENT_MIN_SIZE_BYTES",
         env = "OBSCURA_ATTACHMENT_MIN_SIZE_BYTES",
         default_value_t = AttachmentConfig::default().min_size_bytes
     )]
@@ -578,7 +626,7 @@ pub struct AttachmentConfig {
     /// S3 prefix for logical namespacing of attachments.
     #[arg(
         long = "attachment-prefix",
-        id = "attachment_prefix",
+        id = "ATTACHMENT_PREFIX",
         env = "OBSCURA_ATTACHMENT_PREFIX",
         default_value_t = AttachmentConfig::default().prefix
     )]
@@ -587,7 +635,7 @@ pub struct AttachmentConfig {
     /// How often to run the attachment cleanup task in seconds
     #[arg(
         long = "attachment-cleanup-interval-secs",
-        id = "attachment_cleanup_interval_secs",
+        id = "ATTACHMENT_CLEANUP_INTERVAL_SECS",
         env = "OBSCURA_ATTACHMENT_CLEANUP_INTERVAL_SECS",
         default_value_t = AttachmentConfig::default().cleanup_interval_secs
     )]
@@ -596,7 +644,7 @@ pub struct AttachmentConfig {
     /// Maximum number of attachments to delete in a single batch
     #[arg(
         long = "attachment-cleanup-batch-size",
-        id = "attachment_cleanup_batch_size",
+        id = "ATTACHMENT_CLEANUP_BATCH_SIZE",
         env = "OBSCURA_ATTACHMENT_CLEANUP_BATCH_SIZE",
         default_value_t = AttachmentConfig::default().cleanup_batch_size
     )]
@@ -605,7 +653,7 @@ pub struct AttachmentConfig {
     /// S3 streaming timeout in seconds
     #[arg(
         long = "attachment-timeout-secs",
-        id = "attachment_timeout_secs",
+        id = "ATTACHMENT_TIMEOUT_SECS",
         env = "OBSCURA_ATTACHMENT_TIMEOUT_SECS",
         default_value_t = AttachmentConfig::default().request_timeout_secs
     )]
@@ -630,7 +678,7 @@ pub struct StorageConfig {
     /// Storage bucket name
     #[arg(
         long = "storage-bucket",
-        id = "storage_bucket",
+        id = "STORAGE_BUCKET",
         env = "OBSCURA_STORAGE_BUCKET",
         default_value_t = StorageConfig::default().bucket
     )]
@@ -639,28 +687,28 @@ pub struct StorageConfig {
     /// Storage region
     #[arg(
         long = "storage-region",
-        id = "storage_region",
+        id = "STORAGE_REGION",
         env = "OBSCURA_STORAGE_REGION",
         default_value_t = StorageConfig::default().region
     )]
     pub region: String,
 
     /// Custom storage endpoint (useful for `MinIO` or other S3-compatible services)
-    #[arg(long = "storage-endpoint", id = "storage_endpoint", env = "OBSCURA_STORAGE_ENDPOINT")]
+    #[arg(long = "storage-endpoint", id = "STORAGE_ENDPOINT", env = "OBSCURA_STORAGE_ENDPOINT")]
     pub endpoint: Option<String>,
 
     /// Storage access key
-    #[arg(long = "storage-access-key", id = "storage_access_key", env = "OBSCURA_STORAGE_ACCESS_KEY")]
+    #[arg(long = "storage-access-key", id = "STORAGE_ACCESS_KEY", env = "OBSCURA_STORAGE_ACCESS_KEY")]
     pub access_key: Option<String>,
 
     /// Storage secret key
-    #[arg(long = "storage-secret-key", id = "storage_secret_key", env = "OBSCURA_STORAGE_SECRET_KEY")]
+    #[arg(long = "storage-secret-key", id = "STORAGE_SECRET_KEY", env = "OBSCURA_STORAGE_SECRET_KEY")]
     pub secret_key: Option<String>,
 
     /// Force path style (required for many `MinIO` setups: <http://host/bucket/key>)
     #[arg(
         long = "storage-force-path-style",
-        id = "storage_force_path_style",
+        id = "STORAGE_FORCE_PATH_STYLE",
         env = "OBSCURA_STORAGE_FORCE_PATH_STYLE",
         default_value_t = StorageConfig::default().force_path_style
     )]
@@ -685,7 +733,7 @@ pub struct HealthConfig {
     /// Timeout for database health check in milliseconds
     #[arg(
         long = "health-db-timeout-ms",
-        id = "health_db_timeout_ms",
+        id = "HEALTH_DB_TIMEOUT_MS",
         env = "OBSCURA_HEALTH_DB_TIMEOUT_MS",
         default_value_t = HealthConfig::default().db_timeout_ms
     )]
@@ -694,7 +742,7 @@ pub struct HealthConfig {
     /// Timeout for storage health check in milliseconds
     #[arg(
         long = "health-storage-timeout-ms",
-        id = "health_storage_timeout_ms",
+        id = "HEALTH_STORAGE_TIMEOUT_MS",
         env = "OBSCURA_HEALTH_STORAGE_TIMEOUT_MS",
         default_value_t = HealthConfig::default().storage_timeout_ms
     )]
@@ -703,7 +751,7 @@ pub struct HealthConfig {
     /// Timeout for pubsub health check in milliseconds
     #[arg(
         long = "health-pubsub-timeout-ms",
-        id = "health_pubsub_timeout_ms",
+        id = "HEALTH_PUBSUB_TIMEOUT_MS",
         env = "OBSCURA_HEALTH_PUBSUB_TIMEOUT_MS",
         default_value_t = HealthConfig::default().pubsub_timeout_ms
     )]
@@ -724,5 +772,71 @@ mod tests {
     #[test]
     fn verify_cli() {
         Config::command().debug_assert();
+    }
+
+    #[test]
+    fn test_docs_up_to_date() {
+        let docs = std::fs::read_to_string("docs/CONFIGURATION.md").expect("Could not read CONFIGURATION.md");
+        let cmd = Config::command();
+
+        for arg in cmd.get_arguments() {
+            if arg.is_hide_set() {
+                continue;
+            }
+
+            let env = arg.get_env();
+            if env.is_none() {
+                continue;
+            }
+
+            let env_name = env.unwrap().to_string_lossy();
+            let env_pattern = format!("`{}`", env_name);
+            let env_count = docs.matches(&env_pattern).count();
+            assert_eq!(
+                env_count, 1,
+                "Environment variable {} must appear exactly once in documentation, found {}",
+                env_pattern, env_count
+            );
+
+            if let Some(long) = arg.get_long() {
+                let flag_pattern = format!("`--{}`", long);
+                let flag_count = docs.matches(&flag_pattern).count();
+                assert_eq!(
+                    flag_count, 1,
+                    "Flag {} must appear exactly once in documentation, found {}",
+                    flag_pattern, flag_count
+                );
+
+                // Verify default value
+                let defaults = arg.get_default_values();
+                let expected_default = if defaults.is_empty() {
+                    // Special case for boolean flags which default to false in our docs
+                    if arg.get_id() == "STORAGE_FORCE_PATH_STYLE" { "false".to_string() } else { "None".to_string() }
+                } else {
+                    defaults.iter().map(|v| v.to_string_lossy()).collect::<Vec<_>>().join(",")
+                };
+
+                // Extract the default value from the markdown table row
+                // Pattern: | --flag | ENV_VAR | Default | Description |
+                let row_pattern =
+                    format!(r"\| `--{}` \| `{}` \| ([^|]+) \|", regex::escape(long), regex::escape(&env_name));
+                let re = regex::Regex::new(&row_pattern).unwrap();
+
+                if let Some(caps) = re.captures(&docs) {
+                    let actual_default = caps.get(1).unwrap().as_str().trim().replace('`', "");
+                    assert_eq!(
+                        actual_default, expected_default,
+                        "Default value mismatch for flag --{}. Expected '{}', found '{}' in docs",
+                        long, expected_default, actual_default
+                    );
+                } else {
+                    panic!(
+                        "Could not find documentation row for flag --{} and env {}. \
+                         Ensure it matches the format: | `--{}` | `{}` | Default | Description |",
+                        long, env_name, long, env_name
+                    );
+                }
+            }
+        }
     }
 }

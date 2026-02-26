@@ -25,8 +25,8 @@ use xeddsa::xed25519::PrivateKey;
 #[tokio::test]
 async fn test_multi_node_notification() {
     let config = common::get_test_config();
-    let app_a = common::TestApp::spawn_with_config(config.clone()).await;
-    let app_b = common::TestApp::spawn_with_config(config).await;
+    let app_a = common::TestApp::spawn_with_workers(config.clone()).await;
+    let app_b = common::TestApp::spawn_with_workers(config).await;
 
     let alice_name = common::generate_username("alice");
     let bob_name = common::generate_username("bob");
@@ -35,10 +35,17 @@ async fn test_multi_node_notification() {
     let user_bob = app_b.register_user(&bob_name).await;
 
     let mut ws_bob = app_b.connect_ws(&user_bob.token).await;
+    // Prove Node B is ready and has finished its initial poll
+    ws_bob.ensure_subscribed().await;
 
-    let content = b"Cross-node message".to_vec();
+    // MANDATORY PROOF: Verify the database is empty for Bob.
+    // This ensures Bob cannot receive the message via the "initial connection poll".
+    app_b.assert_message_count(user_bob.user_id, 0).await;
+
+    let content = b"Cross-node message proved via PubSub".to_vec();
     app_a.send_message(&user_alice.token, user_bob.user_id, &content).await;
 
+    // If Bob receives this now, it MUST be via the Redis notification path.
     let env = ws_bob.receive_envelope().await.expect("Bob did not receive message on Node B");
     assert_eq!(env.message, content);
 }
@@ -103,8 +110,8 @@ async fn test_multi_node_push_cancellation() {
 #[tokio::test]
 async fn test_multi_node_disconnect_notification() {
     let config = common::get_test_config();
-    let app_a = common::TestApp::spawn_with_config(config.clone()).await;
-    let app_b = common::TestApp::spawn_with_config(config).await;
+    let app_a = common::TestApp::spawn_with_workers(config.clone()).await;
+    let app_b = common::TestApp::spawn_with_workers(config).await;
 
     let alice_name = common::generate_username("alice_takeover");
 
@@ -162,9 +169,9 @@ async fn test_multi_node_disconnect_notification() {
 #[tokio::test]
 async fn test_distributed_fan_out_disconnect() {
     let config = common::get_test_config();
-    let app_a = common::TestApp::spawn_with_config(config.clone()).await;
-    let app_b = common::TestApp::spawn_with_config(config.clone()).await;
-    let app_c = common::TestApp::spawn_with_config(config).await;
+    let app_a = common::TestApp::spawn_with_workers(config.clone()).await;
+    let app_b = common::TestApp::spawn_with_workers(config.clone()).await;
+    let app_c = common::TestApp::spawn_with_workers(config).await;
 
     let user_alice = app_a.register_user(&common::generate_username("alice_fanout")).await;
     let user_bob = app_a.register_user(&common::generate_username("bob_fanout")).await;
@@ -173,6 +180,12 @@ async fn test_distributed_fan_out_disconnect() {
     let mut ws_b1 = app_b.connect_ws(&user_alice.token).await;
     let mut ws_b2 = app_b.connect_ws(&user_alice.token).await;
     let mut ws_bob = app_a.connect_ws(&user_bob.token).await;
+
+    // Synchronize: Ensure all sessions are fully established and subscribed to Redis
+    ws_a1.ensure_subscribed().await;
+    ws_b1.ensure_subscribed().await;
+    ws_b2.ensure_subscribed().await;
+    ws_bob.ensure_subscribed().await;
 
     let new_ik = common::generate_signing_key();
     let (new_spk_pub, new_spk_sig) = common::generate_signed_pre_key(&new_ik);
