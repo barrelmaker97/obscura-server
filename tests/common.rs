@@ -516,4 +516,11 @@ impl TestWsClient {
         frame.encode(&mut buf).unwrap();
         self.sink.send(Message::Binary(buf.into())).await.unwrap();
     }
+
+    /// Sends a ping and waits for a pong to ensure the session is fully established
+    /// and any initial processing (like the first message poll) is complete.
+    pub(crate) async fn ensure_subscribed(&mut self) {
+        self.sink.send(Message::Ping(vec![1].into())).await.unwrap();
+        self.receive_pong().await.expect("Session did not become ready in time");
+    }
 }
