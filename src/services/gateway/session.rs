@@ -193,8 +193,15 @@ impl Session {
 
                 result = notification_rx.recv() => {
                     let continue_loop = match result {
-                        Ok(UserEvent::MessageReceived) | Err(broadcast::error::RecvError::Lagged(_)) => {
+                        Ok(UserEvent::MessageReceived) => {
                             message_pump.notify();
+                            true
+                        }
+                        Err(broadcast::error::RecvError::Lagged(_)) => {
+                            // If the channel lagged (burst of events), we safely trigger both pumps
+                            // because we don't know which event we missed. The pumps will debounce.
+                            message_pump.notify();
+                            prekey_pump.notify();
                             true
                         }
                         Ok(UserEvent::PreKeyLow) => {

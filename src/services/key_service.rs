@@ -66,18 +66,17 @@ impl KeyService {
     #[tracing::instrument(err, skip(self), fields(user_id = %user_id))]
     pub async fn get_pre_key_bundle(&self, user_id: Uuid) -> Result<Option<PreKeyBundle>> {
         let mut conn = self.pool.acquire().await?;
-        let bundle = self.repo.fetch_pre_key_bundle(&mut conn, user_id).await?;
+        let (bundle, remaining_count) = match self.repo.fetch_pre_key_bundle(&mut conn, user_id).await? {
+            Some((b, c)) => (Some(b), c),
+            None => (None, None),
+        };
 
         // Reactive signaling: If a key was consumed, check if we dipped below the threshold
-        // IMPORTANT: Only check if one_time_pre_key was actually present and consumed.
-        if let Some(ref b) = bundle
-            && b.one_time_pre_key.is_some()
+        if let Some(count) = remaining_count
+            && count < i64::from(self.config.pre_key_refill_threshold)
         {
-            let count = self.repo.count_one_time_pre_keys(&mut conn, user_id).await?;
-            if count < i64::from(self.config.pre_key_refill_threshold) {
-                self.metrics.prekey_low_total.add(1, &[]);
-                self.notifier.notify(&[user_id], UserEvent::PreKeyLow).await;
-            }
+            self.metrics.prekey_low_total.add(1, &[]);
+            self.notifier.notify(&[user_id], UserEvent::PreKeyLow).await;
         }
 
         Ok(bundle)

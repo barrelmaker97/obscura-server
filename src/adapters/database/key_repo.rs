@@ -1,4 +1,4 @@
-use crate::adapters::database::records::{IdentityKeyRecord, OneTimePreKeyRecord, SignedPreKeyRecord};
+use crate::adapters::database::records::{ConsumedPreKeyRecord, IdentityKeyRecord, SignedPreKeyRecord};
 use crate::domain::crypto::{PublicKey, Signature};
 use crate::domain::keys::{OneTimePreKey, PreKeyBundle, SignedPreKey};
 use crate::error::{AppError, Result};
@@ -123,7 +123,7 @@ impl KeyRepository {
         &self,
         conn: &mut PgConnection,
         user_id: Uuid,
-    ) -> Result<Option<PreKeyBundle>> {
+    ) -> Result<Option<(PreKeyBundle, Option<i64>)>> {
         // Fetch identity
         let identity_rec = sqlx::query_as::<_, IdentityKeyRecord>(
             "SELECT identity_key, registration_id FROM identity_keys WHERE user_id = $1",
@@ -164,7 +164,7 @@ impl KeyRepository {
         })?;
 
         // Fetch one one-time pre key and delete it
-        let otpk_rec = sqlx::query_as::<_, OneTimePreKeyRecord>(
+        let otpk_rec = sqlx::query_as::<_, ConsumedPreKeyRecord>(
             r#"
             WITH target AS (
                 SELECT id FROM one_time_pre_keys
@@ -174,25 +174,25 @@ impl KeyRepository {
             )
             DELETE FROM one_time_pre_keys
             WHERE id IN (SELECT id FROM target) AND user_id = $1
-            RETURNING id, public_key
+            RETURNING id, public_key, (SELECT COUNT(*) - 1 FROM one_time_pre_keys WHERE user_id = $1) AS remaining_count
             "#,
         )
         .bind(user_id)
         .fetch_optional(&mut *conn)
         .await?;
 
-        let one_time_pre_key = match otpk_rec {
+        let (one_time_pre_key, remaining_count) = match otpk_rec {
             Some(rec) => {
-                let pk = OneTimePreKey::try_from(rec).map_err(|e| {
+                let (pk, count) = <(OneTimePreKey, i64)>::try_from(rec).map_err(|e| {
                     tracing::error!(error = %e, "Database data corruption: Invalid one-time pre-key format");
                     AppError::Internal
                 })?;
-                Some(pk)
+                (Some(pk), Some(count))
             }
-            None => None,
+            None => (None, None),
         };
 
-        Ok(Some(PreKeyBundle { registration_id, identity_key, signed_pre_key, one_time_pre_key }))
+        Ok(Some((PreKeyBundle { registration_id, identity_key, signed_pre_key, one_time_pre_key }, remaining_count)))
     }
 
     /// Fetches the identity key for a user.

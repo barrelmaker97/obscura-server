@@ -510,7 +510,7 @@ pub struct WsConfig {
     #[arg(long = "ws-ping-timeout-secs", env = "OBSCURA_WS_PING_TIMEOUT_SECS", default_value_t = WsConfig::default().ping_timeout_secs)]
     pub ping_timeout_secs: u64,
 
-    /// How long to debounce PreKeyLow events before sending a status frame to the client
+    /// How long to debounce `PreKeyLow` events before sending a status frame to the client
     #[arg(long = "ws-prekey-debounce-interval-ms", env = "OBSCURA_WS_PREKEY_DEBOUNCE_INTERVAL_MS", default_value_t = WsConfig::default().prekey_debounce_interval_ms)]
     pub prekey_debounce_interval_ms: u64,
 

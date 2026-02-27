@@ -6,6 +6,6 @@ pub mod user;
 
 pub use attachment::AttachmentRecord;
 pub use backup::BackupRecord;
-pub use keys::{IdentityKeyRecord, OneTimePreKeyRecord, SignedPreKeyRecord};
+pub use keys::{ConsumedPreKeyRecord, IdentityKeyRecord, SignedPreKeyRecord};
 pub use message::MessageRecord;
 pub use user::UserRecord;
