@@ -147,7 +147,7 @@ impl NotificationService {
         }
 
         // Slow Path: Scheduled Push Fallback
-        if event == UserEvent::MessageReceived
+        if (event == UserEvent::MessageReceived || event == UserEvent::PreKeyLow)
             && let Err(e) = self.repo.push_jobs(recipients, self.push_delay_secs).await
         {
             tracing::error!(error = %e, "Failed to batch schedule push notifications");

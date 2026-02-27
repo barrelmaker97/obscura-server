@@ -241,7 +241,13 @@ impl AppBuilder {
         // Initialize Core Services
         let crypto_service = CryptoService::new();
         let notifier = NotificationService::new(Arc::clone(&adapters.notification), &config.notifications);
-        let key_service = KeyService::new(pool.clone(), adapters.key.clone(), crypto_service, config.messaging.clone());
+        let key_service = KeyService::new(
+            pool.clone(),
+            adapters.key.clone(),
+            crypto_service,
+            notifier.clone(),
+            config.messaging.clone(),
+        );
         let auth_service =
             AuthService::new(config.auth.clone(), pool.clone(), adapters.user.clone(), adapters.refresh.clone());
         let submission_cache = SubmissionCache::new(Arc::clone(&pubsub));

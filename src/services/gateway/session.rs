@@ -2,6 +2,7 @@ use crate::config::WsConfig;
 use crate::domain::notification::UserEvent;
 use crate::proto::obscura::v1 as proto;
 use crate::services::gateway::{Metrics, ack_batcher::AckBatcher, message_pump::MessagePump};
+use crate::services::key_service::KeyService;
 use crate::services::message_service::MessageService;
 use crate::services::notification_service::NotificationService;
 use axum::extract::ws::{Message as WsMessage, WebSocket};
@@ -15,6 +16,7 @@ pub struct Session {
     pub request_id: String,
     pub socket: WebSocket,
     pub message_service: MessageService,
+    pub key_service: KeyService,
     pub notifier: NotificationService,
     pub metrics: Metrics,
     pub config: WsConfig,
@@ -36,7 +38,8 @@ impl Session {
     pub(crate) async fn run(self) {
         // Destructuring allows independent mutable access to fields while the socket
         // is split into sink and stream halves.
-        let Self { user_id, socket, message_service, notifier, metrics, config, mut shutdown_rx, .. } = self;
+        let Self { user_id, socket, message_service, key_service, notifier, metrics, config, mut shutdown_rx, .. } =
+            self;
 
         metrics.active_connections.add(1, &[]);
         tracing::info!("WebSocket connected");
@@ -186,10 +189,33 @@ impl Session {
                         Ok(UserEvent::MessageReceived) | Err(broadcast::error::RecvError::Lagged(_)) => {
                             message_pump.notify();
                             // Drain prevents queue buildup if notifications arrive faster than processing.
+                            // We only drain specifically MessageReceived events.
                             while notification_rx.try_recv() == Ok(UserEvent::MessageReceived) {
                                  message_pump.notify();
                             }
                             true
+                        }
+                        Ok(UserEvent::PreKeyLow) => {
+                            // Drain any other pending PreKeyLow events in the buffer to coalesce them.
+                            while let Ok(UserEvent::PreKeyLow) = notification_rx.try_recv() {}
+
+                            match key_service.check_pre_key_status(user_id).await {
+                                Ok(Some(status)) => {
+                                    let frame = proto::WebSocketFrame {
+                                        payload: Some(proto::web_socket_frame::Payload::PreKeyStatus(proto::PreKeyStatus {
+                                            one_time_pre_key_count: status.one_time_pre_key_count,
+                                            min_threshold: status.min_threshold,
+                                        })),
+                                    };
+                                    let mut buf = Vec::new();
+                                    if frame.encode(&mut buf).is_ok() {
+                                        ws_sink.send(WsMessage::Binary(buf.into())).await.is_ok()
+                                    } else {
+                                        true
+                                    }
+                                }
+                                _ => true,
+                            }
                         }
                         Ok(UserEvent::Disconnect) | Err(broadcast::error::RecvError::Closed) => false,
                     };
