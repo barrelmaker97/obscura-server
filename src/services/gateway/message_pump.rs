@@ -13,7 +13,6 @@ use uuid::Uuid;
 /// database poll to avoid overwhelming the database with redundant queries.
 pub struct MessagePump {
     notify_tx: mpsc::Sender<()>,
-    task: tokio::task::JoinHandle<()>,
 }
 
 impl MessagePump {
@@ -27,22 +26,18 @@ impl MessagePump {
         // Channel size 1 effectively coalesces notifications while a fetch is in progress.
         let (notify_tx, notify_rx) = mpsc::channel(1);
 
-        let task = tokio::spawn(
+        tokio::spawn(
             async move {
                 Self::run_background(user_id, notify_rx, message_service, outbound_tx, metrics, batch_limit).await;
             }
             .instrument(tracing::info_span!("message_pump", user_id = %user_id)),
         );
 
-        Self { notify_tx, task }
+        Self { notify_tx }
     }
 
     pub fn notify(&self) {
         let _ = self.notify_tx.try_send(());
-    }
-
-    pub fn abort(&self) {
-        self.task.abort();
     }
 
     async fn run_background(
@@ -109,7 +104,7 @@ impl MessagePump {
             let mut buf = Vec::new();
 
             if frame.encode(&mut buf).is_ok() && outbound_tx.send(WsMessage::Binary(buf.into())).await.is_err() {
-                metrics.outbound_dropped_total.add(1, &[KeyValue::new("reason", "buffer_full")]);
+                metrics.outbound_dropped_total.add(1, &[KeyValue::new("reason", "channel_closed")]);
                 return Ok(false);
             }
         }

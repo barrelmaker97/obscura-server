@@ -1,7 +1,7 @@
 use crate::config::WsConfig;
 use crate::domain::notification::UserEvent;
 use crate::proto::obscura::v1 as proto;
-use crate::services::gateway::{Metrics, ack_batcher::AckBatcher, message_pump::MessagePump};
+use crate::services::gateway::{Metrics, ack_batcher::AckBatcher, message_pump::MessagePump, prekey_pump::PreKeyPump};
 use crate::services::key_service::KeyService;
 use crate::services::message_service::MessageService;
 use crate::services::notification_service::NotificationService;
@@ -66,10 +66,13 @@ impl Session {
         let message_pump = MessagePump::new(
             user_id,
             message_service.clone(),
-            outbound_tx,
+            outbound_tx.clone(),
             metrics.clone(),
             config.message_fetch_batch_size,
         );
+
+        let prekey_pump =
+            PreKeyPump::new(user_id, key_service.clone(), outbound_tx.clone(), config.prekey_debounce_interval_ms);
 
         message_pump.notify();
 
@@ -78,10 +81,6 @@ impl Session {
         // First tick happens immediately, we skip it to start probing after the first interval.
         ping_interval.tick().await;
         ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-
-        // Timer for coalescing PreKeyLow notifications (Debounce window)
-        let mut prekey_low_timer = std::pin::pin!(tokio::time::sleep(std::time::Duration::from_secs(3600 * 24 * 365)));
-        let mut prekey_low_pending = false;
 
         loop {
             // Priority is given to shutdown and high-frequency events to ensure
@@ -199,9 +198,7 @@ impl Session {
                             true
                         }
                         Ok(UserEvent::PreKeyLow) => {
-                            // Start or reset the debounce timer (500ms window)
-                            prekey_low_pending = true;
-                            prekey_low_timer.as_mut().reset(tokio::time::Instant::now() + std::time::Duration::from_millis(500));
+                            prekey_pump.notify();
                             true
                         }
                         Ok(UserEvent::Disconnect) | Err(broadcast::error::RecvError::Closed) => false,
@@ -209,43 +206,10 @@ impl Session {
 
                      if !continue_loop { break; }
                 }
-
-                // Handle coalesced PreKeyLow frame delivery (Low priority)
-                () = &mut prekey_low_timer, if prekey_low_pending => {
-                    match key_service.check_pre_key_status(user_id).await {
-                        Ok(Some(status)) => {
-                            prekey_low_pending = false;
-                            prekey_low_timer.as_mut().reset(tokio::time::Instant::now() + std::time::Duration::from_secs(3600 * 24 * 365));
-
-                            let frame = proto::WebSocketFrame {
-                                payload: Some(proto::web_socket_frame::Payload::PreKeyStatus(proto::PreKeyStatus {
-                                    one_time_pre_key_count: status.one_time_pre_key_count,
-                                    min_threshold: status.min_threshold,
-                                })),
-                            };
-                            let mut buf = Vec::new();
-                            if frame.encode(&mut buf).is_ok()
-                                && ws_sink.send(WsMessage::Binary(buf.into())).await.is_err() {
-                                    break;
-                                }
-                        }
-                        Ok(None) => {
-                            // User is no longer low (refilled?)
-                            prekey_low_pending = false;
-                            prekey_low_timer.as_mut().reset(tokio::time::Instant::now() + std::time::Duration::from_secs(3600 * 24 * 365));
-                        }
-                        Err(e) => {
-                            tracing::error!(error = %e, "Failed to check pre-key status for coalesced frame");
-                        }
-                    }
-                }
             }
         }
 
         let _ = ws_sink.close().await;
-
-        // Explicitly abort background tasks to ensure immediate resource cleanup.
-        message_pump.abort();
 
         metrics.active_connections.add(-1, &[]);
         tracing::info!("WebSocket disconnected");

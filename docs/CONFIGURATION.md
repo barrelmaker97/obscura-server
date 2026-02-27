@@ -126,6 +126,7 @@ Obscura Server is configured via command-line flags or environment variables usi
 | `--ws-ack-buffer-size` | `OBSCURA_WS_ACK_BUFFER_SIZE` | `1000` | Capacity of the message acknowledgment buffer. |
 | `--ws-ack-batch-size` | `OBSCURA_WS_ACK_BATCH_SIZE` | `100` | Number of acknowledgments to batch before database deletion. |
 | `--ws-ack-flush-interval-ms` | `OBSCURA_WS_ACK_FLUSH_INTERVAL_MS` | `500` | Interval in milliseconds to flush pending ACKs to the database. |
+| `--ws-prekey-debounce-interval-ms` | `OBSCURA_WS_PREKEY_DEBOUNCE_INTERVAL_MS` | `500` | Interval in milliseconds to debounce PreKeyLow events before sending a status frame to the client. |
 | `--ws-ping-interval-secs` | `OBSCURA_WS_PING_INTERVAL_SECS` | `30` | WebSocket heartbeat interval in seconds. |
 | `--ws-ping-timeout-secs` | `OBSCURA_WS_PING_TIMEOUT_SECS` | `10` | Wait time for a pong response before closing the connection. |
 | `--ws-message-fetch-batch-size` | `OBSCURA_WS_MESSAGE_FETCH_BATCH_SIZE` | `50` | Maximum number of messages to fetch in a single database query loop. |
