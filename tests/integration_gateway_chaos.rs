@@ -1,3 +1,4 @@
+use futures::SinkExt;
 use std::time::Duration;
 use tokio::time::Instant;
 
@@ -29,10 +30,10 @@ async fn test_concurrent_messages_and_prekeys_no_drops() {
     let alice_id = alice.user_id;
 
     for i in 0..50 {
-        app.send_message(&token, alice_id, format!("msg {}", i).as_bytes()).await;
+        app.send_message(&token, alice_id, format!("msg {i}").as_bytes()).await;
         app.client
             .get(format!("{}/v1/keys/{}", app.server_url, alice_id))
-            .header("Authorization", format!("Bearer {}", token))
+            .header("Authorization", format!("Bearer {token}"))
             .send()
             .await
             .expect("Failed to fetch pre-key bundle");
@@ -46,7 +47,7 @@ async fn test_concurrent_messages_and_prekeys_no_drops() {
     // We give it a generous timeout to process everything.
     let start = Instant::now();
     while start.elapsed() < Duration::from_secs(5) {
-        if let Some(_) = alice_ws.receive_envelope_timeout(Duration::from_millis(100)).await {
+        if alice_ws.receive_envelope_timeout(Duration::from_millis(100)).await.is_some() {
             received_messages += 1;
         }
 
@@ -62,8 +63,7 @@ async fn test_concurrent_messages_and_prekeys_no_drops() {
     // If it's less than 50, the `try_recv` swallowed some notifications.
     assert_eq!(
         received_messages, 50,
-        "Expected 50 messages, but only received {}. Some notifications were dropped!",
-        received_messages
+        "Expected 50 messages, but only received {received_messages}. Some notifications were dropped!"
     );
 }
 
@@ -81,7 +81,7 @@ async fn test_ack_batcher_does_not_drop_on_disconnect() {
 
     // Bob sends 5 messages to Alice
     for i in 0..5 {
-        app.send_message(&bob.token, alice.user_id, format!("msg {}", i).as_bytes()).await;
+        app.send_message(&bob.token, alice.user_id, format!("msg {i}").as_bytes()).await;
     }
 
     let mut alice_ws = app.connect_ws(&alice.token).await;
@@ -106,7 +106,6 @@ async fn test_ack_batcher_does_not_drop_on_disconnect() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // VIOLENTLY DISCONNECT ALICE
-    use futures::SinkExt;
     let _ = alice_ws.sink.close().await;
     drop(alice_ws);
 

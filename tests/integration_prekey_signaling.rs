@@ -115,21 +115,17 @@ async fn test_prekey_coalescing() {
     // 2. Alice fetches 20 keys CONCURRENTLY.
     // This will definitely dip Bob below the 20-key threshold multiple times.
     let mut handles = Vec::new();
-    for i in 0..20 {
+    for _ in 0..20 {
         let client = app.client.clone();
         let url = format!("{}/v1/keys/{}", app.server_url, bob.user_id);
         let token = alice.token.clone();
         handles.push(tokio::spawn(async move {
-            let resp = client
+            client
                 .get(url)
                 .header("Authorization", format!("Bearer {token}"))
                 .send()
                 .await
-                .expect("Failed to fetch pre-key");
-            if resp.status() != StatusCode::OK {
-                println!("Fetch {} failed: {}", i, resp.status());
-            }
-            resp
+                .expect("Failed to fetch pre-key")
         }));
     }
 
@@ -157,7 +153,6 @@ async fn test_prekey_coalescing() {
         }
     }
 
-    println!("Bob received {} PreKeyStatus frames, final count: {}", frame_count, last_count);
     assert!(frame_count > 0, "Bob should have received at least one notification");
     assert!(frame_count < 10, "Debouncing should have significantly reduced the number of frames");
     assert_eq!(last_count, 5, "Bob should eventually receive the final accurate count of 5");
