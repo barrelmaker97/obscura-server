@@ -71,7 +71,7 @@ impl KeyService {
             None => (None, None),
         };
 
-        // Reactive signaling: If a key was consumed, check if we dipped below the threshold
+        // Reactive signaling: Notify if we are currently below the threshold (including 0)
         if let Some(count) = remaining_count
             && count < i64::from(self.config.pre_key_refill_threshold)
         {

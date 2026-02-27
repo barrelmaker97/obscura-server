@@ -189,7 +189,9 @@ impl KeyRepository {
                 })?;
                 (Some(pk), Some(count))
             }
-            None => (None, None),
+            // If the user exists (identity was found) but no OTPK rec was returned by the DELETE,
+            // it means we are at 0 keys.
+            None => (None, Some(0)),
         };
 
         Ok(Some((PreKeyBundle { registration_id, identity_key, signed_pre_key, one_time_pre_key }, remaining_count)))

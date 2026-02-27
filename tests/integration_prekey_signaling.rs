@@ -56,6 +56,39 @@ async fn test_prekey_signaling_realtime() {
 }
 
 #[tokio::test]
+async fn test_prekey_signaling_exhausted() {
+    let app = common::TestApp::spawn_with_workers(common::get_test_config()).await;
+
+    // 1. Register Bob with 0 OTPKs
+    let bob = app.register_user_with_keys(&common::generate_username("bob_exh"), 123, 0).await;
+
+    // 2. Bob connects
+    let mut bob_ws = app.connect_ws(&bob.token).await;
+    bob_ws.ensure_subscribed().await;
+
+    // Clear initial frame (count 0)
+    let status = bob_ws.receive_prekey_status_timeout(Duration::from_secs(1)).await;
+    assert!(status.is_some());
+
+    let alice = app.register_user(&common::generate_username("alice_exh")).await;
+
+    // 3. Alice fetches Bob's bundle (already 0)
+    let resp = app
+        .client
+        .get(format!("{}/v1/keys/{}", app.server_url, bob.user_id))
+        .header("Authorization", format!("Bearer {}", alice.token))
+        .send()
+        .await
+        .expect("Failed to fetch pre-key bundle");
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // 4. Bob should receive ANOTHER PreKeyStatus frame with count 0
+    let status = bob_ws.receive_prekey_status_timeout(Duration::from_secs(2)).await;
+    assert!(status.is_some(), "Bob should have received a notification even though keys were already at 0");
+    assert_eq!(status.unwrap().one_time_pre_key_count, 0);
+}
+
+#[tokio::test]
 async fn test_prekey_signaling_push() {
     let mut config = common::get_test_config();
     // Set a very low push delay for testing
