@@ -5,6 +5,7 @@ use uuid::Uuid;
 pub enum UserEvent {
     MessageReceived = 1,
     Disconnect = 2,
+    PreKeyLow = 3,
 }
 
 #[derive(Debug, Clone)]
@@ -20,6 +21,7 @@ impl TryFrom<u8> for UserEvent {
         match value {
             1 => Ok(Self::MessageReceived),
             2 => Ok(Self::Disconnect),
+            3 => Ok(Self::PreKeyLow),
             _ => Err(()),
         }
     }

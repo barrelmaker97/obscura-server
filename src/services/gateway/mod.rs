@@ -1,6 +1,7 @@
 #![allow(unreachable_pub)]
 pub(crate) mod ack_batcher;
 pub(crate) mod message_pump;
+pub(crate) mod prekey_pump;
 pub(crate) mod session;
 
 use crate::config::WsConfig;
@@ -133,6 +134,7 @@ impl GatewayService {
             request_id,
             socket,
             message_service: self.message_service.clone(),
+            key_service: self.key_service.clone(),
             notifier: self.notifier.clone(),
             metrics: self.metrics.clone(),
             config: self.config.clone(),

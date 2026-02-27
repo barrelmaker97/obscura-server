@@ -510,6 +510,10 @@ pub struct WsConfig {
     #[arg(long = "ws-ping-timeout-secs", env = "OBSCURA_WS_PING_TIMEOUT_SECS", default_value_t = WsConfig::default().ping_timeout_secs)]
     pub ping_timeout_secs: u64,
 
+    /// How long to debounce `PreKeyLow` events before sending a status frame to the client
+    #[arg(long = "ws-prekey-debounce-interval-ms", env = "OBSCURA_WS_PREKEY_DEBOUNCE_INTERVAL_MS", default_value_t = WsConfig::default().prekey_debounce_interval_ms)]
+    pub prekey_debounce_interval_ms: u64,
+
     /// Maximum number of messages to fetch in a single database query loop
     #[arg(
         long = "ws-message-fetch-batch-size",
@@ -528,6 +532,7 @@ impl Default for WsConfig {
             ack_flush_interval_ms: 500,
             ping_interval_secs: 30,
             ping_timeout_secs: 10,
+            prekey_debounce_interval_ms: 500,
             message_fetch_batch_size: 50,
         }
     }
@@ -775,6 +780,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::panic)]
     fn test_docs_up_to_date() {
         let docs = std::fs::read_to_string("docs/CONFIGURATION.md").expect("Could not read CONFIGURATION.md");
         let cmd = Config::command();
@@ -789,22 +795,20 @@ mod tests {
                 continue;
             }
 
-            let env_name = env.unwrap().to_string_lossy();
-            let env_pattern = format!("`{}`", env_name);
+            let env_name = env.expect("Missing environment variable name").to_string_lossy();
+            let env_pattern = format!("`{env_name}`");
             let env_count = docs.matches(&env_pattern).count();
             assert_eq!(
                 env_count, 1,
-                "Environment variable {} must appear exactly once in documentation, found {}",
-                env_pattern, env_count
+                "Environment variable {env_pattern} must appear exactly once in documentation, found {env_count}"
             );
 
             if let Some(long) = arg.get_long() {
-                let flag_pattern = format!("`--{}`", long);
+                let flag_pattern = format!("`--{long}`");
                 let flag_count = docs.matches(&flag_pattern).count();
                 assert_eq!(
                     flag_count, 1,
-                    "Flag {} must appear exactly once in documentation, found {}",
-                    flag_pattern, flag_count
+                    "Flag {flag_pattern} must appear exactly once in documentation, found {flag_count}"
                 );
 
                 // Verify default value
@@ -820,20 +824,18 @@ mod tests {
                 // Pattern: | --flag | ENV_VAR | Default | Description |
                 let row_pattern =
                     format!(r"\| `--{}` \| `{}` \| ([^|]+) \|", regex::escape(long), regex::escape(&env_name));
-                let re = regex::Regex::new(&row_pattern).unwrap();
+                let re = regex::Regex::new(&row_pattern).expect("Invalid regex pattern");
 
                 if let Some(caps) = re.captures(&docs) {
-                    let actual_default = caps.get(1).unwrap().as_str().trim().replace('`', "");
+                    let actual_default = caps.get(1).expect("Missing capture group").as_str().trim().replace('`', "");
                     assert_eq!(
                         actual_default, expected_default,
-                        "Default value mismatch for flag --{}. Expected '{}', found '{}' in docs",
-                        long, expected_default, actual_default
+                        "Default value mismatch for flag --{long}. Expected '{expected_default}', found '{actual_default}' in docs"
                     );
                 } else {
                     panic!(
-                        "Could not find documentation row for flag --{} and env {}. \
-                         Ensure it matches the format: | `--{}` | `{}` | Default | Description |",
-                        long, env_name, long, env_name
+                        "Could not find documentation row for flag --{long} and env {env_name}. \
+                         Ensure it matches the format: | `--{long}` | `{env_name}` | Default | Description |"
                     );
                 }
             }

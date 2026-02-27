@@ -1,7 +1,8 @@
 use crate::config::WsConfig;
 use crate::domain::notification::UserEvent;
 use crate::proto::obscura::v1 as proto;
-use crate::services::gateway::{Metrics, ack_batcher::AckBatcher, message_pump::MessagePump};
+use crate::services::gateway::{Metrics, ack_batcher::AckBatcher, message_pump::MessagePump, prekey_pump::PreKeyPump};
+use crate::services::key_service::KeyService;
 use crate::services::message_service::MessageService;
 use crate::services::notification_service::NotificationService;
 use axum::extract::ws::{Message as WsMessage, WebSocket};
@@ -15,6 +16,7 @@ pub struct Session {
     pub request_id: String,
     pub socket: WebSocket,
     pub message_service: MessageService,
+    pub key_service: KeyService,
     pub notifier: NotificationService,
     pub metrics: Metrics,
     pub config: WsConfig,
@@ -36,7 +38,8 @@ impl Session {
     pub(crate) async fn run(self) {
         // Destructuring allows independent mutable access to fields while the socket
         // is split into sink and stream halves.
-        let Self { user_id, socket, message_service, notifier, metrics, config, mut shutdown_rx, .. } = self;
+        let Self { user_id, socket, message_service, key_service, notifier, metrics, config, mut shutdown_rx, .. } =
+            self;
 
         metrics.active_connections.add(1, &[]);
         tracing::info!("WebSocket connected");
@@ -63,10 +66,13 @@ impl Session {
         let message_pump = MessagePump::new(
             user_id,
             message_service.clone(),
-            outbound_tx,
+            outbound_tx.clone(),
             metrics.clone(),
             config.message_fetch_batch_size,
         );
+
+        let prekey_pump =
+            PreKeyPump::new(user_id, key_service.clone(), outbound_tx.clone(), config.prekey_debounce_interval_ms);
 
         message_pump.notify();
 
@@ -139,7 +145,11 @@ impl Session {
 
                                             if !uuids.is_empty() {
                                                 // Immediately cancel push notifications to avoid "phantom buzzes"
-                                                notifier.cancel_pending_notifications(user_id).await;
+                                                // Run as fire-and-forget task to avoid blocking the WebSocket loop
+                                                let notifier_clone = notifier.clone();
+                                                tokio::spawn(async move {
+                                                    notifier_clone.cancel_pending_notifications(user_id).await;
+                                                });
                                                 ack_batcher.push(uuids);
                                             }
                                         } else {
@@ -183,12 +193,19 @@ impl Session {
 
                 result = notification_rx.recv() => {
                     let continue_loop = match result {
-                        Ok(UserEvent::MessageReceived) | Err(broadcast::error::RecvError::Lagged(_)) => {
+                        Ok(UserEvent::MessageReceived) => {
                             message_pump.notify();
-                            // Drain prevents queue buildup if notifications arrive faster than processing.
-                            while notification_rx.try_recv() == Ok(UserEvent::MessageReceived) {
-                                 message_pump.notify();
-                            }
+                            true
+                        }
+                        Err(broadcast::error::RecvError::Lagged(_)) => {
+                            // If the channel lagged (burst of events), we safely trigger both pumps
+                            // because we don't know which event we missed. The pumps will debounce.
+                            message_pump.notify();
+                            prekey_pump.notify();
+                            true
+                        }
+                        Ok(UserEvent::PreKeyLow) => {
+                            prekey_pump.notify();
                             true
                         }
                         Ok(UserEvent::Disconnect) | Err(broadcast::error::RecvError::Closed) => false,
@@ -200,10 +217,6 @@ impl Session {
         }
 
         let _ = ws_sink.close().await;
-
-        // Explicitly abort background tasks to ensure immediate resource cleanup.
-        ack_batcher.abort();
-        message_pump.abort();
 
         metrics.active_connections.add(-1, &[]);
         tracing::info!("WebSocket disconnected");

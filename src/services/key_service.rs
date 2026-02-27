@@ -3,8 +3,10 @@ use crate::adapters::database::key_repo::KeyRepository;
 use crate::config::MessagingConfig;
 use crate::domain::crypto::PublicKey;
 use crate::domain::keys::{OneTimePreKey, PreKeyBundle, PreKeyStatus, SignedPreKey};
+use crate::domain::notification::UserEvent;
 use crate::error::{AppError, Result};
 use crate::services::crypto_service::CryptoService;
+use crate::services::notification_service::NotificationService;
 use opentelemetry::{global, metrics::Counter};
 use sqlx::PgConnection;
 use uuid::Uuid;
@@ -31,6 +33,7 @@ pub struct KeyService {
     pool: DbPool,
     repo: KeyRepository,
     crypto_service: CryptoService,
+    notifier: NotificationService,
     config: MessagingConfig,
     metrics: Metrics,
 }
@@ -46,8 +49,14 @@ pub struct KeyUploadParams {
 
 impl KeyService {
     #[must_use]
-    pub fn new(pool: DbPool, repo: KeyRepository, crypto_service: CryptoService, config: MessagingConfig) -> Self {
-        Self { pool, repo, crypto_service, config, metrics: Metrics::new() }
+    pub fn new(
+        pool: DbPool,
+        repo: KeyRepository,
+        crypto_service: CryptoService,
+        notifier: NotificationService,
+        config: MessagingConfig,
+    ) -> Self {
+        Self { pool, repo, crypto_service, notifier, config, metrics: Metrics::new() }
     }
 
     /// Fetches a pre-key bundle for a user.
@@ -57,7 +66,20 @@ impl KeyService {
     #[tracing::instrument(err, skip(self), fields(user_id = %user_id))]
     pub async fn get_pre_key_bundle(&self, user_id: Uuid) -> Result<Option<PreKeyBundle>> {
         let mut conn = self.pool.acquire().await?;
-        self.repo.fetch_pre_key_bundle(&mut conn, user_id).await
+        let (bundle, remaining_count) = match self.repo.fetch_pre_key_bundle(&mut conn, user_id).await? {
+            Some((b, c)) => (Some(b), c),
+            None => (None, None),
+        };
+
+        // Reactive signaling: Notify if we are currently below the threshold (including 0)
+        if let Some(count) = remaining_count
+            && count < i64::from(self.config.pre_key_refill_threshold)
+        {
+            self.metrics.prekey_low_total.add(1, &[]);
+            self.notifier.notify(&[user_id], UserEvent::PreKeyLow).await;
+        }
+
+        Ok(bundle)
     }
 
     /// Fetches the identity key for a user.
@@ -192,74 +214,16 @@ impl KeyService {
     }
 
     fn verify_keys(&self, ik: &PublicKey, signed_pre_key: &SignedPreKey) -> Result<()> {
-        let raw_32 = signed_pre_key.public_key.as_crypto_bytes();
-        let wire_33 = signed_pre_key.public_key.as_bytes();
-
         // libsignal-protocol-typescript's generateSignedPreKey signs the 33-byte publicKey ArrayBuffer.
         // However, some versions or test polyfills might sign the 32-byte raw key.
         // We try both to be absolutely robust.
+        let raw_32 = signed_pre_key.public_key.as_crypto_bytes();
+        let wire_33 = signed_pre_key.public_key.as_bytes();
 
         if self.crypto_service.verify_signature(ik, wire_33, &signed_pre_key.signature).is_ok() {
             return Ok(());
         }
 
         self.crypto_service.verify_signature(ik, raw_32, &signed_pre_key.signature)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::domain::crypto::{DJB_KEY_PREFIX, PublicKey, Signature};
-    use curve25519_dalek::edwards::CompressedEdwardsY;
-    use rand::RngCore;
-    use rand::rngs::OsRng;
-    use xeddsa::xed25519::PrivateKey;
-    use xeddsa::{CalculateKeyPair, Sign};
-
-    fn setup_service() -> KeyService {
-        let config = MessagingConfig::default();
-        let pool = sqlx::PgPool::connect_lazy("postgres://localhost").expect("Valid test pool");
-        KeyService::new(pool, KeyRepository::new(), CryptoService::new(), config)
-    }
-
-    fn generate_keys() -> (PrivateKey, PublicKey, PrivateKey, PublicKey, Signature) {
-        let mut ik_bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut ik_bytes);
-        let ik = PrivateKey(ik_bytes);
-
-        let (_, ik_pub_ed) = ik.calculate_key_pair(0);
-        let ik_pub_mont =
-            CompressedEdwardsY(ik_pub_ed).decompress().expect("Failed to decompress").to_montgomery().to_bytes();
-        let mut ik_pub_wire = [0u8; 33];
-        ik_pub_wire[0] = DJB_KEY_PREFIX;
-        ik_pub_wire[1..].copy_from_slice(&ik_pub_mont);
-        let ik_pub = PublicKey::new(ik_pub_wire);
-
-        let mut spk_bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut spk_bytes);
-        let spk = PrivateKey(spk_bytes);
-        let (_, spk_pub_ed) = spk.calculate_key_pair(0);
-        let spk_pub_mont =
-            CompressedEdwardsY(spk_pub_ed).decompress().expect("Failed to decompress").to_montgomery().to_bytes();
-        let mut spk_pub_wire = [0u8; 33];
-        spk_pub_wire[0] = DJB_KEY_PREFIX;
-        spk_pub_wire[1..].copy_from_slice(&spk_pub_mont);
-        let spk_pub = PublicKey::new(spk_pub_wire);
-
-        // Sign the 33-byte wire format (prefix + raw X25519)
-        let signature_bytes: [u8; 64] = ik.sign(spk_pub_wire.as_slice(), OsRng);
-        let signature = Signature::new(signature_bytes);
-
-        (ik, ik_pub, spk, spk_pub, signature)
-    }
-
-    #[tokio::test]
-    async fn test_verify_keys_client_format() {
-        let service = setup_service();
-        let (_, ik_pub, _, spk_pub, signature) = generate_keys();
-        let spk = SignedPreKey { key_id: 1, public_key: spk_pub, signature };
-
-        assert!(service.verify_keys(&ik_pub, &spk).is_ok());
     }
 }

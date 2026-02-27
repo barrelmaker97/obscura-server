@@ -10,7 +10,6 @@ use uuid::Uuid;
 pub struct AckBatcher {
     tx: mpsc::Sender<Uuid>,
     metrics: Metrics,
-    task: tokio::task::JoinHandle<()>,
 }
 
 impl AckBatcher {
@@ -25,7 +24,7 @@ impl AckBatcher {
         let (tx, rx) = mpsc::channel(buffer_size);
 
         let batcher_metrics = metrics.clone();
-        let task = tokio::spawn(
+        tokio::spawn(
             async move {
                 Self::run_background(user_id, rx, message_service, batcher_metrics, batch_size, flush_interval_ms)
                     .await;
@@ -33,7 +32,7 @@ impl AckBatcher {
             .instrument(tracing::info_span!("ack_batcher", user_id = %user_id)),
         );
 
-        Self { tx, metrics, task }
+        Self { tx, metrics }
     }
 
     pub fn push(&self, msg_ids: Vec<Uuid>) {
@@ -43,10 +42,6 @@ impl AckBatcher {
                 self.metrics.ack_queue_dropped_total.add(1, &[]);
             }
         }
-    }
-
-    pub fn abort(&self) {
-        self.task.abort();
     }
 
     async fn run_background(
@@ -59,30 +54,47 @@ impl AckBatcher {
     ) {
         loop {
             let mut batch = Vec::new();
+
+            // Unconditionally wait for the first item. This prevents busy-waiting
+            // and waking up the CPU on idle connections.
+            match rx.recv().await {
+                Some(id) => batch.push(id),
+                None => return, // Channel closed cleanly, nothing to flush
+            }
+
+            // Once we have at least one item, start the flush timer.
             let timeout = tokio::time::sleep(Duration::from_millis(flush_interval_ms));
             tokio::pin!(timeout);
 
             loop {
+                if batch.len() >= batch_size {
+                    break;
+                }
+
                 tokio::select! {
                     res = rx.recv() => {
-                        match res {
-                            Some(id) => {
-                                batch.push(id);
-                                if batch.len() >= batch_size { break; }
-                            }
-                            None => return,
+                        if let Some(id) = res {
+                            batch.push(id);
+                        } else {
+                            // Channel closed, flush whatever we have right now and exit
+                            Self::flush_batch(user_id, &message_service, &metrics, batch).await;
+                            return;
                         }
                     }
                     () = &mut timeout => break,
                 }
             }
 
-            if !batch.is_empty() {
-                tracing::debug!(batch_size = batch.len(), "Flushing ACK batch");
-                metrics.ack_batch_size.record(batch.len() as u64, &[]);
-                if let Err(e) = message_service.delete_batch(user_id, &batch).await {
-                    tracing::error!(error = %e, "Failed to delete message batch");
-                }
+            Self::flush_batch(user_id, &message_service, &metrics, batch).await;
+        }
+    }
+
+    async fn flush_batch(user_id: Uuid, message_service: &MessageService, metrics: &Metrics, batch: Vec<Uuid>) {
+        if !batch.is_empty() {
+            tracing::debug!(batch_size = batch.len(), "Flushing ACK batch");
+            metrics.ack_batch_size.record(batch.len() as u64, &[]);
+            if let Err(e) = message_service.delete_batch(user_id, &batch).await {
+                tracing::error!(error = %e, "Failed to delete message batch");
             }
         }
     }
