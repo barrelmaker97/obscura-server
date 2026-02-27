@@ -214,12 +214,11 @@ impl KeyService {
     }
 
     fn verify_keys(&self, ik: &PublicKey, signed_pre_key: &SignedPreKey) -> Result<()> {
-        let raw_32 = signed_pre_key.public_key.as_crypto_bytes();
-        let wire_33 = signed_pre_key.public_key.as_bytes();
-
         // libsignal-protocol-typescript's generateSignedPreKey signs the 33-byte publicKey ArrayBuffer.
         // However, some versions or test polyfills might sign the 32-byte raw key.
         // We try both to be absolutely robust.
+        let raw_32 = signed_pre_key.public_key.as_crypto_bytes();
+        let wire_33 = signed_pre_key.public_key.as_bytes();
 
         if self.crypto_service.verify_signature(ik, wire_33, &signed_pre_key.signature).is_ok() {
             return Ok(());
@@ -227,11 +226,4 @@ impl KeyService {
 
         self.crypto_service.verify_signature(ik, raw_32, &signed_pre_key.signature)
     }
-}
-
-#[cfg(test)]
-mod tests {
-    // Service-level unit tests for KeyService are currently covered by
-    // integration tests in `tests/integration_keys.rs` and `tests/integration_prekey_signaling.rs`,
-    // and crypto-specific logic is tested in `services/crypto_service.rs`.
 }
