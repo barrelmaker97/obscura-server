@@ -69,7 +69,10 @@ impl KeyService {
         let bundle = self.repo.fetch_pre_key_bundle(&mut conn, user_id).await?;
 
         // Reactive signaling: If a key was consumed, check if we dipped below the threshold
-        if bundle.is_some() {
+        // IMPORTANT: Only check if one_time_pre_key was actually present and consumed.
+        if let Some(ref b) = bundle
+            && b.one_time_pre_key.is_some()
+        {
             let count = self.repo.count_one_time_pre_keys(&mut conn, user_id).await?;
             if count < i64::from(self.config.pre_key_refill_threshold) {
                 self.metrics.prekey_low_total.add(1, &[]);

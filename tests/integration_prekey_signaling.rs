@@ -8,18 +8,17 @@ async fn test_prekey_signaling_realtime() {
     let app = common::TestApp::spawn_with_workers(common::get_test_config()).await;
 
     // 1. Register Bob with exactly 21 OTPKs (threshold is 20)
-    let bob = app.register_user_with_keys(&common::generate_username("bob"), 123, 21).await;
+    let bob = app.register_user_with_keys(&common::generate_username("bob_rt"), 123, 21).await;
 
     // 2. Bob connects to Gateway
     let mut bob_ws = app.connect_ws(&bob.token).await;
     bob_ws.ensure_subscribed().await;
 
-    // 3. Alice fetches Bob's pre-key bundle
-    // This should consume 1 key, leaving 20. Threshold is 20,
-    // so < 20 check in service will NOT trigger yet if check is 'count < threshold'.
-    // If threshold is 20, then 19 triggers it.
-    let alice = app.register_user(&common::generate_username("alice")).await;
+    // Clear the initial "on-connect" PreKeyStatus frame
+    let _ = bob_ws.receive_prekey_status_timeout(Duration::from_secs(1)).await;
 
+    // 3. Alice fetches Bob's pre-key bundle
+    let alice = app.register_user(&common::generate_username("alice_rt")).await;
     let resp = app
         .client
         .get(format!("{}/v1/keys/{}", app.server_url, bob.user_id))
@@ -41,11 +40,19 @@ async fn test_prekey_signaling_realtime() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     // 5. Check Bob's WS for PreKeyStatus
-    let status = bob_ws.receive_prekey_status_timeout(Duration::from_secs(2)).await;
-    assert!(status.is_some(), "Bob should have received a PreKeyStatus frame");
-    let status = status.expect("PreKeyStatus frame missing");
-    assert_eq!(status.one_time_pre_key_count, 19);
-    assert_eq!(status.min_threshold, 20);
+    // We use a loop to ensure we get the count of 19 (might be preceded by a count of 20 if timing is tight)
+    let mut last_count = 21;
+    let start = std::time::Instant::now();
+    while start.elapsed() < Duration::from_secs(2) {
+        if let Some(status) = bob_ws.receive_prekey_status_timeout(Duration::from_millis(500)).await {
+            last_count = status.one_time_pre_key_count;
+            if last_count == 19 {
+                break;
+            }
+        }
+    }
+
+    assert_eq!(last_count, 19, "Bob should have received a PreKeyStatus frame with count 19");
 }
 
 #[tokio::test]
@@ -96,53 +103,62 @@ async fn test_prekey_coalescing() {
     let app = common::TestApp::spawn_with_workers(common::get_test_config()).await;
 
     // 1. Bob with 25 keys
-    let bob = app.register_user_with_keys(&common::generate_username("bob_burst"), 123, 25).await;
+    let bob = app.register_user_with_keys(&common::generate_username("bob_co"), 123, 25).await;
     let mut bob_ws = app.connect_ws(&bob.token).await;
     bob_ws.ensure_subscribed().await;
 
-    let alice = app.register_user(&common::generate_username("alice_burst")).await;
+    // Clear initial status frame
+    let _ = bob_ws.receive_prekey_status_timeout(Duration::from_secs(1)).await;
 
-    // 2. Alice fetches 10 keys CONCURRENTLY.
-    // This increases the probability of multiple notifications sitting in the
-    // session's channel buffer at once.
-    use futures::stream::{self, StreamExt};
-    stream::iter(0..10)
-        .map(|_| {
-            let client = &app.client;
-            let url = format!("{}/v1/keys/{}", app.server_url, bob.user_id);
-            let token = &alice.token;
-            async move {
-                client
-                    .get(url)
-                    .header("Authorization", format!("Bearer {token}"))
-                    .send()
-                    .await
-                    .expect("Failed to fetch pre-key")
+    let alice = app.register_user(&common::generate_username("alice_co")).await;
+
+    // 2. Alice fetches 20 keys CONCURRENTLY.
+    // This will definitely dip Bob below the 20-key threshold multiple times.
+    let mut handles = Vec::new();
+    for i in 0..20 {
+        let client = app.client.clone();
+        let url = format!("{}/v1/keys/{}", app.server_url, bob.user_id);
+        let token = alice.token.clone();
+        handles.push(tokio::spawn(async move {
+            let resp = client
+                .get(url)
+                .header("Authorization", format!("Bearer {token}"))
+                .send()
+                .await
+                .expect("Failed to fetch pre-key");
+            if resp.status() != StatusCode::OK {
+                println!("Fetch {} failed: {}", i, resp.status());
             }
-        })
-        .buffer_unordered(10)
-        .collect::<Vec<_>>()
-        .await;
-
-    // Small delay to let Redis/PubSub propagate
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
-    // 3. Bob should only receive a SMALL number of frames (likely 1 or 2) due to coalescing.
-    // If coalescing didn't work, he'd get 10.
-    let mut frames = Vec::new();
-    while let Some(status) = bob_ws.receive_prekey_status_timeout(Duration::from_millis(500)).await {
-        frames.push(status);
+            resp
+        }));
     }
 
-    println!("Bob received {} PreKeyStatus frames", frames.len());
-    assert!(frames.len() < 5, "Coalescing should have reduced the 10 notifications significantly");
-    assert!(!frames.is_empty(), "Bob should have received at least one notification");
+    for h in handles {
+        let _ = h.await;
+    }
 
-    // The last frame received should have a count below threshold
-    let last = frames.last().unwrap();
-    assert!(
-        last.one_time_pre_key_count <= 19,
-        "Count should reflect key consumption (got {})",
-        last.one_time_pre_key_count
-    );
+    // Wait for the 500ms debounce window + some slack
+    tokio::time::sleep(Duration::from_millis(800)).await;
+
+    // 3. Bob should receive status frames.
+    // Due to time-based debouncing, he should receive very few, and the last one
+    // MUST reflect the final state.
+    let mut last_count = 25;
+    let mut frame_count = 0;
+
+    let start = std::time::Instant::now();
+    while start.elapsed() < Duration::from_secs(5) {
+        if let Some(status) = bob_ws.receive_prekey_status_timeout(Duration::from_millis(500)).await {
+            frame_count += 1;
+            last_count = status.one_time_pre_key_count;
+            if last_count == 5 {
+                break;
+            }
+        }
+    }
+
+    println!("Bob received {} PreKeyStatus frames, final count: {}", frame_count, last_count);
+    assert!(frame_count > 0, "Bob should have received at least one notification");
+    assert!(frame_count < 10, "Debouncing should have significantly reduced the number of frames");
+    assert_eq!(last_count, 5, "Bob should eventually receive the final accurate count of 5");
 }

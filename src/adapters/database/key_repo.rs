@@ -145,7 +145,7 @@ impl KeyRepository {
         // Fetch latest signed pre key
         let signed_rec = sqlx::query_as::<_, SignedPreKeyRecord>(
             r#"
-            SELECT id, public_key, signature 
+            SELECT id, public_key, signature
             FROM signed_pre_keys WHERE user_id = $1
             ORDER BY created_at DESC LIMIT 1
             "#,
@@ -166,10 +166,14 @@ impl KeyRepository {
         // Fetch one one-time pre key and delete it
         let otpk_rec = sqlx::query_as::<_, OneTimePreKeyRecord>(
             r#"
+            WITH target AS (
+                SELECT id FROM one_time_pre_keys
+                WHERE user_id = $1
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED
+            )
             DELETE FROM one_time_pre_keys
-            WHERE id = (
-                SELECT id FROM one_time_pre_keys WHERE user_id = $1 LIMIT 1
-            ) AND user_id = $1
+            WHERE id IN (SELECT id FROM target) AND user_id = $1
             RETURNING id, public_key
             "#,
         )
