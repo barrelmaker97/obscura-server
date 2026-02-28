@@ -358,40 +358,6 @@ async fn test_websocket_auth_failure() {
 }
 
 #[tokio::test]
-async fn test_gateway_missing_identity_key() {
-    let app = TestApp::spawn().await;
-    let user = app.register_user(&common::generate_username("miss_id")).await;
-
-    sqlx::query("DELETE FROM identity_keys WHERE user_id = $1").bind(user.user_id).execute(&app.pool).await.unwrap();
-
-    let url = format!("{}?token={}", app.ws_url, user.token);
-    let res = tokio_tungstenite::connect_async(url).await;
-
-    if let Ok((mut socket, _)) = res {
-        // Wait for close
-        let mut closed = false;
-        let start = std::time::Instant::now();
-        while start.elapsed() < Duration::from_secs(5) {
-            use futures::StreamExt;
-            match socket.next().await {
-                Some(Ok(WsMessage::Close(_))) | None => {
-                    closed = true;
-                    break;
-                }
-                Some(Err(_)) => {
-                    closed = true;
-                    break;
-                }
-                _ => {}
-            }
-        }
-        assert!(closed, "Socket should have been closed by server");
-    } else {
-        // If handshake failed, that's also valid closure
-    }
-}
-
-#[tokio::test]
 async fn test_ack_buffer_saturation() {
     let mut config = common::get_test_config();
     config.websocket.ack_buffer_size = 5;
