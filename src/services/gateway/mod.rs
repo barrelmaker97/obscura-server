@@ -11,7 +11,6 @@ use crate::services::key_service::KeyService;
 use crate::services::message_service::MessageService;
 use crate::services::notification_service::NotificationService;
 use axum::extract::ws::{Message as WsMessage, WebSocket};
-use futures::SinkExt;
 use opentelemetry::{
     global,
     metrics::{Counter, Histogram, UpDownCounter},
@@ -90,22 +89,6 @@ impl GatewayService {
         request_id: String,
         shutdown_rx: tokio::sync::watch::Receiver<bool>,
     ) {
-        // Validation is performed before spawning the session to provide immediate
-        // feedback and avoid allocating resources for invalid connections.
-        match self.key_service.fetch_identity_key(user_id).await {
-            Ok(Some(_)) => {}
-            Ok(None) => {
-                tracing::warn!("User connected but has no identity key");
-                let _ = socket.close().await;
-                return;
-            }
-            Err(e) => {
-                tracing::error!(error = %e, "Failed to fetch identity key");
-                let _ = socket.close().await;
-                return;
-            }
-        }
-
         // Clients need to know if they are low on pre-keys immediately upon connection
         // to prevent exhausting their bundle during an active session.
         match self.key_service.check_pre_key_status(user_id).await {
