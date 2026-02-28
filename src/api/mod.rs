@@ -194,11 +194,25 @@ fn apply_middleware(router: Router<AppState>, config: &Config, state: AppState) 
                     let status = response.status();
                     tracing::Span::current().record("http.response.status_code", status.as_u16());
 
-                    tracing::info!(
-                        latency_ms = %latency.as_millis(),
-                        status = %status.as_u16(),
-                        "request completed"
-                    );
+                    if status.is_server_error() {
+                        tracing::error!(
+                            latency_ms = %latency.as_millis(),
+                            status = %status.as_u16(),
+                            "request completed with server error"
+                        );
+                    } else if status.is_client_error() {
+                        tracing::warn!(
+                            latency_ms = %latency.as_millis(),
+                            status = %status.as_u16(),
+                            "request completed with client error"
+                        );
+                    } else {
+                        tracing::info!(
+                            latency_ms = %latency.as_millis(),
+                            status = %status.as_u16(),
+                            "request completed"
+                        );
+                    }
                 })
                 .on_failure(|error, _latency, _span: &tracing::Span| {
                     tracing::error!(error = %error, "request failed");
