@@ -85,7 +85,7 @@ async fn test_prekey_signaling_exhausted() {
     // 4. Bob should receive ANOTHER PreKeyStatus frame with count 0
     let status = bob_ws.receive_prekey_status_timeout(Duration::from_secs(2)).await;
     assert!(status.is_some(), "Bob should have received a notification even though keys were already at 0");
-    assert_eq!(status.unwrap().one_time_pre_key_count, 0);
+    assert_eq!(status.expect("Status should be present").one_time_pre_key_count, 0);
 }
 
 #[tokio::test]
