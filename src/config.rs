@@ -521,6 +521,14 @@ pub struct WsConfig {
         default_value_t = WsConfig::default().message_fetch_batch_size
     )]
     pub message_fetch_batch_size: i64,
+
+    /// Time-to-live for WebSocket authentication tickets in seconds
+    #[arg(
+        long = "ws-ticket-ttl-secs",
+        env = "OBSCURA_WS_TICKET_TTL_SECS",
+        default_value_t = WsConfig::default().ticket_ttl_secs
+    )]
+    pub ticket_ttl_secs: u64,
 }
 
 impl Default for WsConfig {
@@ -534,6 +542,7 @@ impl Default for WsConfig {
             ping_timeout_secs: 10,
             prekey_debounce_interval_ms: 500,
             message_fetch_batch_size: 50,
+            ticket_ttl_secs: 30,
         }
     }
 }

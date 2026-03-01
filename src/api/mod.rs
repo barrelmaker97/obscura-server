@@ -1,5 +1,5 @@
 use crate::Services;
-use crate::adapters::redis::SubmissionCache;
+use crate::adapters::redis::RedisCache;
 use crate::api::rate_limit::log_rate_limit_events;
 use crate::config::Config;
 use crate::services::account_service::AccountService;
@@ -52,7 +52,8 @@ pub(crate) struct AppState {
     pub(crate) gateway_service: GatewayService,
     pub(crate) push_token_service: PushTokenService,
     pub(crate) rate_limit_service: RateLimitService,
-    pub(crate) submission_cache: SubmissionCache,
+    pub(crate) submission_cache: RedisCache,
+    pub(crate) ws_ticket_cache: RedisCache,
     pub(crate) shutdown_rx: tokio::sync::watch::Receiver<bool>,
 }
 
@@ -70,6 +71,7 @@ impl AppState {
             push_token_service: services.push_token_service,
             rate_limit_service: services.rate_limit_service,
             submission_cache: services.submission_cache,
+            ws_ticket_cache: services.ws_ticket_cache,
             shutdown_rx,
         }
     }
@@ -112,6 +114,7 @@ fn auth_router(
 fn api_router(
     config: &Config,
     rate_limit_extractor: crate::services::rate_limit_service::IpKeyExtractor,
+    state: AppState,
 ) -> Router<AppState> {
     let std_interval_ns = 1_000_000_000 / config.rate_limit.per_second.max(1);
     let standard_conf = Arc::new(
@@ -123,19 +126,25 @@ fn api_router(
             .expect("Failed to build standard rate limiter config"),
     );
 
-    let standard_timeout = TimeoutLayer::with_status_code(
-        StatusCode::REQUEST_TIMEOUT,
-        Duration::from_secs(config.server.request_timeout_secs),
-    );
-
-    Router::new()
+    let standard_routes = Router::new()
         .route("/keys", post(keys::upload_keys))
         .route("/keys/{userId}", get(keys::get_pre_key_bundle))
         .route("/messages", post(messages::send_messages))
         .route("/gateway", get(gateway::websocket_handler))
-        .route("/push-tokens", put(push_tokens::register_token))
+        .route("/push-tokens", put(push_tokens::register_token));
+
+    let authenticated_routes = Router::new()
+        .route("/gateway/ticket", post(gateway::generate_ticket))
+        .layer(axum::middleware::from_extractor_with_state::<middleware::AuthUser, AppState>(state));
+
+    Router::new()
+        .merge(standard_routes)
+        .merge(authenticated_routes)
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(config.server.request_timeout_secs),
+        ))
         .layer(GovernorLayer::new(standard_conf))
-        .layer(standard_timeout)
 }
 
 fn storage_router(config: &Config) -> Router<AppState> {
@@ -235,7 +244,9 @@ pub fn app_router(config: &Config, services: Services, shutdown_rx: tokio::sync:
 
     let routes = Router::new().route("/openapi.yaml", get(docs::openapi_yaml)).nest(
         "/v1",
-        auth_router(config, extractor.clone()).merge(api_router(config, extractor)).merge(storage_router(config)),
+        auth_router(config, extractor.clone())
+            .merge(api_router(config, extractor, state.clone()))
+            .merge(storage_router(config)),
     );
 
     apply_middleware(routes, config, state)
