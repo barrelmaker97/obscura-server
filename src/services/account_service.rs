@@ -64,7 +64,7 @@ impl AccountService {
     /// Returns `AppError::Database` if any of the underlying transactions fail.
     #[tracing::instrument(
         skip(self, username, password, identity_key, signed_pre_key, one_time_pre_keys),
-        fields(user_id = tracing::field::Empty),
+        fields(user.id = tracing::field::Empty),
         err(level = "warn")
     )]
     pub(crate) async fn register(
@@ -114,7 +114,7 @@ impl AccountService {
     /// Returns `AppError::Database` if the database operation fails.
     #[tracing::instrument(
         skip(self, params),
-        fields(user_id = %params.user_id),
+        fields(user.id = %params.user_id),
         err(level = "warn")
     )]
     pub(crate) async fn upload_keys(&self, params: KeyUploadParams) -> Result<()> {

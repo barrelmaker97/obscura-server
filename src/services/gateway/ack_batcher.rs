@@ -29,7 +29,7 @@ impl AckBatcher {
                 Self::run_background(user_id, rx, message_service, batcher_metrics, batch_size, flush_interval_ms)
                     .await;
             }
-            .instrument(tracing::info_span!("ack_batcher", user_id = %user_id)),
+            .instrument(tracing::info_span!("ack_batcher", "user.id" = %user_id)),
         );
 
         Self { tx, metrics }

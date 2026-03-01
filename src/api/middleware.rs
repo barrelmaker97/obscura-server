@@ -32,7 +32,7 @@ impl FromRequestParts<AppState> for AuthUser {
 
         let user_id = state.auth_service.verify_token(&jwt).map_err(|_| AppError::AuthError)?;
 
-        tracing::Span::current().record("user_id", tracing::field::display(user_id));
+        tracing::Span::current().record("user.id", tracing::field::display(user_id));
 
         Ok(Self { user_id })
     }

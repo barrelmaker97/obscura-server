@@ -28,7 +28,7 @@ impl PreKeyPump {
             async move {
                 Self::run_background(user_id, notify_rx, key_service, outbound_tx, debounce_interval_ms).await;
             }
-            .instrument(tracing::info_span!("prekey_pump", user_id = %user_id)),
+            .instrument(tracing::info_span!("prekey_pump", "user.id" = %user_id)),
         );
 
         Self { notify_tx }

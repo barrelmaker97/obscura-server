@@ -63,7 +63,7 @@ impl KeyService {
     ///
     /// # Errors
     /// Returns `AppError::Database` if the database operation fails.
-    #[tracing::instrument(err, skip(self), fields(user_id = %user_id))]
+    #[tracing::instrument(err, skip(self), fields(user.id = %user_id))]
     pub async fn get_pre_key_bundle(&self, user_id: Uuid) -> Result<Option<PreKeyBundle>> {
         let mut conn = self.pool.acquire().await?;
         let (bundle, remaining_count) = match self.repo.fetch_pre_key_bundle(&mut conn, user_id).await? {
@@ -86,7 +86,7 @@ impl KeyService {
     ///
     /// # Errors
     /// Returns `AppError::Database` if the database operation fails.
-    #[tracing::instrument(err, skip(self), fields(user_id = %user_id))]
+    #[tracing::instrument(err, skip(self), fields(user.id = %user_id))]
     pub async fn fetch_identity_key(&self, user_id: Uuid) -> Result<Option<PublicKey>> {
         let mut conn = self.pool.acquire().await?;
         self.repo.fetch_identity_key(&mut conn, user_id).await
@@ -96,7 +96,7 @@ impl KeyService {
     ///
     /// # Errors
     /// Returns `AppError::Database` if the database operation fails.
-    #[tracing::instrument(err, skip(self), fields(user_id = %user_id))]
+    #[tracing::instrument(err, skip(self), fields(user.id = %user_id))]
     pub async fn check_pre_key_status(&self, user_id: Uuid) -> Result<Option<PreKeyStatus>> {
         let mut conn = self.pool.acquire().await?;
         let count = self.repo.count_one_time_pre_keys(&mut conn, user_id).await?;

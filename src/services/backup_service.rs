@@ -73,7 +73,7 @@ impl BackupService {
     #[tracing::instrument(
         err(level = "warn"),
         skip(self, stream),
-        fields(user_id = %user_id, version = %if_match_version)
+        fields(user.id = %user_id, version = %if_match_version)
     )]
     pub async fn handle_upload(
         &self,
@@ -162,7 +162,7 @@ impl BackupService {
     ///
     /// # Errors
     /// Returns `AppError::NotFound` if no backup exists or the current version is 0.
-    #[tracing::instrument(err(level = "warn"), skip(self), fields(user_id = %user_id))]
+    #[tracing::instrument(err(level = "warn"), skip(self), fields(user.id = %user_id))]
     pub async fn download(&self, user_id: Uuid) -> Result<(i32, u64, StorageStream)> {
         let mut conn = self.pool.acquire().await.map_err(AppError::Database)?;
         let backup = self.repo.find_by_user_id(&mut conn, user_id).await?;
@@ -188,7 +188,7 @@ impl BackupService {
     ///
     /// # Errors
     /// Returns `AppError::NotFound` if no backup exists or the current version is 0.
-    #[tracing::instrument(err(level = "warn"), skip(self), fields(user_id = %user_id))]
+    #[tracing::instrument(err(level = "warn"), skip(self), fields(user.id = %user_id))]
     pub async fn head(&self, user_id: Uuid) -> Result<(i32, u64)> {
         let mut conn = self.pool.acquire().await.map_err(AppError::Database)?;
         let backup = self.repo.find_by_user_id(&mut conn, user_id).await?;

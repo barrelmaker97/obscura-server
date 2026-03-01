@@ -28,8 +28,8 @@ impl Session {
         name = "websocket_session",
         skip(self),
         fields(
-            user_id = %self.user_id,
-            request_id = %self.request_id,
+            user.id = %self.user_id,
+            request.id = %self.request_id,
             otel.kind = "server",
             ws.session_id = %Uuid::new_v4()
         )

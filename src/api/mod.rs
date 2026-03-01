@@ -182,12 +182,12 @@ fn apply_middleware(router: Router<AppState>, config: &Config, state: AppState) 
 
                     tracing::info_span!(
                         "request",
-                        "request_id" = %request_id,
+                        "request.id" = %request_id,
                         "http.request.method" = %request.method(),
                         "url.path" = %request.uri().path(),
                         "http.response.status_code" = tracing::field::Empty,
                         "otel.kind" = "server",
-                        "user_id" = tracing::field::Empty,
+                        "user.id" = tracing::field::Empty,
                     )
                 })
                 .on_response(|response: &axum::http::Response<_>, latency: Duration, _span: &tracing::Span| {
