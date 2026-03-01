@@ -30,7 +30,7 @@ impl MessagePump {
             async move {
                 Self::run_background(user_id, notify_rx, message_service, outbound_tx, metrics, batch_limit).await;
             }
-            .instrument(tracing::info_span!("message_pump", user_id = %user_id)),
+            .instrument(tracing::info_span!("message_pump", "user.id" = %user_id)),
         );
 
         Self { notify_tx }
@@ -62,7 +62,7 @@ impl MessagePump {
     #[tracing::instrument(
         err(level = "debug"),
         skip(service, outbound_tx, metrics, cursor),
-        fields(user_id = %user_id, batch_count = tracing::field::Empty)
+        fields(user.id = %user_id, batch_count = tracing::field::Empty)
     )]
     async fn flush_batch(
         user_id: Uuid,

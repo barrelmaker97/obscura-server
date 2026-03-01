@@ -72,7 +72,7 @@ impl AuthService {
     /// Returns `AppError::AuthError` if credentials are invalid.
     #[tracing::instrument(
         skip(self, username, password),
-        fields(user_id = tracing::field::Empty),
+        fields(user.id = tracing::field::Empty),
         err(level = "warn")
     )]
     pub(crate) async fn login(&self, username: String, password: String) -> Result<AuthSession> {
@@ -133,7 +133,7 @@ impl AuthService {
     ///
     /// # Errors
     /// Returns `AppError::Database` if the session cannot be saved.
-    #[tracing::instrument(err, skip(self, conn), fields(user_id = %user_id))]
+    #[tracing::instrument(err, skip(self, conn), fields(user.id = %user_id))]
     pub(crate) async fn create_session(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<AuthSession> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(Duration::from_secs(0)).as_secs();
 
@@ -196,7 +196,7 @@ impl AuthService {
     ///
     /// # Errors
     /// Returns `AppError::Database` if the token cannot be deleted.
-    #[tracing::instrument(err, skip(self, refresh_token), fields(user_id = %user_id))]
+    #[tracing::instrument(err, skip(self, refresh_token), fields(user.id = %user_id))]
     pub(crate) async fn logout(&self, user_id: Uuid, refresh_token: String) -> Result<()> {
         let mut conn = self.pool.acquire().await?;
         let hash = Self::hash_opaque_token(&refresh_token);

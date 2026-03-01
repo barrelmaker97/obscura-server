@@ -121,7 +121,7 @@ impl BackupCleanupWorker {
                 }
 
                 if let Err(e) = self.repo.reset_stale(&mut conn, user_id).await {
-                    tracing::error!(error = ?e, user_id = %user_id, "Failed to reset stale backup in DB");
+                    tracing::error!(error = ?e, "user.id" = %user_id, "Failed to reset stale backup in DB");
                 } else {
                     total_cleaned += 1;
                 }

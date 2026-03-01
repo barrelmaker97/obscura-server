@@ -116,7 +116,7 @@ impl NotificationService {
         tracing::debug!(duration_secs = %duration, "Notification channel cleanup cycle completed");
     }
 
-    #[tracing::instrument(skip(self), fields(user_id = %user_id))]
+    #[tracing::instrument(skip(self), fields(user.id = %user_id))]
     pub async fn subscribe(&self, user_id: Uuid) -> broadcast::Receiver<UserEvent> {
         let tx = self
             .channels
@@ -154,7 +154,7 @@ impl NotificationService {
         }
     }
 
-    #[tracing::instrument(skip(self), fields(user_id = %user_id))]
+    #[tracing::instrument(skip(self), fields(user.id = %user_id))]
     pub async fn cancel_pending_notifications(&self, user_id: Uuid) {
         if let Err(e) = self.repo.cancel_job(user_id).await {
             tracing::error!(error = %e, "Failed to cancel pending push notification");
