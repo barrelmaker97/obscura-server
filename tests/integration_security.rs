@@ -36,6 +36,7 @@ async fn test_unauthenticated_access_denied() {
         ("HEAD", format!("{}/v1/backup", app.server_url)),
         ("POST", format!("{}/v1/backup", app.server_url)),
         ("PUT", format!("{}/v1/push-tokens", app.server_url)),
+        ("POST", format!("{}/v1/gateway/ticket", app.server_url)),
     ];
 
     for (method, url) in endpoints {

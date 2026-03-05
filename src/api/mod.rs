@@ -114,7 +114,6 @@ fn auth_router(
 fn api_router(
     config: &Config,
     rate_limit_extractor: crate::services::rate_limit_service::IpKeyExtractor,
-    state: AppState,
 ) -> Router<AppState> {
     let std_interval_ns = 1_000_000_000 / config.rate_limit.per_second.max(1);
     let standard_conf = Arc::new(
@@ -131,15 +130,11 @@ fn api_router(
         .route("/keys/{userId}", get(keys::get_pre_key_bundle))
         .route("/messages", post(messages::send_messages))
         .route("/gateway", get(gateway::websocket_handler))
-        .route("/push-tokens", put(push_tokens::register_token));
-
-    let authenticated_routes = Router::new()
         .route("/gateway/ticket", post(gateway::generate_ticket))
-        .layer(axum::middleware::from_extractor_with_state::<middleware::AuthUser, AppState>(state));
+        .route("/push-tokens", put(push_tokens::register_token));
 
     Router::new()
         .merge(standard_routes)
-        .merge(authenticated_routes)
         .layer(TimeoutLayer::with_status_code(
             StatusCode::REQUEST_TIMEOUT,
             Duration::from_secs(config.server.request_timeout_secs),
@@ -245,7 +240,7 @@ pub fn app_router(config: &Config, services: Services, shutdown_rx: tokio::sync:
     let routes = Router::new().route("/openapi.yaml", get(docs::openapi_yaml)).nest(
         "/v1",
         auth_router(config, extractor.clone())
-            .merge(api_router(config, extractor, state.clone()))
+            .merge(api_router(config, extractor))
             .merge(storage_router(config)),
     );
 
