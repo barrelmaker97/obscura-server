@@ -392,8 +392,21 @@ impl TestApp {
     }
 
     pub(crate) async fn connect_ws(&self, token: &str) -> TestWsClient {
+        // Fetch a ticket first using the auth token
+        let ticket_resp = self
+            .client
+            .post(format!("{}/v1/gateway/ticket", self.server_url))
+            .header("Authorization", format!("Bearer {token}"))
+            .send()
+            .await
+            .expect("Failed to request ticket");
+
+        assert_eq!(ticket_resp.status(), 201, "Failed to create ticket");
+        let body: serde_json::Value = ticket_resp.json().await.expect("Failed to parse ticket JSON");
+        let ticket = body["ticket"].as_str().expect("Ticket string not found in response");
+
         let (ws_stream, _) =
-            connect_async(format!("{}?token={}", self.ws_url, token)).await.expect("Failed to connect WS");
+            connect_async(format!("{}?ticket={}", self.ws_url, ticket)).await.expect("Failed to connect WS");
         let (sink, stream) = ws_stream.split();
         let (tx_env, rx_env) = tokio::sync::mpsc::unbounded_channel();
         let (tx_status, rx_status) = tokio::sync::mpsc::unbounded_channel();

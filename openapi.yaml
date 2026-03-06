@@ -276,6 +276,36 @@ paths:
 
 
   # --- WebSocket Gateway (Documentation Only) ---
+  /v1/gateway/ticket:
+    post:
+      operationId: generateTicket
+      summary: Generate a WebSocket connection ticket.
+      description: |
+        Generates a short-lived, single-use ticket for establishing a WebSocket connection.
+        This allows the client to authenticate via the `Authorization` header once, and then
+        pass the ticket as a query parameter in the WebSocket handshake (where custom headers are often difficult to set).
+      tags: [Messaging]
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Ticket generated.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/x-request-id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TicketResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '408':
+          $ref: '#/components/responses/RequestTimeoutError'
+        '429':
+          $ref: '#/components/responses/TooManyRequestsError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   /v1/gateway:
     get:
       operationId: connectGateway
@@ -284,20 +314,20 @@ paths:
         **WebSocket Endpoint.**
         Clients must connect here to receive messages.
         - **Protocol:** `WebSocketFrame` (Protobuf).
-        - **Auth:** Pass the JWT in the query string: `ws://.../v1/gateway?token=<jwt>`.
-        - **Handshake:** Server validates the JWT and ensures the user has an Identity Key stored.
+        - **Auth:** Pass a valid ticket in the query string: `ws://.../v1/gateway?ticket=<ticket>`.
+        - **Handshake:** Server validates the ticket, ensuring it exists and hasn't expired or been used.
         - **Welcome:** Upon successful connection, the server may immediately push a `PreKeyStatus` frame if the user's one-time pre-key count is below the configured threshold.
         - **Flow:** Server pushes `Envelope` frames. Client MUST respond with `AckMessage` frames. Server batches deletions based on ACKs.
       tags: [Messaging]
       security:
-        - tokenAuth: []
+        - ticketAuth: []
       parameters:
-        - name: token
+        - name: ticket
           in: query
           required: true
           schema:
             type: string
-          description: JWT Access Token.
+          description: Single-use WebSocket authentication ticket.
       responses:
         '101':
           description: Switching Protocols.
@@ -593,10 +623,10 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-    tokenAuth:
+    ticketAuth:
       type: apiKey
       in: query
-      name: token
+      name: ticket
 
   headers:
     x-request-id:
@@ -876,3 +906,11 @@ components:
           type: integer
           format: int64
           description: UNIX timestamp of when the file will be deleted.
+
+    TicketResponse:
+      type: object
+      required: [ticket]
+      properties:
+        ticket:
+          type: string
+          description: A short-lived, single-use authentication ticket.

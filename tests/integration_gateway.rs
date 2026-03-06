@@ -55,8 +55,20 @@ async fn test_heartbeat_timeout_closes_connection() {
     let app = TestApp::spawn_with_config(config).await;
     let user = app.register_user(&common::generate_username("timeout_test")).await;
 
+    // Fetch a ticket for the user
+    let ticket_resp = app
+        .client
+        .post(format!("{}/v1/gateway/ticket", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .send()
+        .await
+        .expect("Failed to request ticket");
+
+    let body: serde_json::Value = ticket_resp.json().await.unwrap();
+    let ticket = body["ticket"].as_str().unwrap();
+
     // Connect manually so we can control Pong behavior (or just not read from it)
-    let url = format!("{}?token={}", app.ws_url, user.token);
+    let url = format!("{}?ticket={}", app.ws_url, ticket);
     let (ws_stream, _) = tokio_tungstenite::connect_async(url).await.expect("Failed to connect");
 
     let (_sink, mut stream) = ws_stream.split();

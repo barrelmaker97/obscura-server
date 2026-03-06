@@ -130,6 +130,7 @@ Obscura Server is configured via command-line flags or environment variables usi
 | `--ws-ping-interval-secs` | `OBSCURA_WS_PING_INTERVAL_SECS` | `30` | WebSocket heartbeat interval in seconds. |
 | `--ws-ping-timeout-secs` | `OBSCURA_WS_PING_TIMEOUT_SECS` | `10` | Wait time for a pong response before closing the connection. |
 | `--ws-message-fetch-batch-size` | `OBSCURA_WS_MESSAGE_FETCH_BATCH_SIZE` | `50` | Maximum number of messages to fetch in a single database query loop. |
+| `--ws-ticket-ttl-secs` | `OBSCURA_WS_TICKET_TTL_SECS` | `30` | Time-to-live for WebSocket authentication tickets in seconds. |
 
 ## Health Checks
 

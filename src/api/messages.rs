@@ -24,7 +24,7 @@ pub(crate) async fn send_messages(
         .and_then(|s| Uuid::parse_str(s).map_err(|e| AppError::BadRequest(format!("Invalid idempotency-key: {e}"))))?;
 
     // 1. Check Idempotency Cache
-    if let Ok(Some(cached)) = state.submission_cache.get_response(&idempotency_key.to_string()).await {
+    if let Ok(Some(cached)) = state.submission_cache.get(&idempotency_key.to_string()).await {
         tracing::info!(key = %idempotency_key, "Returning cached idempotency response");
         return Ok(cached);
     }
@@ -48,11 +48,7 @@ pub(crate) async fn send_messages(
     let response_bytes = response.encode_to_vec();
 
     // 6. Infrastructure: Update Idempotency Cache
-    if let Err(e) = state
-        .submission_cache
-        .save_response(&idempotency_key.to_string(), &response_bytes, state.config.messaging.idempotency_ttl_secs)
-        .await
-    {
+    if let Err(e) = state.submission_cache.set(&idempotency_key.to_string(), &response_bytes).await {
         tracing::error!(error = %e, "Failed to cache idempotency response");
     }
 

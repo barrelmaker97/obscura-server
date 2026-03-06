@@ -16,7 +16,7 @@ use crate::adapters::database::push_token_repo::PushTokenRepository;
 use crate::adapters::database::refresh_token_repo::RefreshTokenRepository;
 use crate::adapters::database::user_repo::UserRepository;
 use crate::adapters::push::PushProvider;
-use crate::adapters::redis::SubmissionCache;
+use crate::adapters::redis::RedisCache;
 use crate::adapters::storage::S3Storage;
 use crate::config::{Config, StorageConfig};
 use crate::services::account_service::AccountService;
@@ -86,7 +86,8 @@ pub struct Services {
     pub notification_service: NotificationService,
     pub push_token_service: PushTokenService,
     pub rate_limit_service: RateLimitService,
-    pub submission_cache: SubmissionCache,
+    pub submission_cache: RedisCache,
+    pub ws_ticket_cache: RedisCache,
 }
 
 #[derive(Debug)]
@@ -210,6 +211,7 @@ impl AppBuilder {
     /// Returns an error if mandatory dependencies (pool, pubsub, etc.) are missing,
     /// or if any service fails to initialize.
     #[tracing::instrument(skip(self))]
+    #[allow(clippy::too_many_lines)]
     pub async fn initialize(self) -> anyhow::Result<App> {
         let pool = self.pool.ok_or_else(|| anyhow::anyhow!("Database pool is required"))?;
         let pubsub = self.pubsub.ok_or_else(|| anyhow::anyhow!("PubSub client is required"))?;
@@ -250,7 +252,13 @@ impl AppBuilder {
         );
         let auth_service =
             AuthService::new(config.auth.clone(), pool.clone(), adapters.user.clone(), adapters.refresh.clone());
-        let submission_cache = SubmissionCache::new(Arc::clone(&pubsub));
+        let submission_cache = RedisCache::new(
+            Arc::clone(&pubsub),
+            "idempotency:submission:".to_string(),
+            config.messaging.idempotency_ttl_secs,
+        );
+        let ws_ticket_cache =
+            RedisCache::new(Arc::clone(&pubsub), "ws:ticket:".to_string(), config.websocket.ticket_ttl_secs);
         let message_service = MessageService::new(
             pool.clone(),
             adapters.message.clone(),
@@ -307,6 +315,7 @@ impl AppBuilder {
             push_token_service,
             rate_limit_service,
             submission_cache,
+            ws_ticket_cache,
         };
 
         let workers = Self::init_workers(config, &pool, &adapters, notifier);

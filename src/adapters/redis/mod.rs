@@ -6,11 +6,11 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, watch};
 use tracing::Instrument;
 
+pub mod cache;
 pub mod notification_repo;
-pub mod submission_cache;
 
+pub use cache::RedisCache;
 pub use notification_repo::NotificationRepository;
-pub use submission_cache::SubmissionCache;
 
 #[derive(Debug, Clone)]
 pub struct PubSubMessage {
