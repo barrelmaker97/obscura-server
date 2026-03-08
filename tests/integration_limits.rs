@@ -32,7 +32,7 @@ async fn test_message_limit_fifo() {
     // Flood 1005 messages
     for i in 0..1005 {
         let payload = format!("msg_{i}").into_bytes();
-        app.send_message(&user_a.token, user_b.user_id, &payload).await;
+        app.send_message(&user_a.token, user_b.device_id, &payload).await;
     }
 
     // Manually trigger cleanup using the repo

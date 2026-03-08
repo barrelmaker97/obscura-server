@@ -23,7 +23,7 @@ pub(crate) async fn login(
     Ok(Json(auth_response))
 }
 
-/// Registers a new user. Returns a user-only JWT (no device_id).
+/// Registers a new user. Returns a user-only JWT (no `device_id`).
 ///
 /// # Errors
 /// Returns `AppError::BadRequest` if validation fails.

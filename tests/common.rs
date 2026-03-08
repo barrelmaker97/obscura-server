@@ -229,8 +229,56 @@ pub fn generate_registration_payload(
     (payload, identity_key)
 }
 
+/// Generates a device creation payload (keys without username/password) for POST /v1/devices.
+pub fn generate_device_payload(
+    reg_id: u32,
+    otpk_count: usize,
+) -> (serde_json::Value, [u8; 32]) {
+    let identity_key = generate_signing_key();
+    let ik_priv = PrivateKey(identity_key);
+    let (_, ik_pub_ed) = ik_priv.calculate_key_pair(0);
+    let ik_pub_mont =
+        curve25519_dalek::edwards::CompressedEdwardsY(ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
+    let mut ik_pub_wire = [0u8; 33];
+    ik_pub_wire[0] = 0x05;
+    ik_pub_wire[1..].copy_from_slice(&ik_pub_mont);
+
+    let (spk_pub, spk_sig) = generate_signed_pre_key(&identity_key);
+
+    let mut otpk = Vec::new();
+    for i in 0..otpk_count {
+        let key_bytes = generate_signing_key();
+        let key_priv = PrivateKey(key_bytes);
+        let (_, key_pub_ed) = key_priv.calculate_key_pair(0);
+        let key_pub_mont =
+            curve25519_dalek::edwards::CompressedEdwardsY(key_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
+        let mut key_pub_wire = [0u8; 33];
+        key_pub_wire[0] = 0x05;
+        key_pub_wire[1..].copy_from_slice(&key_pub_mont);
+
+        otpk.push(json!({
+            "keyId": i,
+            "publicKey": STANDARD.encode(key_pub_wire)
+        }));
+    }
+
+    let payload = json!({
+        "registrationId": reg_id,
+        "identityKey": STANDARD.encode(ik_pub_wire),
+        "signedPreKey": {
+            "keyId": 1,
+            "publicKey": STANDARD.encode(&spk_pub),
+            "signature": STANDARD.encode(&spk_sig)
+        },
+        "oneTimePreKeys": otpk
+    });
+
+    (payload, identity_key)
+}
+
 pub struct TestUser {
     pub user_id: Uuid,
+    pub device_id: Uuid,
     pub token: String,
     pub refresh_token: String,
     pub identity_key: [u8; 32],
@@ -342,33 +390,52 @@ impl TestApp {
     }
 
     pub(crate) async fn register_user_with_keys(&self, username: &str, reg_id: u32, otpk_count: usize) -> TestUser {
-        let (reg_payload, identity_key) = generate_registration_payload(username, "password12345", reg_id, otpk_count);
+        // Step 1: Register user (auth-only, no keys)
+        let reg_payload = json!({
+            "username": username,
+            "password": "password12345"
+        });
 
         let resp = self.client.post(format!("{}/v1/users", self.server_url)).json(&reg_payload).send().await.unwrap();
 
         assert_eq!(resp.status(), 201, "User registration failed: {}", resp.text().await.unwrap());
         let body = resp.json::<serde_json::Value>().await.unwrap();
-        let token = body["token"].as_str().unwrap().to_string();
-        let refresh_token = body["refreshToken"].as_str().unwrap_or_default().to_string();
+        let user_token = body["token"].as_str().unwrap().to_string();
 
-        let parts: Vec<&str> = token.split('.').collect();
+        let parts: Vec<&str> = user_token.split('.').collect();
         let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[1]).unwrap();
         let claims: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
         let user_id = Uuid::parse_str(claims["sub"].as_str().unwrap()).unwrap();
 
-        TestUser { user_id, token, refresh_token, identity_key }
+        // Step 2: Create device (with keys) to get device-scoped JWT
+        let (device_payload, identity_key) = generate_device_payload(reg_id, otpk_count);
+
+        let resp = self.client.post(format!("{}/v1/devices", self.server_url))
+            .header("Authorization", format!("Bearer {user_token}"))
+            .json(&device_payload)
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), 201, "Device creation failed: {}", resp.text().await.unwrap());
+        let body = resp.json::<serde_json::Value>().await.unwrap();
+        let token = body["token"].as_str().unwrap().to_string();
+        let refresh_token = body["refreshToken"].as_str().unwrap_or_default().to_string();
+        let device_id = Uuid::parse_str(body["deviceId"].as_str().unwrap()).unwrap();
+
+        TestUser { user_id, device_id, token, refresh_token, identity_key }
     }
 
-    pub(crate) async fn send_message(&self, token: &str, recipient_id: Uuid, content: &[u8]) {
-        self.send_messages(token, &[(recipient_id, content)]).await;
+    pub(crate) async fn send_message(&self, token: &str, device_id: Uuid, content: &[u8]) {
+        self.send_messages(token, &[(device_id, content)]).await;
     }
 
     pub(crate) async fn send_messages(&self, token: &str, messages: &[(Uuid, &[u8])]) {
         let outgoing = messages
             .iter()
-            .map(|(recipient_id, content)| proto::send_message_request::Submission {
+            .map(|(device_id, content)| proto::send_message_request::Submission {
                 submission_id: Uuid::new_v4().as_bytes().to_vec(),
-                recipient_id: recipient_id.as_bytes().to_vec(),
+                device_id: device_id.as_bytes().to_vec(),
                 message: content.to_vec(),
             })
             .collect();
@@ -459,12 +526,12 @@ impl TestApp {
         false
     }
 
-    pub(crate) async fn assert_message_count(&self, user_id: Uuid, expected: i64) {
+    pub(crate) async fn assert_message_count(&self, device_id: Uuid, expected: i64) {
         let success = self
             .wait_until(
                 || async {
-                    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM messages WHERE recipient_id = $1")
-                        .bind(user_id)
+                    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM messages WHERE device_id = $1")
+                        .bind(device_id)
                         .fetch_one(&self.pool)
                         .await
                         .unwrap();
@@ -475,8 +542,8 @@ impl TestApp {
             .await;
 
         if !success {
-            let actual: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM messages WHERE recipient_id = $1")
-                .bind(user_id)
+            let actual: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM messages WHERE device_id = $1")
+                .bind(device_id)
                 .fetch_one(&self.pool)
                 .await
                 .unwrap();

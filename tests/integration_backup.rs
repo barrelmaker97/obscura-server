@@ -282,8 +282,8 @@ async fn test_backup_concurrent_upload_conflict() {
     // 1. Act: Start a legitimate upload
     // We simulate a "stuck" concurrent upload by manually putting the record into UPLOADING state
     // with a FRESH timestamp (NOW).
-    sqlx::query("INSERT INTO backups (user_id, current_version, pending_version, state, pending_at) VALUES ($1, 0, 1, 'UPLOADING', NOW())")
-        .bind(user.user_id).execute(&app.pool).await.unwrap();
+    sqlx::query("INSERT INTO backups (device_id, current_version, pending_version, state, pending_at) VALUES ($1, 0, 1, 'UPLOADING', NOW())")
+        .bind(user.device_id).execute(&app.pool).await.unwrap();
 
     // 2. Verify: A new attempt with the same version (0) should now conflict (409)
     let resp_conflict = app
@@ -309,11 +309,11 @@ async fn test_backup_cleanup() {
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
     let user = app.register_user(&common::generate_username("cleanup")).await;
-    let user_id = user.user_id;
+    let user_id = user.device_id;
 
     // 1. Setup Stale DB State (2 minutes ago)
     sqlx::query(
-        "INSERT INTO backups (user_id, current_version, pending_version, state, pending_at)
+        "INSERT INTO backups (device_id, current_version, pending_version, state, pending_at)
          VALUES ($1, 1, 2, 'UPLOADING', NOW() - INTERVAL '2 minutes')",
     )
     .bind(user_id)
@@ -343,7 +343,7 @@ async fn test_backup_cleanup() {
     assert!(cleaned_count >= 1);
 
     // 5. Verification: DB State for OUR specific user
-    let backup: (String, Option<i32>) = sqlx::query_as("SELECT state, pending_version FROM backups WHERE user_id = $1")
+    let backup: (String, Option<i32>) = sqlx::query_as("SELECT state, pending_version FROM backups WHERE device_id = $1")
         .bind(user_id)
         .fetch_one(&app.pool)
         .await
@@ -368,7 +368,7 @@ async fn test_backup_version_rotation_and_cleanup() {
     common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
 
     let user = app.register_user(&common::generate_username("version")).await;
-    let user_id = user.user_id;
+    let user_id = user.device_id;
 
     // 1. Upload Version 1
     let content_v1 = b"Version 1 Data";
@@ -420,7 +420,7 @@ async fn test_backup_version_rotation_and_cleanup() {
     assert!(v1_deleted, "Old version v1 should have been deleted from S3");
 
     // 4. Verify Final DB State
-    let version: (i32,) = sqlx::query_as("SELECT current_version FROM backups WHERE user_id = $1")
+    let version: (i32,) = sqlx::query_as("SELECT current_version FROM backups WHERE device_id = $1")
         .bind(user_id)
         .fetch_one(&app.pool)
         .await

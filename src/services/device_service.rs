@@ -15,24 +15,24 @@ use uuid::Uuid;
 
 #[derive(Clone, Debug)]
 struct Metrics {
-    devices_created_total: Counter<u64>,
-    devices_deleted_total: Counter<u64>,
-    takeovers_total: Counter<u64>,
+    devices_created: Counter<u64>,
+    devices_deleted: Counter<u64>,
+    takeovers: Counter<u64>,
 }
 
 impl Metrics {
     fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
-            devices_created_total: meter
+            devices_created: meter
                 .u64_counter("obscura_devices_created_total")
                 .with_description("Total number of devices provisioned")
                 .build(),
-            devices_deleted_total: meter
+            devices_deleted: meter
                 .u64_counter("obscura_devices_deleted_total")
                 .with_description("Total number of devices deleted")
                 .build(),
-            takeovers_total: meter
+            takeovers: meter
                 .u64_counter("obscura_key_takeovers_total")
                 .with_description("Total number of device takeover events")
                 .build(),
@@ -106,7 +106,7 @@ impl DeviceService {
         tx.commit().await?;
 
         tracing::info!("Device provisioned successfully");
-        self.metrics.devices_created_total.add(1, &[]);
+        self.metrics.devices_created.add(1, &[]);
 
         Ok(session)
     }
@@ -136,7 +136,7 @@ impl DeviceService {
 
         if is_takeover {
             tracing::warn!("Device takeover detected");
-            self.metrics.takeovers_total.add(1, &[]);
+            self.metrics.takeovers.add(1, &[]);
 
             self.notifier.notify(&[device_id], UserEvent::Disconnect).await;
         }
@@ -168,7 +168,7 @@ impl DeviceService {
         }
 
         tracing::info!("Device deleted");
-        self.metrics.devices_deleted_total.add(1, &[]);
+        self.metrics.devices_deleted.add(1, &[]);
 
         Ok(())
     }

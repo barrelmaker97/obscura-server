@@ -8,7 +8,7 @@ use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 ///
 /// # Errors
 /// Returns `AppError::AuthError` if the user is not authenticated.
-/// Returns `AppError::BadRequest` if the token format is invalid or no device_id in token.
+/// Returns `AppError::BadRequest` if the token format is invalid or no `device_id` in token.
 /// Returns `AppError::Database` if the database operation fails.
 pub(crate) async fn register_token(
     auth_user: AuthUser,

@@ -30,7 +30,7 @@ pub(crate) async fn get_pre_key_bundle(
 ///
 /// # Errors
 /// Returns `AppError::BadRequest` if the keys are malformed or validation fails.
-/// Returns `AppError::AuthError` if no device_id in token.
+/// Returns `AppError::AuthError` if no `device_id` in token.
 pub(crate) async fn upload_keys(
     auth_user: AuthUser,
     State(state): State<AppState>,

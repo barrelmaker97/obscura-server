@@ -74,7 +74,7 @@ impl AuthService {
         Self { config, pool, user_repo, refresh_repo, device_repo, metrics: Metrics::new() }
     }
 
-    /// Registers a new user account. Returns a user-only JWT (no device_id).
+    /// Registers a new user account. Returns a user-only JWT (no `device_id`).
     ///
     /// # Errors
     /// Returns `AppError::Conflict` if the username already exists.
@@ -103,7 +103,7 @@ impl AuthService {
         Ok(session)
     }
 
-    /// Authenticates a user. If device_id is provided and belongs to user, returns a full JWT.
+    /// Authenticates a user. If `device_id` is provided and belongs to user, returns a full JWT.
     /// Otherwise returns a user-only JWT.
     ///
     /// # Errors
@@ -184,7 +184,7 @@ impl AuthService {
         .map_err(|_| AppError::Internal)?
     }
 
-    /// Creates a new authenticated session with optional device_id.
+    /// Creates a new authenticated session with optional `device_id`.
     ///
     /// # Errors
     /// Returns `AppError::Database` if the session cannot be saved.
@@ -216,7 +216,7 @@ impl AuthService {
         })
     }
 
-    /// Refreshes an existing session. Preserves the device_id from the original refresh token.
+    /// Refreshes an existing session. Preserves the `device_id` from the original refresh token.
     ///
     /// # Errors
     /// Returns `AppError::AuthError` if the refresh token is invalid.
@@ -267,7 +267,7 @@ impl AuthService {
         Ok(())
     }
 
-    /// Verifies a JWT access token and returns (user_id, device_id).
+    /// Verifies a JWT access token and returns (`user_id`, `device_id`).
     ///
     /// # Errors
     /// Returns `AppError::AuthError` if the token is invalid or expired.

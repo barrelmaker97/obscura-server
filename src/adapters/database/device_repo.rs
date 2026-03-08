@@ -39,22 +39,6 @@ impl DeviceRepository {
         Ok(record.into())
     }
 
-    /// Finds a device by its ID.
-    ///
-    /// # Errors
-    /// Returns `sqlx::Error` if the query fails.
-    #[tracing::instrument(level = "debug", skip(self, conn), err)]
-    pub(crate) async fn find_by_id(&self, conn: &mut PgConnection, device_id: Uuid) -> Result<Option<Device>> {
-        let record = sqlx::query_as::<_, DeviceRecord>(
-            "SELECT id, user_id, name, created_at FROM devices WHERE id = $1",
-        )
-        .bind(device_id)
-        .fetch_optional(conn)
-        .await?;
-
-        Ok(record.map(Into::into))
-    }
-
     /// Lists all devices for a user.
     ///
     /// # Errors
@@ -90,20 +74,6 @@ impl DeviceRepository {
             .await?;
 
         Ok(result.rows_affected() > 0)
-    }
-
-    /// Checks if a device exists.
-    ///
-    /// # Errors
-    /// Returns `sqlx::Error` if the query fails.
-    #[tracing::instrument(level = "debug", skip(self, conn), err)]
-    pub(crate) async fn exists(&self, conn: &mut PgConnection, device_id: Uuid) -> Result<bool> {
-        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM devices WHERE id = $1)")
-            .bind(device_id)
-            .fetch_one(conn)
-            .await?;
-
-        Ok(exists)
     }
 
     /// Checks if a device belongs to a specific user.

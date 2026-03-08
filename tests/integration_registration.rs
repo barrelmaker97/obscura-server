@@ -13,11 +13,8 @@
     clippy::print_stdout,
     clippy::similar_names
 )]
-use base64::Engine;
 use reqwest::StatusCode;
 use serde_json::json;
-use xeddsa::CalculateKeyPair;
-use xeddsa::xed25519::PrivateKey;
 
 mod common;
 
@@ -26,36 +23,10 @@ async fn test_register_flow() {
     let app = common::TestApp::spawn().await;
     let username = common::generate_username("user");
 
-    let identity_key = common::generate_signing_key();
-    let ik_priv = PrivateKey(identity_key);
-    let (_, ik_pub_ed) = ik_priv.calculate_key_pair(0);
-    let ik_pub_mont =
-        curve25519_dalek::edwards::CompressedEdwardsY(ik_pub_ed).decompress().unwrap().to_montgomery().to_bytes();
-    let mut ik_pub_wire = ik_pub_mont.to_vec();
-    ik_pub_wire.insert(0, 0x05);
-
-    let (spk_pub, spk_sig) = common::generate_signed_pre_key(&identity_key);
-
+    // Step 1: Register (auth-only, no keys)
     let payload = json!({
         "username": username,
         "password": "password12345",
-        "registrationId": 123,
-        "identityKey": base64::engine::general_purpose::STANDARD.encode(ik_pub_wire),
-        "signedPreKey": {
-            "keyId": 1,
-            "publicKey": base64::engine::general_purpose::STANDARD.encode(&spk_pub),
-            "signature": base64::engine::general_purpose::STANDARD.encode(&spk_sig)
-        },
-        "oneTimePreKeys": [
-            {
-                "keyId": 1,
-                "publicKey": "BQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB"
-            },
-            {
-                "keyId": 2,
-                "publicKey": "BQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB"
-            }
-        ]
     });
 
     let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&payload).send().await.unwrap();
@@ -67,8 +38,33 @@ async fn test_register_flow() {
     assert!(json.get("token").is_some());
     assert!(json.get("refreshToken").is_some(), "Registration response must include refreshToken");
     assert!(json.get("expiresAt").is_some(), "Registration response must include expiresAt");
+    // User-only JWT should NOT have deviceId
+    assert!(json.get("deviceId").is_none(), "User-only registration should not include deviceId");
 
-    // 2. Login
+    let user_token = json["token"].as_str().unwrap().to_string();
+
+    // Step 2: Create device with keys
+    let (device_payload, _identity_key) = common::generate_device_payload(123, 2);
+
+    let resp_device = app
+        .client
+        .post(format!("{}/v1/devices", app.server_url))
+        .header("Authorization", format!("Bearer {user_token}"))
+        .json(&device_payload)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp_device.status(), 201);
+    let device_json: serde_json::Value = resp_device.json().await.unwrap();
+    assert!(device_json.get("token").is_some(), "Device response must include token");
+    assert!(device_json.get("refreshToken").is_some(), "Device response must include refreshToken");
+    assert!(device_json.get("deviceId").is_some(), "Device response must include deviceId");
+
+    let device_token = device_json["token"].as_str().unwrap().to_string();
+    let device_id = device_json["deviceId"].as_str().unwrap();
+
+    // Step 3: Login
     let login_payload = json!({
         "username": username,
         "password": "password12345",
@@ -79,20 +75,11 @@ async fn test_register_flow() {
 
     assert_eq!(resp_login.status(), StatusCode::OK);
 
-    let body_json: serde_json::Value = resp_login.json().await.unwrap();
-    let token = body_json["token"].as_str().unwrap();
-
-    // 3. Fetch Keys (Should fail due to empty one-time keys)
-    // Decode token to get user ID
-    let parts: Vec<&str> = token.split('.').collect();
-    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[1]).unwrap();
-    let claims: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
-    let user_id = claims["sub"].as_str().unwrap();
-
+    // Step 4: Fetch Keys (should succeed using device_id)
     let resp_keys = app
         .client
-        .get(format!("{}/v1/keys/{}", app.server_url, user_id))
-        .header("Authorization", format!("Bearer {token}"))
+        .get(format!("{}/v1/keys/{}", app.server_url, device_id))
+        .header("Authorization", format!("Bearer {device_token}"))
         .send()
         .await
         .unwrap();

@@ -27,7 +27,7 @@ async fn test_concurrent_messages_and_prekeys_no_drops() {
     // MessageReceived and PreKeyLow events rapidly.
 
     let token = bob.token.clone();
-    let alice_id = alice.user_id;
+    let alice_id = alice.device_id;
 
     for i in 0..50 {
         app.send_message(&token, alice_id, format!("msg {i}").as_bytes()).await;
@@ -81,7 +81,7 @@ async fn test_ack_batcher_does_not_drop_on_disconnect() {
 
     // Bob sends 5 messages to Alice
     for i in 0..5 {
-        app.send_message(&bob.token, alice.user_id, format!("msg {i}").as_bytes()).await;
+        app.send_message(&bob.token, alice.device_id, format!("msg {i}").as_bytes()).await;
     }
 
     let mut alice_ws = app.connect_ws(&alice.token).await;

@@ -32,7 +32,7 @@ async fn test_messaging_flow() {
     let user_b = app.register_user(&common::generate_username("bob")).await;
 
     let content = b"Hello World".to_vec();
-    app.send_message(&user_a.token, user_b.user_id, &content).await;
+    app.send_message(&user_a.token, user_b.device_id, &content).await;
 
     let mut ws = app.connect_ws(&user_b.token).await;
     let env = ws.receive_envelope().await.expect("Did not receive message");
@@ -51,7 +51,7 @@ async fn test_message_pagination_large_backlog() {
     let message_count = 125;
     for i in 0..message_count {
         let content = format!("Message {i}");
-        app.send_message(&user_a.token, user_b.user_id, content.as_bytes()).await;
+        app.send_message(&user_a.token, user_b.device_id, content.as_bytes()).await;
     }
 
     let mut ws = app.connect_ws(&user_b.token).await;
@@ -85,7 +85,7 @@ async fn test_ack_batching_behavior() {
     let user_b = app.register_user(&common::generate_username("bob_ack")).await;
 
     for i in 0..3 {
-        app.send_message(&user_a.token, user_b.user_id, format!("msg {i}").as_bytes()).await;
+        app.send_message(&user_a.token, user_b.device_id, format!("msg {i}").as_bytes()).await;
     }
 
     let mut ws = app.connect_ws(&user_b.token).await;
@@ -104,10 +104,10 @@ async fn test_ack_batching_behavior() {
 
     // Verify NOT deleted immediately (Buffer < Batch Size)
     tokio::time::sleep(Duration::from_millis(200)).await;
-    app.assert_message_count(user_b.user_id, 3).await;
+    app.assert_message_count(user_b.device_id, 3).await;
 
     // Verify flushed after interval
-    app.assert_message_count(user_b.user_id, 0).await;
+    app.assert_message_count(user_b.device_id, 0).await;
 }
 
 #[tokio::test]
@@ -120,7 +120,7 @@ async fn test_send_message_recipient_not_found() {
     let request = proto::SendMessageRequest {
         messages: vec![proto::send_message_request::Submission {
             submission_id: submission_id.as_bytes().to_vec(),
-            recipient_id: bad_id.as_bytes().to_vec(),
+            device_id: bad_id.as_bytes().to_vec(),
             message: b"Hello".to_vec(),
         }],
     };
@@ -145,7 +145,7 @@ async fn test_send_message_recipient_not_found() {
     assert_eq!(response.failed_submissions[0].submission_id, submission_id.as_bytes().to_vec());
     assert_eq!(
         response.failed_submissions[0].error_code,
-        proto::send_message_response::ErrorCode::InvalidRecipient as i32
+        proto::send_message_response::ErrorCode::InvalidDevice as i32
     );
 }
 
@@ -180,7 +180,7 @@ async fn test_message_idempotency() {
     let request = proto::SendMessageRequest {
         messages: vec![proto::send_message_request::Submission {
             submission_id: Uuid::new_v4().as_bytes().to_vec(),
-            recipient_id: user_b.user_id.as_bytes().to_vec(),
+            device_id: user_b.device_id.as_bytes().to_vec(),
             message: content.clone(),
         }],
     };
@@ -221,7 +221,7 @@ async fn test_message_idempotency() {
     assert_eq!(body1, body2);
 
     // Verify only ONE message was queued
-    app.assert_message_count(user_b.user_id, 1).await;
+    app.assert_message_count(user_b.device_id, 1).await;
 }
 
 #[tokio::test]
@@ -241,19 +241,19 @@ async fn test_batch_partial_success() {
             // 1. Valid (Bob)
             proto::send_message_request::Submission {
                 submission_id: submission_id_b.as_bytes().to_vec(),
-                recipient_id: user_b.user_id.as_bytes().to_vec(),
+                device_id: user_b.device_id.as_bytes().to_vec(),
                 message: b"Msg for Bob".to_vec(),
             },
             // 2. Invalid (Bad ID)
             proto::send_message_request::Submission {
                 submission_id: submission_id_bad.as_bytes().to_vec(),
-                recipient_id: bad_id.as_bytes().to_vec(),
+                device_id: bad_id.as_bytes().to_vec(),
                 message: b"Msg for Nowhere".to_vec(),
             },
             // 3. Valid (Charlie)
             proto::send_message_request::Submission {
                 submission_id: submission_id_c.as_bytes().to_vec(),
-                recipient_id: user_c.user_id.as_bytes().to_vec(),
+                device_id: user_c.device_id.as_bytes().to_vec(),
                 message: b"Msg for Charlie".to_vec(),
             },
         ],
@@ -281,12 +281,12 @@ async fn test_batch_partial_success() {
     assert_eq!(response.failed_submissions[0].submission_id, submission_id_bad.as_bytes().to_vec());
     assert_eq!(
         response.failed_submissions[0].error_code,
-        proto::send_message_response::ErrorCode::InvalidRecipient as i32
+        proto::send_message_response::ErrorCode::InvalidDevice as i32
     );
 
     // Verify Delivery: Bob and Charlie should have messages
-    app.assert_message_count(user_b.user_id, 1).await;
-    app.assert_message_count(user_c.user_id, 1).await;
+    app.assert_message_count(user_b.device_id, 1).await;
+    app.assert_message_count(user_c.device_id, 1).await;
 }
 
 #[tokio::test]
@@ -327,7 +327,7 @@ async fn test_batch_too_large() {
     for _ in 0..6 {
         messages.push(proto::send_message_request::Submission {
             submission_id: Uuid::new_v4().as_bytes().to_vec(),
-            recipient_id: user.user_id.as_bytes().to_vec(),
+            device_id: user.device_id.as_bytes().to_vec(),
             message: b"Msg".to_vec(),
         });
     }
@@ -388,7 +388,7 @@ async fn test_bulk_ack_processing() {
 
     // Send 5 messages
     for i in 0..5 {
-        app.send_message(&user_a.token, user_b.user_id, format!("msg {i}").as_bytes()).await;
+        app.send_message(&user_a.token, user_b.device_id, format!("msg {i}").as_bytes()).await;
     }
 
     let mut ws = app.connect_ws(&user_b.token).await;
@@ -410,7 +410,7 @@ async fn test_bulk_ack_processing() {
     ws.sink.send(WsMessage::Binary(buf.into())).await.unwrap();
 
     // Verify all 5 are deleted
-    app.assert_message_count(user_b.user_id, 0).await;
+    app.assert_message_count(user_b.device_id, 0).await;
 }
 
 #[tokio::test]
@@ -422,7 +422,7 @@ async fn test_ack_security_cross_user_deletion() {
     let user_c = app.register_user(&common::generate_username("eve_sec")).await;
 
     // A sends to B
-    app.send_message(&user_a.token, user_b.user_id, b"Secret").await;
+    app.send_message(&user_a.token, user_b.device_id, b"Secret").await;
 
     // B connects and gets the message ID
     let mut ws_b = app.connect_ws(&user_b.token).await;
@@ -437,7 +437,7 @@ async fn test_ack_security_cross_user_deletion() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Assert message is STILL there for B (count should be 1)
-    app.assert_message_count(user_b.user_id, 1).await;
+    app.assert_message_count(user_b.device_id, 1).await;
 }
 
 #[tokio::test]
@@ -448,7 +448,7 @@ async fn test_send_message_invalid_uuid_bytes() {
     let request = proto::SendMessageRequest {
         messages: vec![proto::send_message_request::Submission {
             submission_id: Uuid::new_v4().as_bytes().to_vec(), // Valid
-            recipient_id: vec![4, 5, 6],                       // Invalid length
+            device_id: vec![4, 5, 6],                       // Invalid length
             message: b"Hello".to_vec(),
         }],
     };
@@ -471,10 +471,10 @@ async fn test_send_message_invalid_uuid_bytes() {
     let response = proto::SendMessageResponse::decode(body).unwrap();
 
     assert_eq!(response.failed_submissions.len(), 1);
-    assert_eq!(response.failed_submissions[0].error_message, "Invalid recipient UUID bytes (expected 16)");
+    assert_eq!(response.failed_submissions[0].error_message, "Invalid device_id UUID bytes (expected 16)");
     assert_eq!(
         response.failed_submissions[0].error_code,
-        proto::send_message_response::ErrorCode::MalformedRecipientId as i32
+        proto::send_message_response::ErrorCode::MalformedDeviceId as i32
     );
 }
 
@@ -512,7 +512,7 @@ async fn test_send_message_malformed_submission_id() {
     let request = proto::SendMessageRequest {
         messages: vec![proto::send_message_request::Submission {
             submission_id: vec![1, 2, 3], // Invalid length
-            recipient_id: recipient.user_id.as_bytes().to_vec(),
+            device_id: recipient.device_id.as_bytes().to_vec(),
             message: b"Hello".to_vec(),
         }],
     };
@@ -549,7 +549,7 @@ async fn test_send_message_missing_payload() {
     let request = proto::SendMessageRequest {
         messages: vec![proto::send_message_request::Submission {
             submission_id: Uuid::new_v4().as_bytes().to_vec(),
-            recipient_id: recipient.user_id.as_bytes().to_vec(),
+            device_id: recipient.device_id.as_bytes().to_vec(),
             message: Vec::new(), // Missing payload
         }],
     };

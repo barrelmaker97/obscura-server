@@ -47,6 +47,12 @@ async fn test_scheduled_push_delivery() {
             .await
             .unwrap();
 
+        sqlx::query("INSERT INTO devices (id, user_id) VALUES ($1, $1)")
+            .bind(user_id)
+            .execute(&mut *conn)
+            .await
+            .unwrap();
+
         let token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
         token_repo.upsert_token(&mut conn, user_id, &format!("token:{user_id}")).await.unwrap();
     }
@@ -80,7 +86,7 @@ async fn test_push_cancellation_on_ack() {
     let user = app.register_user(&username).await;
 
     // 1. Schedule a push
-    app.send_message(&user.token, user.user_id, b"msg").await;
+    app.send_message(&user.token, user.device_id, b"msg").await;
 
     // 2. Connect via WebSocket
     let mut ws = app.connect_ws(&user.token).await;
@@ -127,7 +133,7 @@ async fn test_push_cancellation_on_websocket_connect() {
     let user = app.register_user(&username).await;
 
     // 1. Schedule push
-    app.send_message(&user.token, user.user_id, b"msg").await;
+    app.send_message(&user.token, user.device_id, b"msg").await;
 
     // 2. Connect WS
     let _ws = app.connect_ws(&user.token).await;
@@ -173,6 +179,12 @@ async fn test_delivery_exactly_once_under_competition() {
         sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
             .bind(user_id)
             .bind(format!("u_comp_{}", &user_id.to_string()[..8]))
+            .execute(&mut *conn)
+            .await
+            .unwrap();
+
+        sqlx::query("INSERT INTO devices (id, user_id) VALUES ($1, $1)")
+            .bind(user_id)
             .execute(&mut *conn)
             .await
             .unwrap();
@@ -236,6 +248,12 @@ async fn test_push_coalescing() {
         sqlx::query("INSERT INTO users (id, username, password_hash) VALUES ($1, $2, 'hash')")
             .bind(user_id)
             .bind(format!("u_coal_{}", &user_id.to_string()[..8]))
+            .execute(&mut *conn)
+            .await
+            .unwrap();
+
+        sqlx::query("INSERT INTO devices (id, user_id) VALUES ($1, $1)")
+            .bind(user_id)
             .execute(&mut *conn)
             .await
             .unwrap();
@@ -320,6 +338,12 @@ async fn test_notification_worker_concurrency_limit() {
                 .await
                 .unwrap();
 
+            sqlx::query("INSERT INTO devices (id, user_id) VALUES ($1, $1)")
+                .bind(user_id)
+                .execute(&mut *conn)
+                .await
+                .unwrap();
+
             let token_repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
             token_repo.upsert_token(&mut conn, user_id, &format!("token:{user_id}")).await.unwrap();
         }
@@ -357,8 +381,8 @@ async fn test_register_push_token() {
 
     assert_eq!(resp.status(), 200);
 
-    let stored_token: String = sqlx::query_scalar("SELECT token FROM push_tokens WHERE user_id = $1")
-        .bind(user.user_id)
+    let stored_token: String = sqlx::query_scalar("SELECT token FROM push_tokens WHERE device_id = $1")
+        .bind(user.device_id)
         .fetch_one(&app.pool)
         .await
         .unwrap();
@@ -377,8 +401,8 @@ async fn test_register_push_token() {
 
     assert_eq!(resp.status(), 200);
 
-    let stored_token: String = sqlx::query_scalar("SELECT token FROM push_tokens WHERE user_id = $1")
-        .bind(user.user_id)
+    let stored_token: String = sqlx::query_scalar("SELECT token FROM push_tokens WHERE device_id = $1")
+        .bind(user.device_id)
         .fetch_one(&app.pool)
         .await
         .unwrap();
@@ -417,7 +441,7 @@ async fn test_notification_lag_recovery() {
     let message_count = 100;
     for i in 0..message_count {
         let content = format!("Message {i}").into_bytes();
-        app.send_message(&user_a.token, user_b.user_id, &content).await;
+        app.send_message(&user_a.token, user_b.device_id, &content).await;
     }
 
     tokio::time::sleep(Duration::from_millis(500)).await;

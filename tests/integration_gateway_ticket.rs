@@ -51,8 +51,8 @@ async fn test_generate_websocket_ticket() {
     // 3. Verify the ticket was saved in Redis
     let redis_ticket = cache.get(ticket).await.expect("Failed to query Redis").expect("Ticket not found in Redis");
 
-    let cached_user_id = String::from_utf8(redis_ticket).expect("Invalid UTF-8 in cached user ID");
-    assert_eq!(cached_user_id, user.user_id.to_string(), "Cached user ID does not match");
+    let cached_device_id = String::from_utf8(redis_ticket).expect("Invalid UTF-8 in cached device ID");
+    assert_eq!(cached_device_id, user.device_id.to_string(), "Cached device ID does not match");
 }
 
 #[tokio::test]
