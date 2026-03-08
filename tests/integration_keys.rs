@@ -306,6 +306,55 @@ async fn test_upload_keys_bad_signature() {
         .send()
         .await
         .unwrap();
-
     assert_eq!(resp.status(), 400);
+}
+
+#[tokio::test]
+async fn test_fetch_keys_multiple_devices() {
+    let app = TestApp::spawn().await;
+    let username = common::generate_username("multi_dev");
+
+    // 1. Register user and create first device
+    let user = app.register_user_with_keys(&username, 111, 10).await;
+
+    // 2. Login to get a user-scoped token (no device_id)
+    let login_payload = json!({
+        "username": username,
+        "password": "password12345"
+    });
+    let login_resp = app.client.post(format!("{}/v1/sessions", app.server_url)).json(&login_payload).send().await.unwrap();
+    assert_eq!(login_resp.status(), 200);
+    let user_token = login_resp.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
+
+    // 3. Create a second device using the user-scoped token
+    let (device2_payload, _) = common::generate_device_payload(222, 10);
+    let device2_resp = app.client.post(format!("{}/v1/devices", app.server_url))
+        .header("Authorization", format!("Bearer {}", user_token))
+        .json(&device2_payload)
+        .send().await.unwrap();
+    assert_eq!(device2_resp.status(), 201);
+    
+    let device2_id = device2_resp.json::<serde_json::Value>().await.unwrap()["deviceId"].as_str().unwrap().to_string();
+
+    // 4. Verify that fetching keys with a user-scoped token fails (requires device-scoped)
+    let failed_fetch_resp = app.client.get(format!("{}/v1/keys/{}", app.server_url, user.user_id))
+        .header("Authorization", format!("Bearer {}", user_token))
+        .send().await.unwrap();
+    assert_eq!(failed_fetch_resp.status(), 400, "Should reject user-scoped token");
+
+    // 5. Fetch keys with the first device's device-scoped token
+    let fetch_resp = app.client.get(format!("{}/v1/keys/{}", app.server_url, user.user_id))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .send().await.unwrap();
+    assert_eq!(fetch_resp.status(), 200);
+
+    let bundles: Vec<serde_json::Value> = fetch_resp.json().await.unwrap();
+    
+    // We expect exactly 2 bundles, one for each device
+    assert_eq!(bundles.len(), 2, "Should return an array of 2 bundles");
+
+    let d1_bundle = bundles.iter().find(|b| b["deviceId"] == user.device_id.to_string());
+    assert!(d1_bundle.is_some(), "Bundle for device 1 not found");
+    let d2_bundle = bundles.iter().find(|b| b["deviceId"] == device2_id);
+    assert!(d2_bundle.is_some(), "Bundle for device 2 not found");
 }

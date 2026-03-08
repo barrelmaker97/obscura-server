@@ -12,18 +12,25 @@ use axum::{
 use std::convert::TryInto;
 use uuid::Uuid;
 
-/// Fetches a pre-key bundle for a device.
+/// Fetches all pre-key bundles for a user (one per device).
 ///
 /// # Errors
-/// Returns `AppError::NotFound` if the device or their keys do not exist.
-pub(crate) async fn get_pre_key_bundle(
-    _auth_user: AuthUser,
+/// Returns `AppError::NotFound` if the user has no registered devices or keys.
+pub(crate) async fn get_pre_key_bundles(
+    auth_user: AuthUser,
     State(state): State<AppState>,
-    Path(device_id): Path<Uuid>,
+    Path(user_id): Path<Uuid>,
 ) -> Result<impl IntoResponse> {
-    let bundle = state.key_service.get_pre_key_bundle(device_id).await?;
+    let _ = auth_user.device_id.ok_or_else(|| AppError::BadRequest("Device-scoped token required".to_string()))?;
 
-    bundle.map_or_else(|| Err(AppError::NotFound), |b| Ok(Json(PreKeyBundleResponse::from(b))))
+    let bundles = state.key_service.get_pre_key_bundles_for_user(user_id).await?;
+
+    if bundles.is_empty() {
+        return Err(AppError::NotFound);
+    }
+
+    let response: Vec<PreKeyBundleResponse> = bundles.into_iter().map(PreKeyBundleResponse::from).collect();
+    Ok(Json(response))
 }
 
 /// Uploads new pre-keys for the authenticated device.

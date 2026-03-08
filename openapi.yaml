@@ -208,7 +208,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PreKeyBundleResponse'
+                type: array
+                items:
+                  $ref: '#/components/schemas/PreKeyBundleResponse'
         '404':
           $ref: '#/components/responses/NotFoundError'
         '408':

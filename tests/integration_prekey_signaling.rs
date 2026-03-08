@@ -21,7 +21,7 @@ async fn test_prekey_signaling_realtime() {
     let alice = app.register_user(&common::generate_username("alice_rt")).await;
     let resp = app
         .client
-        .get(format!("{}/v1/keys/{}", app.server_url, bob.device_id))
+        .get(format!("{}/v1/keys/{}", app.server_url, bob.user_id))
         .header("Authorization", format!("Bearer {}", alice.token))
         .send()
         .await
@@ -32,7 +32,7 @@ async fn test_prekey_signaling_realtime() {
     // Now count becomes 19. This should trigger the notification.
     let resp = app
         .client
-        .get(format!("{}/v1/keys/{}", app.server_url, bob.device_id))
+        .get(format!("{}/v1/keys/{}", app.server_url, bob.user_id))
         .header("Authorization", format!("Bearer {}", alice.token))
         .send()
         .await
@@ -75,7 +75,7 @@ async fn test_prekey_signaling_exhausted() {
     // 3. Alice fetches Bob's bundle (already 0)
     let resp = app
         .client
-        .get(format!("{}/v1/keys/{}", app.server_url, bob.device_id))
+        .get(format!("{}/v1/keys/{}", app.server_url, bob.user_id))
         .header("Authorization", format!("Bearer {}", alice.token))
         .send()
         .await
@@ -102,7 +102,7 @@ async fn test_prekey_signaling_push() {
     app.client
         .put(format!("{}/v1/push-tokens", app.server_url))
         .header("Authorization", format!("Bearer {}", bob.token))
-        .json(&serde_json::json!({"token": format!("token:{}", bob.device_id)}))
+        .json(&serde_json::json!({"token": format!("token:{}", bob.user_id)}))
         .send()
         .await
         .expect("Failed to set push token");
@@ -112,7 +112,7 @@ async fn test_prekey_signaling_push() {
     // 2. Consume 2 keys to trigger the PreKeyLow event (21 -> 20 -> 19)
     for _ in 0..2 {
         app.client
-            .get(format!("{}/v1/keys/{}", app.server_url, bob.device_id))
+            .get(format!("{}/v1/keys/{}", app.server_url, bob.user_id))
             .header("Authorization", format!("Bearer {}", alice.token))
             .send()
             .await
@@ -123,7 +123,7 @@ async fn test_prekey_signaling_push() {
     // Since push_delay is 0, it should happen almost immediately.
     let success = app
         .wait_until(
-            || async { *common::notification_counts().get(&bob.device_id).as_deref().unwrap_or(&0) > 0 },
+            || async { *common::notification_counts().get(&bob.user_id).as_deref().unwrap_or(&0) > 0 },
             Duration::from_secs(5),
         )
         .await;
@@ -150,7 +150,7 @@ async fn test_prekey_coalescing() {
     let mut handles = Vec::new();
     for _ in 0..20 {
         let client = app.client.clone();
-        let url = format!("{}/v1/keys/{}", app.server_url, bob.device_id);
+        let url = format!("{}/v1/keys/{}", app.server_url, bob.user_id);
         let token = alice.token.clone();
         handles.push(tokio::spawn(async move {
             client

@@ -75,10 +75,18 @@ async fn test_register_flow() {
 
     assert_eq!(resp_login.status(), StatusCode::OK);
 
-    // Step 4: Fetch Keys (should succeed using device_id)
+    // Fetch user_id from database
+    let user_id_record: (uuid::Uuid,) = sqlx::query_as("SELECT id FROM users WHERE username = $1")
+        .bind(&username)
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+    let user_id = user_id_record.0;
+
+    // Step 4: Fetch Keys (should succeed using user_id)
     let resp_keys = app
         .client
-        .get(format!("{}/v1/keys/{}", app.server_url, device_id))
+        .get(format!("{}/v1/keys/{}", app.server_url, user_id))
         .header("Authorization", format!("Bearer {device_token}"))
         .send()
         .await

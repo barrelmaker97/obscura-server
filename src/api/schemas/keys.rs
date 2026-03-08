@@ -139,6 +139,7 @@ mod tests {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreKeyBundleResponse {
+    pub device_id: String,
     pub registration_id: i32,
     pub identity_key: PublicKey,
     pub signed_pre_key: SignedPreKey,
@@ -148,6 +149,7 @@ pub struct PreKeyBundleResponse {
 impl From<keys::PreKeyBundle> for PreKeyBundleResponse {
     fn from(b: keys::PreKeyBundle) -> Self {
         Self {
+            device_id: b.device_id.to_string(),
             registration_id: b.registration_id,
             identity_key: b.identity_key.into(),
             signed_pre_key: b.signed_pre_key.into(),

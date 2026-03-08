@@ -131,7 +131,7 @@ fn api_router(
         .route("/devices", get(devices::list_devices))
         .route("/devices/{deviceId}", delete(devices::delete_device))
         .route("/keys", post(keys::upload_keys))
-        .route("/keys/{deviceId}", get(keys::get_pre_key_bundle))
+        .route("/keys/{userId}", get(keys::get_pre_key_bundles))
         .route("/messages", post(messages::send_messages))
         .route("/gateway", get(gateway::websocket_handler))
         .route("/gateway/ticket", post(gateway::generate_ticket))

@@ -59,27 +59,38 @@ impl KeyService {
         Self { pool, repo, crypto_service, notifier, config, metrics: Metrics::new() }
     }
 
-    /// Fetches a pre-key bundle for a single device (consuming one OT pre-key).
+    /// Fetches one pre-key bundle per device owned by the specified user.
+    /// Emits notifications if any device drops below the minimum threshold.
     ///
     /// # Errors
-    /// Returns `AppError::Database` if the database operation fails.
-    #[tracing::instrument(err, skip(self), fields(device.id = %device_id))]
-    pub async fn get_pre_key_bundle(&self, device_id: Uuid) -> Result<Option<PreKeyBundle>> {
-        let mut conn = self.pool.acquire().await?;
-        let (bundle, remaining_count) = match self.repo.fetch_pre_key_bundle(&mut conn, device_id).await? {
-            Some((b, c)) => (Some(b), c),
-            None => (None, None),
-        };
+    /// Returns `AppError::Database` if database query fails.
+    #[tracing::instrument(skip(self), fields(user.id = %user_id), err)]
+    pub(crate) async fn get_pre_key_bundles_for_user(&self, user_id: Uuid) -> Result<Vec<PreKeyBundle>> {
+        let mut conn = self.pool.begin().await?;
 
-        // Reactive signaling: Notify if we are currently below the threshold (including 0)
-        if let Some(count) = remaining_count
-            && count < i64::from(self.config.pre_key_refill_threshold)
-        {
-            self.metrics.prekey_low_total.add(1, &[]);
-            self.notifier.notify(&[device_id], UserEvent::PreKeyLow).await;
+        let results = self.repo.get_all_bundles_for_user(&mut conn, user_id).await?;
+
+        conn.commit().await?;
+
+        let mut bundles = Vec::new();
+
+        // 2. Check thresholds asynchronously, so we don't hold the DB transaction or slow down the response
+        for (bundle, remaining_opt) in results {
+            if let Some(remaining) = remaining_opt {
+                if remaining < i64::from(self.config.pre_key_refill_threshold) {
+                    self.metrics.prekey_low_total.add(1, &[]);
+                    tracing::warn!(
+                        device.id = %bundle.device_id,
+                        remaining = %remaining,
+                        "Pre-keys falling below minimum threshold"
+                    );
+                    self.notifier.notify(&[bundle.device_id], UserEvent::PreKeyLow).await;
+                }
+            }
+            bundles.push(bundle);
         }
 
-        Ok(bundle)
+        Ok(bundles)
     }
 
     /// Fetches the identity key for a device.

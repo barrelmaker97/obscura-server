@@ -200,6 +200,38 @@ impl KeyRepository {
         )))
     }
 
+    /// Fetches exactly one pre-key bundle for every device owned by a specific user.
+    /// Mutates the database to consume one one-time pre-key per device.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the database operation fails.
+    /// Returns `AppError::Internal` if stored data is corrupt.
+    #[tracing::instrument(level = "debug", skip(self, conn), err)]
+    pub(crate) async fn get_all_bundles_for_user(
+        &self,
+        conn: &mut PgConnection,
+        user_id: Uuid,
+    ) -> Result<Vec<(PreKeyBundle, Option<i64>)>> {
+        let device_ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM devices WHERE user_id = $1")
+            .bind(user_id)
+            .fetch_all(&mut *conn)
+            .await?;
+
+        tracing::info!(user.id = %user_id, count = %device_ids.len(), "Found devices for user");
+
+        let mut bundles = Vec::new();
+
+        for id in device_ids {
+            if let Some(bundle_result) = self.fetch_pre_key_bundle(&mut *conn, id).await? {
+                bundles.push(bundle_result);
+            } else {
+                tracing::info!(device.id = %id, "fetch_pre_key_bundle returned None");
+            }
+        }
+
+        Ok(bundles)
+    }
+
     /// Fetches the identity key for a device.
     ///
     /// # Errors
