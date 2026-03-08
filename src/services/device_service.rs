@@ -49,6 +49,7 @@ pub struct DeviceService {
     auth_service: AuthService,
     notifier: NotificationService,
     metrics: Metrics,
+    max_devices_per_user: i64,
 }
 
 impl DeviceService {
@@ -60,8 +61,18 @@ impl DeviceService {
         key_service: KeyService,
         auth_service: AuthService,
         notifier: NotificationService,
+        max_devices_per_user: i64,
     ) -> Self {
-        Self { pool, device_repo, message_repo, key_service, auth_service, notifier, metrics: Metrics::new() }
+        Self {
+            pool,
+            device_repo,
+            message_repo,
+            key_service,
+            auth_service,
+            notifier,
+            metrics: Metrics::new(),
+            max_devices_per_user,
+        }
     }
 
     /// Creates a new device, uploads its keys, and returns a full JWT.
@@ -82,6 +93,16 @@ impl DeviceService {
         signed_pre_key: SignedPreKey,
         one_time_pre_keys: Vec<OneTimePreKey>,
     ) -> Result<AuthSession> {
+        let mut conn = self.pool.acquire().await?;
+        let current_device_count = self.device_repo.count_by_user(&mut conn, user_id).await?;
+        if current_device_count >= self.max_devices_per_user {
+            return Err(AppError::Forbidden(format!(
+                "Device limit reached. Maximum allowed is {}.",
+                self.max_devices_per_user
+            )));
+        }
+        drop(conn);
+
         let mut tx = self.pool.begin().await?;
 
         // 1. Create Device

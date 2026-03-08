@@ -282,6 +282,7 @@ impl AppBuilder {
             key_service.clone(),
             auth_service.clone(),
             notifier.clone(),
+            config.auth.max_devices_per_user,
         );
         let gateway_service = GatewayService::new(
             message_service.clone(),

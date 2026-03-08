@@ -153,3 +153,58 @@ async fn test_device_crud_lifecycle() {
     // Message verification:
     app.assert_message_count(Uuid::parse_str(&device1_id).unwrap(), 0).await;
 }
+
+#[tokio::test]
+async fn test_device_limit_enforced() {
+    let mut config = common::get_test_config();
+    config.auth.max_devices_per_user = 3;
+    let app = common::TestApp::spawn_with_config(config).await;
+    let username = common::generate_username("dev_limit_user");
+
+    // 1. Register User
+    let payload = json!({
+        "username": username,
+        "password": "password12345",
+    });
+
+    let resp_user = app.client.post(format!("{}/v1/users", app.server_url)).json(&payload).send().await.unwrap();
+    assert_eq!(resp_user.status(), StatusCode::CREATED);
+
+    let json_user: serde_json::Value = resp_user.json().await.unwrap();
+    let user_token = json_user["token"].as_str().unwrap().to_string();
+
+    // 2. Create 3 devices (Should Succeed)
+    for i in 1..=3 {
+        let (device_payload, _) = common::generate_device_payload(i, 5);
+        let resp_device = app
+            .client
+            .post(format!("{}/v1/devices", app.server_url))
+            .header("Authorization", format!("Bearer {}", user_token))
+            .json(&device_payload)
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(resp_device.status(), StatusCode::CREATED, "Device {} should be created", i);
+    }
+
+    // 3. Create 4th device (Should Fail with 403 Forbidden)
+    let (device4_payload, _) = common::generate_device_payload(4, 5);
+    let resp_device4 = app
+        .client
+        .post(format!("{}/v1/devices", app.server_url))
+        .header("Authorization", format!("Bearer {}", user_token))
+        .json(&device4_payload)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp_device4.status(), StatusCode::FORBIDDEN, "4th device should be rejected");
+
+    let err_json: serde_json::Value = resp_device4.json().await.unwrap();
+    assert_eq!(
+        err_json["error"].as_str().unwrap(),
+        "Device limit reached. Maximum allowed is 3.",
+        "Should return correct error message"
+    );
+}

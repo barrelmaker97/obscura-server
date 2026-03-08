@@ -42,6 +42,9 @@ paths:
           $ref: '#/components/responses/BadRequestError'
         '408':
           $ref: '#/components/responses/RequestTimeoutError'
+
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '409':
           description: Username already exists.
           headers:
@@ -572,6 +575,9 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '408':
           $ref: '#/components/responses/RequestTimeoutError'
+
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '409':
           $ref: '#/components/responses/ConflictError'
         '411':
@@ -916,3 +922,12 @@ components:
         ticket:
           type: string
           description: A short-lived, single-use authentication ticket.
+    ForbiddenError:
+      description: Forbidden (Action not allowed or limit reached).
+      headers:
+        x-request-id:
+          $ref: '#/components/headers/x-request-id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

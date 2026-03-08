@@ -18,6 +18,8 @@ pub enum AppError {
     BadRequest(String),
     #[error("Conflict: {0}")]
     Conflict(String),
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
     #[error("Precondition failed")]
     PreconditionFailed,
     #[error("Request timeout")]
@@ -41,6 +43,7 @@ impl IntoResponse for AppError {
             Self::NotFound => (StatusCode::NOT_FOUND, "Not found".to_string()),
             Self::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
             Self::Conflict(msg) => (StatusCode::CONFLICT, msg),
+            Self::Forbidden(msg) => (StatusCode::FORBIDDEN, msg),
             Self::PreconditionFailed => (StatusCode::PRECONDITION_FAILED, "Precondition failed".to_string()),
             Self::Timeout => (StatusCode::REQUEST_TIMEOUT, "Request timeout".to_string()),
             Self::LengthRequired => (StatusCode::LENGTH_REQUIRED, "Length required".to_string()),
