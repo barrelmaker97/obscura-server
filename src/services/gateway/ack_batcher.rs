@@ -14,7 +14,7 @@ pub struct AckBatcher {
 
 impl AckBatcher {
     pub fn new(
-        user_id: Uuid,
+        device_id: Uuid,
         message_service: MessageService,
         metrics: Metrics,
         buffer_size: usize,
@@ -26,10 +26,10 @@ impl AckBatcher {
         let batcher_metrics = metrics.clone();
         tokio::spawn(
             async move {
-                Self::run_background(user_id, rx, message_service, batcher_metrics, batch_size, flush_interval_ms)
+                Self::run_background(device_id, rx, message_service, batcher_metrics, batch_size, flush_interval_ms)
                     .await;
             }
-            .instrument(tracing::info_span!("ack_batcher", "user.id" = %user_id)),
+            .instrument(tracing::info_span!("ack_batcher", "device.id" = %device_id)),
         );
 
         Self { tx, metrics }
@@ -45,7 +45,7 @@ impl AckBatcher {
     }
 
     async fn run_background(
-        user_id: Uuid,
+        device_id: Uuid,
         mut rx: mpsc::Receiver<Uuid>,
         message_service: MessageService,
         metrics: Metrics,
@@ -77,7 +77,7 @@ impl AckBatcher {
                             batch.push(id);
                         } else {
                             // Channel closed, flush whatever we have right now and exit
-                            Self::flush_batch(user_id, &message_service, &metrics, batch).await;
+                            Self::flush_batch(device_id, &message_service, &metrics, batch).await;
                             return;
                         }
                     }
@@ -85,15 +85,15 @@ impl AckBatcher {
                 }
             }
 
-            Self::flush_batch(user_id, &message_service, &metrics, batch).await;
+            Self::flush_batch(device_id, &message_service, &metrics, batch).await;
         }
     }
 
-    async fn flush_batch(user_id: Uuid, message_service: &MessageService, metrics: &Metrics, batch: Vec<Uuid>) {
+    async fn flush_batch(device_id: Uuid, message_service: &MessageService, metrics: &Metrics, batch: Vec<Uuid>) {
         if !batch.is_empty() {
             tracing::debug!(batch_size = batch.len(), "Flushing ACK batch");
             metrics.ack_batch_size.record(batch.len() as u64, &[]);
-            if let Err(e) = message_service.delete_batch(user_id, &batch).await {
+            if let Err(e) = message_service.delete_batch(device_id, &batch).await {
                 tracing::error!(error = %e, "Failed to delete message batch");
             }
         }

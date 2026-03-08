@@ -12,7 +12,7 @@ use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
 
 pub struct Session {
-    pub user_id: Uuid,
+    pub device_id: Uuid,
     pub request_id: String,
     pub socket: WebSocket,
     pub message_service: MessageService,
@@ -28,7 +28,7 @@ impl Session {
         name = "websocket_session",
         skip(self),
         fields(
-            user.id = %self.user_id,
+            device.id = %self.device_id,
             request.id = %self.request_id,
             otel.kind = "server",
             ws.session_id = %Uuid::new_v4()
@@ -38,16 +38,16 @@ impl Session {
     pub(crate) async fn run(self) {
         // Destructuring allows independent mutable access to fields while the socket
         // is split into sink and stream halves.
-        let Self { user_id, socket, message_service, key_service, notifier, metrics, config, mut shutdown_rx, .. } =
+        let Self { device_id, socket, message_service, key_service, notifier, metrics, config, mut shutdown_rx, .. } =
             self;
 
         metrics.active_connections.add(1, &[]);
         tracing::info!("WebSocket connected");
 
-        // Immediately cancel any pending push notifications since the user is now connected.
-        notifier.cancel_pending_notifications(user_id).await;
+        // Immediately cancel any pending push notifications since the device is now connected.
+        notifier.cancel_pending_notifications(device_id).await;
 
-        let mut notification_rx = notifier.subscribe(user_id).await;
+        let mut notification_rx = notifier.subscribe(device_id).await;
         let (mut ws_sink, mut ws_stream) = socket.split();
 
         // Components are initialized here inside the 'websocket_session' span
@@ -55,7 +55,7 @@ impl Session {
         let (outbound_tx, mut outbound_rx) = mpsc::channel(config.outbound_buffer_size);
 
         let ack_batcher = AckBatcher::new(
-            user_id,
+            device_id,
             message_service.clone(),
             metrics.clone(),
             config.ack_buffer_size,
@@ -64,7 +64,7 @@ impl Session {
         );
 
         let message_pump = MessagePump::new(
-            user_id,
+            device_id,
             message_service.clone(),
             outbound_tx.clone(),
             metrics.clone(),
@@ -72,7 +72,7 @@ impl Session {
         );
 
         let prekey_pump =
-            PreKeyPump::new(user_id, key_service.clone(), outbound_tx.clone(), config.prekey_debounce_interval_ms);
+            PreKeyPump::new(device_id, key_service.clone(), outbound_tx.clone(), config.prekey_debounce_interval_ms);
 
         message_pump.notify();
 
@@ -148,7 +148,7 @@ impl Session {
                                                 // Run as fire-and-forget task to avoid blocking the WebSocket loop
                                                 let notifier_clone = notifier.clone();
                                                 tokio::spawn(async move {
-                                                    notifier_clone.cancel_pending_notifications(user_id).await;
+                                                    notifier_clone.cancel_pending_notifications(device_id).await;
                                                 });
                                                 ack_batcher.push(uuids);
                                             }

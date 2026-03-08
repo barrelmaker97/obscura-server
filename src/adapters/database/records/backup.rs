@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 #[derive(Debug, FromRow)]
 pub struct BackupRecord {
-    pub(crate) user_id: Uuid,
+    pub(crate) device_id: Uuid,
     pub(crate) current_version: i32,
     pub(crate) pending_version: Option<i32>,
     pub(crate) state: String,
@@ -17,7 +17,7 @@ pub struct BackupRecord {
 impl From<BackupRecord> for Backup {
     fn from(record: BackupRecord) -> Self {
         Self {
-            user_id: record.user_id,
+            device_id: record.device_id,
             current_version: record.current_version,
             pending_version: record.pending_version,
             state: BackupState::from_str(&record.state).unwrap_or(BackupState::Active),

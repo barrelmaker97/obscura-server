@@ -3,7 +3,7 @@ use crate::proto::obscura::v1 as proto;
 
 impl From<proto::send_message_request::Submission> for RawSubmission {
     fn from(proto: proto::send_message_request::Submission) -> Self {
-        Self { submission_id: proto.submission_id, recipient_id: proto.recipient_id, message: proto.message }
+        Self { submission_id: proto.submission_id, device_id: proto.device_id, message: proto.message }
     }
 }
 
@@ -16,11 +16,11 @@ impl From<SubmissionOutcome> for proto::SendMessageResponse {
                 .map(|f| proto::send_message_response::FailedSubmission {
                     submission_id: f.submission_id,
                     error_code: match f.error_code {
-                        SubmissionErrorCode::InvalidRecipient => {
-                            proto::send_message_response::ErrorCode::InvalidRecipient
+                        SubmissionErrorCode::InvalidDevice => {
+                            proto::send_message_response::ErrorCode::InvalidDevice
                         }
-                        SubmissionErrorCode::MalformedRecipientId => {
-                            proto::send_message_response::ErrorCode::MalformedRecipientId
+                        SubmissionErrorCode::MalformedDeviceId => {
+                            proto::send_message_response::ErrorCode::MalformedDeviceId
                         }
                         SubmissionErrorCode::MalformedSubmissionId => {
                             proto::send_message_response::ErrorCode::MalformedSubmissionId

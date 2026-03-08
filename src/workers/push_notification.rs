@@ -157,33 +157,34 @@ impl PushNotificationWorker {
         // We poll up to 'available' jobs, which is naturally capped by worker_concurrency
         let limit = available.cast_signed();
         // If the worker crashes, the job will become visible again after this period.
-        let user_ids = self.repo.lease_due_jobs(limit, self.visibility_timeout_secs).await?;
+        let device_ids = self.repo.lease_due_jobs(limit, self.visibility_timeout_secs).await?;
 
-        if user_ids.is_empty() {
+        if device_ids.is_empty() {
             tracing::debug!("No due push notification jobs found");
             return Ok(());
         }
 
-        tracing::info!(count = user_ids.len(), "Processing leased push notifications");
+        tracing::info!(count = device_ids.len(), "Processing leased push notifications");
 
-        // 1. Batch lookup tokens for all users
-        let user_token_pairs = {
+        // 1. Batch lookup tokens for all devices
+        let device_token_pairs = {
             let mut conn = self.pool.acquire().await?;
-            self.token_repo.find_tokens_for_users(&mut conn, &user_ids).await?
+            self.token_repo.find_tokens_for_devices(&mut conn, &device_ids).await?
         };
 
-        let users_with_tokens: std::collections::HashSet<Uuid> = user_token_pairs.iter().map(|(id, _)| *id).collect();
+        let devices_with_tokens: std::collections::HashSet<Uuid> =
+            device_token_pairs.iter().map(|(id, _)| *id).collect();
 
-        // 2. Identify and remove jobs for users who have no token
-        for user_id in &user_ids {
-            if !users_with_tokens.contains(user_id) {
-                tracing::info!(%user_id, "User has no registered push token, removing job");
-                let _ = self.repo.delete_job(*user_id).await;
+        // 2. Identify and remove jobs for devices who have no token
+        for device_id in &device_ids {
+            if !devices_with_tokens.contains(device_id) {
+                tracing::info!(%device_id, "Device has no registered push token, removing job");
+                let _ = self.repo.delete_job(*device_id).await;
             }
         }
 
         // 3. Dispatch concurrently, bounded by the semaphore
-        for (user_id, token) in user_token_pairs {
+        for (device_id, token) in device_token_pairs {
             let provider = Arc::clone(&self.provider);
             let repo = Arc::clone(&self.repo);
             let metrics = self.metrics.clone();
@@ -204,14 +205,14 @@ impl PushNotificationWorker {
                             tracing::debug!(token = %token, "Push notification sent successfully");
                             metrics.sent.add(1, &[]);
                             // Success: Remove job from Redis
-                            let _ = repo.delete_job(user_id).await;
+                            let _ = repo.delete_job(device_id).await;
                         }
                         Err(PushError::Unregistered) => {
                             tracing::info!(token = %token, "Token unregistered, reporting to invalid token cleanup");
                             metrics.invalidated_tokens.add(1, &[]);
 
                             // Definitively failed: Remove job from Redis anyway
-                            let _ = repo.delete_job(user_id).await;
+                            let _ = repo.delete_job(device_id).await;
 
                             // Send to cleanup for batch DB deletion
                             let _ = tx.send(token).await;
@@ -228,7 +229,7 @@ impl PushNotificationWorker {
                         }
                     }
                 }
-                .instrument(tracing::debug_span!("dispatch_push", %user_id)),
+                .instrument(tracing::debug_span!("dispatch_push", %device_id)),
             );
         }
 

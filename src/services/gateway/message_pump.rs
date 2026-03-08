@@ -17,7 +17,7 @@ pub struct MessagePump {
 
 impl MessagePump {
     pub fn new(
-        user_id: Uuid,
+        device_id: Uuid,
         message_service: MessageService,
         outbound_tx: mpsc::Sender<WsMessage>,
         metrics: Metrics,
@@ -28,9 +28,9 @@ impl MessagePump {
 
         tokio::spawn(
             async move {
-                Self::run_background(user_id, notify_rx, message_service, outbound_tx, metrics, batch_limit).await;
+                Self::run_background(device_id, notify_rx, message_service, outbound_tx, metrics, batch_limit).await;
             }
-            .instrument(tracing::info_span!("message_pump", "user.id" = %user_id)),
+            .instrument(tracing::info_span!("message_pump", "device.id" = %device_id)),
         );
 
         Self { notify_tx }
@@ -41,7 +41,7 @@ impl MessagePump {
     }
 
     async fn run_background(
-        user_id: Uuid,
+        device_id: Uuid,
         mut rx: mpsc::Receiver<()>,
         message_service: MessageService,
         outbound_tx: mpsc::Sender<WsMessage>,
@@ -53,7 +53,7 @@ impl MessagePump {
         while rx.recv().await.is_some() {
             // Continues fetching until the backlog is fully drained for the user.
             while matches!(
-                Self::flush_batch(user_id, &message_service, &outbound_tx, &metrics, limit, &mut cursor).await,
+                Self::flush_batch(device_id, &message_service, &outbound_tx, &metrics, limit, &mut cursor).await,
                 Ok(true)
             ) {}
         }
@@ -62,17 +62,17 @@ impl MessagePump {
     #[tracing::instrument(
         err(level = "debug"),
         skip(service, outbound_tx, metrics, cursor),
-        fields(user.id = %user_id, batch_count = tracing::field::Empty)
+        fields(user.id = %device_id, batch_count = tracing::field::Empty)
     )]
     async fn flush_batch(
-        user_id: Uuid,
+        device_id: Uuid,
         service: &MessageService,
         outbound_tx: &mpsc::Sender<WsMessage>,
         metrics: &Metrics,
         limit: i64,
         cursor: &mut Option<(time::OffsetDateTime, Uuid)>,
     ) -> Result<bool> {
-        let messages = service.fetch_pending_batch(user_id, *cursor, limit).await?;
+        let messages = service.fetch_pending_batch(device_id, *cursor, limit).await?;
 
         if messages.is_empty() {
             return Ok(false);

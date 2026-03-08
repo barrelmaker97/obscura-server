@@ -108,11 +108,11 @@ impl BackupCleanupWorker {
             }
 
             for backup in stale_backups {
-                let user_id = backup.user_id;
+                let device_id = backup.device_id;
                 let pending_version = backup.pending_version.unwrap_or(0);
 
                 if pending_version > 0 {
-                    let key = format!("{}{}/v{}", self.backup_config.prefix, user_id, pending_version);
+                    let key = format!("{}{}/v{}", self.backup_config.prefix, device_id, pending_version);
 
                     // Delete from storage
                     if let Err(e) = self.storage.delete(&key).await {
@@ -120,8 +120,8 @@ impl BackupCleanupWorker {
                     }
                 }
 
-                if let Err(e) = self.repo.reset_stale(&mut conn, user_id).await {
-                    tracing::error!(error = ?e, "user.id" = %user_id, "Failed to reset stale backup in DB");
+                if let Err(e) = self.repo.reset_stale(&mut conn, device_id).await {
+                    tracing::error!(error = ?e, "device.id" = %device_id, "Failed to reset stale backup in DB");
                 } else {
                     total_cleaned += 1;
                 }

@@ -1,4 +1,5 @@
 use crate::adapters::database::DbPool;
+use crate::adapters::database::device_repo::DeviceRepository;
 use crate::adapters::database::refresh_token_repo::RefreshTokenRepository;
 use crate::adapters::database::user_repo::UserRepository;
 use crate::config::AuthConfig;
@@ -20,6 +21,7 @@ use uuid::Uuid;
 
 #[derive(Clone, Debug)]
 struct Metrics {
+    registered_total: Counter<u64>,
     login: Counter<u64>,
     refresh: Counter<u64>,
     logout: Counter<u64>,
@@ -30,6 +32,10 @@ impl Metrics {
     fn new() -> Self {
         let meter = global::meter("obscura-server");
         Self {
+            registered_total: meter
+                .u64_counter("obscura_registrations_total")
+                .with_description("Total number of successful user registrations")
+                .build(),
             login: meter
                 .u64_counter("obscura_logins_total")
                 .with_description("Total number of successful login attempts")
@@ -52,6 +58,7 @@ pub struct AuthService {
     pool: DbPool,
     user_repo: UserRepository,
     refresh_repo: RefreshTokenRepository,
+    device_repo: DeviceRepository,
     metrics: Metrics,
 }
 
@@ -62,11 +69,42 @@ impl AuthService {
         pool: DbPool,
         user_repo: UserRepository,
         refresh_repo: RefreshTokenRepository,
+        device_repo: DeviceRepository,
     ) -> Self {
-        Self { config, pool, user_repo, refresh_repo, metrics: Metrics::new() }
+        Self { config, pool, user_repo, refresh_repo, device_repo, metrics: Metrics::new() }
     }
 
-    /// Authenticates a user.
+    /// Registers a new user account. Returns a user-only JWT (no device_id).
+    ///
+    /// # Errors
+    /// Returns `AppError::Conflict` if the username already exists.
+    /// Returns `AppError::Database` if any of the underlying operations fail.
+    #[tracing::instrument(
+        skip(self, username, password),
+        fields(user.id = tracing::field::Empty),
+        err(level = "warn")
+    )]
+    pub(crate) async fn register(&self, username: String, password: String) -> Result<AuthSession> {
+        let password_hash = self.hash_password(&password).await?;
+
+        let mut tx = self.pool.begin().await?;
+
+        let user = self.user_repo.create(&mut tx, &username, &password_hash).await?;
+
+        tracing::Span::current().record("user_id", tracing::field::display(user.id));
+
+        let session = self.create_session(&mut tx, user.id, None).await?;
+
+        tx.commit().await?;
+
+        tracing::info!("User registered successfully");
+        self.metrics.registered_total.add(1, &[]);
+
+        Ok(session)
+    }
+
+    /// Authenticates a user. If device_id is provided and belongs to user, returns a full JWT.
+    /// Otherwise returns a user-only JWT.
     ///
     /// # Errors
     /// Returns `AppError::AuthError` if credentials are invalid.
@@ -75,7 +113,12 @@ impl AuthService {
         fields(user.id = tracing::field::Empty),
         err(level = "warn")
     )]
-    pub(crate) async fn login(&self, username: String, password: String) -> Result<AuthSession> {
+    pub(crate) async fn login(
+        &self,
+        username: String,
+        password: String,
+        device_id: Option<Uuid>,
+    ) -> Result<AuthSession> {
         let mut conn = self.pool.acquire().await?;
         let Some(user) = self.user_repo.find_by_username(&mut conn, &username).await? else {
             tracing::warn!("Login failed: user not found");
@@ -91,8 +134,20 @@ impl AuthService {
             return Err(AppError::AuthError);
         }
 
+        // If device_id provided, validate it belongs to this user
+        let validated_device_id = if let Some(did) = device_id {
+            if self.device_repo.belongs_to_user(&mut conn, did, user.id).await? {
+                Some(did)
+            } else {
+                tracing::warn!(device_id = %did, "Login with unknown device_id, issuing user-only JWT");
+                None
+            }
+        } else {
+            None
+        };
+
         // Generate Tokens
-        let session = self.create_session(&mut conn, user.id).await?;
+        let session = self.create_session(&mut conn, user.id, validated_device_id).await?;
         self.metrics.login.add(1, &[]);
         Ok(session)
     }
@@ -129,33 +184,39 @@ impl AuthService {
         .map_err(|_| AppError::Internal)?
     }
 
-    /// Creates a new authenticated session.
+    /// Creates a new authenticated session with optional device_id.
     ///
     /// # Errors
     /// Returns `AppError::Database` if the session cannot be saved.
     #[tracing::instrument(err, skip(self, conn), fields(user.id = %user_id))]
-    pub(crate) async fn create_session(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<AuthSession> {
+    pub(crate) async fn create_session(
+        &self,
+        conn: &mut PgConnection,
+        user_id: Uuid,
+        device_id: Option<Uuid>,
+    ) -> Result<AuthSession> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(Duration::from_secs(0)).as_secs();
 
         let exp = now.checked_add(self.config.access_token_ttl_secs).ok_or(AppError::Internal)?;
         let exp_usize = usize::try_from(exp).map_err(|_| AppError::Internal)?;
 
-        let claims = Claims::new(user_id, exp_usize);
+        let claims = Claims::new(user_id, device_id, exp_usize);
         let jwt = self.encode_jwt(&claims)?;
 
         let refresh_token = Self::generate_opaque_token();
         let refresh_hash = Self::hash_opaque_token(&refresh_token);
 
-        self.refresh_repo.create(conn, user_id, &refresh_hash, self.config.refresh_token_ttl_days).await?;
+        self.refresh_repo.create(conn, user_id, device_id, &refresh_hash, self.config.refresh_token_ttl_days).await?;
 
         Ok(AuthSession {
             token: jwt.as_str().to_string(),
             refresh_token,
             expires_at: i64::try_from(exp).map_err(|_| AppError::Internal)?,
+            device_id,
         })
     }
 
-    /// Refreshes an existing session.
+    /// Refreshes an existing session. Preserves the device_id from the original refresh token.
     ///
     /// # Errors
     /// Returns `AppError::AuthError` if the refresh token is invalid.
@@ -166,7 +227,7 @@ impl AuthService {
         let new_refresh_token = Self::generate_opaque_token();
         let new_hash = Self::hash_opaque_token(&new_refresh_token);
 
-        let user_id = self
+        let (user_id, device_id) = self
             .refresh_repo
             .rotate_unexpired(&mut conn, &old_hash, &new_hash, self.config.refresh_token_ttl_days)
             .await?
@@ -179,7 +240,7 @@ impl AuthService {
         let exp = now.checked_add(self.config.access_token_ttl_secs).ok_or(AppError::Internal)?;
         let exp_usize = usize::try_from(exp).map_err(|_| AppError::Internal)?;
 
-        let claims = Claims::new(user_id, exp_usize);
+        let claims = Claims::new(user_id, device_id, exp_usize);
         let new_jwt = self.encode_jwt(&claims)?;
 
         tracing::info!("Tokens rotated successfully");
@@ -189,6 +250,7 @@ impl AuthService {
             token: new_jwt.as_str().to_string(),
             refresh_token: new_refresh_token,
             expires_at: i64::try_from(exp).map_err(|_| AppError::Internal)?,
+            device_id,
         })
     }
 
@@ -205,11 +267,11 @@ impl AuthService {
         Ok(())
     }
 
-    /// Verifies a JWT access token and returns the user ID (subject).
+    /// Verifies a JWT access token and returns (user_id, device_id).
     ///
     /// # Errors
     /// Returns `AppError::AuthError` if the token is invalid or expired.
-    pub(crate) fn verify_token(&self, jwt: &Jwt) -> Result<Uuid> {
+    pub(crate) fn verify_token(&self, jwt: &Jwt) -> Result<(Uuid, Option<Uuid>)> {
         let token_data = decode::<Claims>(
             jwt.as_str(),
             &DecodingKey::from_secret(self.config.jwt_secret.as_bytes()),
@@ -217,7 +279,7 @@ impl AuthService {
         )
         .map_err(|_| AppError::AuthError)?;
 
-        Ok(token_data.claims.sub)
+        Ok((token_data.claims.sub, token_data.claims.device_id))
     }
 
     fn encode_jwt(&self, claims: &Claims) -> Result<Jwt> {
@@ -243,6 +305,7 @@ impl AuthService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapters::database::device_repo::DeviceRepository;
     use crate::adapters::database::refresh_token_repo::RefreshTokenRepository;
     use crate::config::AuthConfig;
 
@@ -254,20 +317,42 @@ mod tests {
             refresh_token_cleanup_interval_secs: 3600,
         };
         let pool = sqlx::PgPool::connect_lazy("postgres://localhost/test").expect("Valid test pool");
-        AuthService::new(config, pool, UserRepository::new(), RefreshTokenRepository::new())
+        AuthService::new(
+            config,
+            pool,
+            UserRepository::new(),
+            RefreshTokenRepository::new(),
+            DeviceRepository::new(),
+        )
     }
 
     #[tokio::test]
     async fn test_jwt_roundtrip() {
         let service = setup_service();
         let user_id = Uuid::new_v4();
+        let device_id = Some(Uuid::new_v4());
         let exp = 10_000_000_000;
-        let claims = Claims::new(user_id, exp);
+        let claims = Claims::new(user_id, device_id, exp);
 
         let jwt = service.encode_jwt(&claims).expect("Failed to encode JWT");
-        let decoded_id = service.verify_token(&jwt).expect("Failed to verify valid token");
+        let (decoded_user, decoded_device) = service.verify_token(&jwt).expect("Failed to verify valid token");
 
-        assert_eq!(user_id, decoded_id);
+        assert_eq!(user_id, decoded_user);
+        assert_eq!(device_id, decoded_device);
+    }
+
+    #[tokio::test]
+    async fn test_jwt_roundtrip_no_device() {
+        let service = setup_service();
+        let user_id = Uuid::new_v4();
+        let exp = 10_000_000_000;
+        let claims = Claims::new(user_id, None, exp);
+
+        let jwt = service.encode_jwt(&claims).expect("Failed to encode JWT");
+        let (decoded_user, decoded_device) = service.verify_token(&jwt).expect("Failed to verify valid token");
+
+        assert_eq!(user_id, decoded_user);
+        assert_eq!(decoded_device, None);
     }
 
     #[tokio::test]

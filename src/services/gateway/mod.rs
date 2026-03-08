@@ -85,13 +85,13 @@ impl GatewayService {
     pub async fn handle_socket(
         &self,
         mut socket: WebSocket,
-        user_id: Uuid,
+        device_id: Uuid,
         request_id: String,
         shutdown_rx: tokio::sync::watch::Receiver<bool>,
     ) {
         // Clients need to know if they are low on pre-keys immediately upon connection
         // to prevent exhausting their bundle during an active session.
-        match self.key_service.check_pre_key_status(user_id).await {
+        match self.key_service.check_pre_key_status(device_id).await {
             Ok(Some(status)) => {
                 let frame = proto::WebSocketFrame {
                     payload: Some(proto::web_socket_frame::Payload::PreKeyStatus(proto::PreKeyStatus {
@@ -113,7 +113,7 @@ impl GatewayService {
 
         // 3. Hand over to Session
         let session = Session {
-            user_id,
+            device_id,
             request_id,
             socket,
             message_service: self.message_service.clone(),

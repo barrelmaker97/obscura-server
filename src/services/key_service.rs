@@ -22,7 +22,7 @@ impl Metrics {
         Self {
             prekey_low_total: meter
                 .u64_counter("obscura_prekey_threshold_reached_total")
-                .with_description("Events where users dipped below prekey threshold")
+                .with_description("Events where devices dipped below prekey threshold")
                 .build(),
         }
     }
@@ -40,7 +40,7 @@ pub struct KeyService {
 
 #[derive(Debug)]
 pub struct KeyUploadParams {
-    pub user_id: Uuid,
+    pub device_id: Uuid,
     pub identity_key: Option<PublicKey>,
     pub registration_id: Option<i32>,
     pub signed_pre_key: SignedPreKey,
@@ -59,14 +59,14 @@ impl KeyService {
         Self { pool, repo, crypto_service, notifier, config, metrics: Metrics::new() }
     }
 
-    /// Fetches a pre-key bundle for a user.
+    /// Fetches a pre-key bundle for a single device (consuming one OT pre-key).
     ///
     /// # Errors
     /// Returns `AppError::Database` if the database operation fails.
-    #[tracing::instrument(err, skip(self), fields(user.id = %user_id))]
-    pub async fn get_pre_key_bundle(&self, user_id: Uuid) -> Result<Option<PreKeyBundle>> {
+    #[tracing::instrument(err, skip(self), fields(device.id = %device_id))]
+    pub async fn get_pre_key_bundle(&self, device_id: Uuid) -> Result<Option<PreKeyBundle>> {
         let mut conn = self.pool.acquire().await?;
-        let (bundle, remaining_count) = match self.repo.fetch_pre_key_bundle(&mut conn, user_id).await? {
+        let (bundle, remaining_count) = match self.repo.fetch_pre_key_bundle(&mut conn, device_id).await? {
             Some((b, c)) => (Some(b), c),
             None => (None, None),
         };
@@ -76,30 +76,30 @@ impl KeyService {
             && count < i64::from(self.config.pre_key_refill_threshold)
         {
             self.metrics.prekey_low_total.add(1, &[]);
-            self.notifier.notify(&[user_id], UserEvent::PreKeyLow).await;
+            self.notifier.notify(&[device_id], UserEvent::PreKeyLow).await;
         }
 
         Ok(bundle)
     }
 
-    /// Fetches the identity key for a user.
+    /// Fetches the identity key for a device.
     ///
     /// # Errors
     /// Returns `AppError::Database` if the database operation fails.
-    #[tracing::instrument(err, skip(self), fields(user.id = %user_id))]
-    pub async fn fetch_identity_key(&self, user_id: Uuid) -> Result<Option<PublicKey>> {
+    #[tracing::instrument(err, skip(self), fields(device.id = %device_id))]
+    pub async fn fetch_identity_key(&self, device_id: Uuid) -> Result<Option<PublicKey>> {
         let mut conn = self.pool.acquire().await?;
-        self.repo.fetch_identity_key(&mut conn, user_id).await
+        self.repo.fetch_identity_key(&mut conn, device_id).await
     }
 
-    /// Checks if a user needs to refill their one-time pre-keys.
+    /// Checks if a device needs to refill their one-time pre-keys.
     ///
     /// # Errors
     /// Returns `AppError::Database` if the database operation fails.
-    #[tracing::instrument(err, skip(self), fields(user.id = %user_id))]
-    pub async fn check_pre_key_status(&self, user_id: Uuid) -> Result<Option<PreKeyStatus>> {
+    #[tracing::instrument(err, skip(self), fields(device.id = %device_id))]
+    pub async fn check_pre_key_status(&self, device_id: Uuid) -> Result<Option<PreKeyStatus>> {
         let mut conn = self.pool.acquire().await?;
-        let count = self.repo.count_one_time_pre_keys(&mut conn, user_id).await?;
+        let count = self.repo.count_one_time_pre_keys(&mut conn, device_id).await?;
         if count < i64::from(self.config.pre_key_refill_threshold) {
             self.metrics.prekey_low_total.add(1, &[]);
 
@@ -120,7 +120,7 @@ impl KeyService {
         // 1. Identify/Verify Identity Key
         let ik = if let Some(new_ik) = params.identity_key {
             // Fetch existing identity key with LOCK
-            let existing_ik_opt = self.repo.fetch_identity_key_for_update(&mut *conn, params.user_id).await?;
+            let existing_ik_opt = self.repo.fetch_identity_key_for_update(&mut *conn, params.device_id).await?;
 
             if let Some(existing_ik) = existing_ik_opt {
                 if existing_ik != new_ik {
@@ -128,7 +128,7 @@ impl KeyService {
                     is_takeover = true;
                 }
             } else {
-                tracing::info!("Device takeover detected: new identity key for existing user");
+                tracing::info!("New identity key for device");
                 is_takeover = true;
             }
 
@@ -138,7 +138,7 @@ impl KeyService {
             // Must exist
             let ik = self
                 .repo
-                .fetch_identity_key_for_update(&mut *conn, params.user_id)
+                .fetch_identity_key_for_update(&mut *conn, params.device_id)
                 .await?
                 .ok_or_else(|| AppError::BadRequest("Identity key missing".into()))?;
 
@@ -149,7 +149,7 @@ impl KeyService {
 
         // 2. Monotonic ID Check (Prevent Replay / Rollback)
         if !is_takeover {
-            let max_id = self.repo.find_max_signed_pre_key_id(&mut *conn, params.user_id).await?;
+            let max_id = self.repo.find_max_signed_pre_key_id(&mut *conn, params.device_id).await?;
             if let Some(current_max) = max_id
                 && params.signed_pre_key.key_id <= current_max
             {
@@ -162,7 +162,7 @@ impl KeyService {
 
         // 3. Limit Check (Atomic within transaction)
         let current_count =
-            if is_takeover { 0 } else { self.repo.count_one_time_pre_keys(&mut *conn, params.user_id).await? };
+            if is_takeover { 0 } else { self.repo.count_one_time_pre_keys(&mut *conn, params.device_id).await? };
 
         let new_keys_count = i64::try_from(params.one_time_pre_keys.len()).unwrap_or(i64::MAX);
 
@@ -175,18 +175,18 @@ impl KeyService {
             let reg_id =
                 params.registration_id.expect("registration_id must be present for takeover (validated at boundary)");
 
-            self.repo.delete_all_signed_pre_keys(&mut *conn, params.user_id).await?;
-            self.repo.delete_all_one_time_pre_keys(&mut *conn, params.user_id).await?;
+            self.repo.delete_all_signed_pre_keys(&mut *conn, params.device_id).await?;
+            self.repo.delete_all_one_time_pre_keys(&mut *conn, params.device_id).await?;
 
-            // Note: Message deletion and notification are now handled by the orchestrator.
+            // Note: Message deletion and notification are now handled by the orchestrator (DeviceService).
 
             // Upsert Identity Key
-            self.repo.upsert_identity_key(&mut *conn, params.user_id, &ik, reg_id).await?;
+            self.repo.upsert_identity_key(&mut *conn, params.device_id, &ik, reg_id).await?;
         } else {
             // If not a takeover, we might need to prune old keys to make room for new ones
             if current_count + new_keys_count > self.config.max_pre_keys {
                 let to_delete = (current_count + new_keys_count) - self.config.max_pre_keys;
-                self.repo.delete_oldest_one_time_pre_keys(&mut *conn, params.user_id, to_delete).await?;
+                self.repo.delete_oldest_one_time_pre_keys(&mut *conn, params.device_id, to_delete).await?;
             }
         }
 
@@ -194,7 +194,7 @@ impl KeyService {
         self.repo
             .upsert_signed_pre_key(
                 &mut *conn,
-                params.user_id,
+                params.device_id,
                 params.signed_pre_key.key_id,
                 &params.signed_pre_key.public_key,
                 &params.signed_pre_key.signature,
@@ -204,11 +204,11 @@ impl KeyService {
         // 6. Cleanup old Signed Pre-Keys
         if !is_takeover {
             self.repo
-                .delete_signed_pre_keys_older_than(&mut *conn, params.user_id, params.signed_pre_key.key_id)
+                .delete_signed_pre_keys_older_than(&mut *conn, params.device_id, params.signed_pre_key.key_id)
                 .await?;
         }
 
-        self.repo.insert_one_time_pre_keys(&mut *conn, params.user_id, &params.one_time_pre_keys).await?;
+        self.repo.insert_one_time_pre_keys(&mut *conn, params.device_id, &params.one_time_pre_keys).await?;
 
         Ok(is_takeover)
     }

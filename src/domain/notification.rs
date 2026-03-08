@@ -10,7 +10,7 @@ pub enum UserEvent {
 
 #[derive(Debug, Clone)]
 pub struct RealtimeNotification {
-    pub user_id: Uuid,
+    pub device_id: Uuid,
     pub event: UserEvent,
 }
 

@@ -11,41 +11,41 @@ impl PushTokenRepository {
         Self {}
     }
 
-    /// Register or update a push token for a user.
+    /// Register or update a push token for a device.
     ///
     /// # Errors
     /// Returns a database error if the upsert fails.
     #[tracing::instrument(level = "debug", skip(self, conn, token), err)]
-    pub async fn upsert_token(&self, conn: &mut PgConnection, user_id: Uuid, token: &str) -> Result<()> {
+    pub async fn upsert_token(&self, conn: &mut PgConnection, device_id: Uuid, token: &str) -> Result<()> {
         sqlx::query(
             r#"
-            INSERT INTO push_tokens (user_id, token, updated_at)
+            INSERT INTO push_tokens (device_id, token, updated_at)
             VALUES ($1, $2, NOW())
-            ON CONFLICT (user_id) DO UPDATE
+            ON CONFLICT (device_id) DO UPDATE
             SET token = $2, updated_at = NOW()
             "#,
         )
-        .bind(user_id)
+        .bind(device_id)
         .bind(token)
         .execute(conn)
         .await?;
         Ok(())
     }
 
-    /// Finds tokens for a batch of users.
-    /// Returns a list of (`user_id`, token) pairs.
+    /// Finds tokens for a batch of devices.
+    /// Returns a list of (`device_id`, token) pairs.
     ///
     /// # Errors
     /// Returns a database error if the query fails.
     #[tracing::instrument(level = "debug", skip(self, conn), err)]
-    pub(crate) async fn find_tokens_for_users(
+    pub(crate) async fn find_tokens_for_devices(
         &self,
         conn: &mut PgConnection,
-        user_ids: &[Uuid],
+        device_ids: &[Uuid],
     ) -> Result<Vec<(Uuid, String)>> {
         let rows =
-            sqlx::query_as::<_, (Uuid, String)>("SELECT user_id, token FROM push_tokens WHERE user_id = ANY($1)")
-                .bind(user_ids)
+            sqlx::query_as::<_, (Uuid, String)>("SELECT device_id, token FROM push_tokens WHERE device_id = ANY($1)")
+                .bind(device_ids)
                 .fetch_all(conn)
                 .await?;
 

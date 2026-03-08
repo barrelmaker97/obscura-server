@@ -15,13 +15,13 @@ impl PushTokenService {
         Self { pool, repo }
     }
 
-    /// Registers or updates a push token for a user.
+    /// Registers or updates a push token for a device.
     ///
     /// # Errors
     /// Returns an error if the database operation fails.
-    pub async fn register_token(&self, user_id: Uuid, token: String) -> Result<()> {
+    pub async fn register_token(&self, device_id: Uuid, token: String) -> Result<()> {
         // Here we could add validation (e.g. token format checks)
         let mut conn = self.pool.acquire().await?;
-        self.repo.upsert_token(&mut conn, user_id, &token).await
+        self.repo.upsert_token(&mut conn, device_id, &token).await
     }
 }

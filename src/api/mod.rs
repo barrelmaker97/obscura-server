@@ -2,10 +2,10 @@ use crate::Services;
 use crate::adapters::redis::RedisCache;
 use crate::api::rate_limit::log_rate_limit_events;
 use crate::config::Config;
-use crate::services::account_service::AccountService;
 use crate::services::attachment_service::AttachmentService;
 use crate::services::auth_service::AuthService;
 use crate::services::backup_service::BackupService;
+use crate::services::device_service::DeviceService;
 use crate::services::gateway::GatewayService;
 use crate::services::health_service::HealthService;
 use crate::services::key_service::KeyService;
@@ -30,6 +30,7 @@ use tower_http::trace::TraceLayer;
 pub mod attachments;
 pub mod auth;
 pub mod backup;
+pub mod devices;
 pub mod docs;
 pub mod gateway;
 pub mod health;
@@ -46,7 +47,7 @@ pub(crate) struct AppState {
     pub(crate) key_service: KeyService,
     pub(crate) attachment_service: AttachmentService,
     pub(crate) backup_service: BackupService,
-    pub(crate) account_service: AccountService,
+    pub(crate) device_service: DeviceService,
     pub(crate) auth_service: AuthService,
     pub(crate) message_service: MessageService,
     pub(crate) gateway_service: GatewayService,
@@ -64,7 +65,7 @@ impl AppState {
             key_service: services.key_service,
             attachment_service: services.attachment_service,
             backup_service: services.backup_service,
-            account_service: services.account_service,
+            device_service: services.device_service,
             auth_service: services.auth_service,
             message_service: services.message_service,
             gateway_service: services.gateway_service,
@@ -126,8 +127,11 @@ fn api_router(
     );
 
     let standard_routes = Router::new()
+        .route("/devices", post(devices::create_device))
+        .route("/devices", get(devices::list_devices))
+        .route("/devices/{deviceId}", delete(devices::delete_device))
         .route("/keys", post(keys::upload_keys))
-        .route("/keys/{userId}", get(keys::get_pre_key_bundle))
+        .route("/keys/{deviceId}", get(keys::get_pre_key_bundle))
         .route("/messages", post(messages::send_messages))
         .route("/gateway", get(gateway::websocket_handler))
         .route("/gateway/ticket", post(gateway::generate_ticket))
@@ -192,6 +196,7 @@ fn apply_middleware(router: Router<AppState>, config: &Config, state: AppState) 
                         "http.response.status_code" = tracing::field::Empty,
                         "otel.kind" = "server",
                         "user.id" = tracing::field::Empty,
+                        "device.id" = tracing::field::Empty,
                     )
                 })
                 .on_response(|response: &axum::http::Response<_>, latency: Duration, _span: &tracing::Span| {

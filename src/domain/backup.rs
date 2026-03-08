@@ -30,7 +30,7 @@ impl std::str::FromStr for BackupState {
 
 #[derive(Debug, Clone)]
 pub struct Backup {
-    pub user_id: Uuid,
+    pub device_id: Uuid,
     pub current_version: i32,
     pub pending_version: Option<i32>,
     pub state: BackupState,

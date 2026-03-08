@@ -71,7 +71,7 @@ impl NotificationWorker {
                 result = notification_rx.recv() => {
                     match result {
                         Ok(notification) => {
-                            let user_id = notification.user_id;
+                            let device_id = notification.device_id;
                             let event = format!("{:?}", notification.event);
 
                             async {
@@ -80,7 +80,7 @@ impl NotificationWorker {
                                     m.processed_total.add(1, &[]);
                                 }
                             }
-                            .instrument(tracing::debug_span!("dispatch_notification", %user_id, %event))
+                            .instrument(tracing::debug_span!("dispatch_notification", %device_id, %event))
                             .await;
                         }
                         Err(broadcast::error::RecvError::Lagged(n)) => {
