@@ -16,6 +16,7 @@
 mod common;
 
 use common::TestApp;
+use serde_json::json;
 use futures::SinkExt;
 use obscura_server::proto::obscura::v1 as proto;
 use prost::Message as ProstMessage;
@@ -26,15 +27,18 @@ use uuid::Uuid;
 
 #[tokio::test]
 async fn test_messaging_flow() {
-    let app = TestApp::spawn().await;
+    let app = TestApp::spawn_with_workers(common::get_test_config()).await;
 
     let user_a = app.register_user(&common::generate_username("alice")).await;
     let user_b = app.register_user(&common::generate_username("bob")).await;
 
+    // Connect Bob's WebSocket FIRST to listen for real-time notifications
+    let mut ws = app.connect_ws(&user_b.token).await;
+    ws.ensure_subscribed().await;
+
     let content = b"Hello World".to_vec();
     app.send_message(&user_a.token, user_b.device_id, &content).await;
 
-    let mut ws = app.connect_ws(&user_b.token).await;
     let env = ws.receive_envelope().await.expect("Did not receive message");
     assert_eq!(env.message, content);
 
@@ -79,16 +83,18 @@ async fn test_ack_batching_behavior() {
     config.websocket.ack_batch_size = 5;
     config.websocket.ack_flush_interval_ms = 1000;
 
-    let app = TestApp::spawn_with_config(config).await;
+    let app = TestApp::spawn_with_workers(config).await;
 
     let user_a = app.register_user(&common::generate_username("alice_ack")).await;
     let user_b = app.register_user(&common::generate_username("bob_ack")).await;
 
+    // Connect Bob's WebSocket FIRST
+    let mut ws = app.connect_ws(&user_b.token).await;
+    ws.ensure_subscribed().await;
+
     for i in 0..3 {
         app.send_message(&user_a.token, user_b.device_id, format!("msg {i}").as_bytes()).await;
     }
-
-    let mut ws = app.connect_ws(&user_b.token).await;
 
     let mut message_ids = Vec::new();
     for _ in 0..3 {
@@ -575,4 +581,53 @@ async fn test_send_message_missing_payload() {
         response.failed_submissions[0].error_code,
         proto::send_message_response::ErrorCode::MessageMissing as i32
     );
+}
+
+#[tokio::test]
+async fn test_multi_device_messaging() {
+    let app = TestApp::spawn_with_workers(common::get_test_config()).await;
+    let username = common::generate_username("multi_msg");
+
+    // 1. Register Bob and give him TWO devices
+    let bob = app.register_user_with_keys(&username, 111, 5).await;
+    
+    // Login to get user token for creating second device
+    let login_payload = json!({
+        "username": username,
+        "password": "password12345"
+    });
+    let login_resp = app.client.post(format!("{}/v1/sessions", app.server_url)).json(&login_payload).send().await.unwrap();
+    let user_token = login_resp.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
+    
+    // Create device 2
+    let (device2_payload, _) = common::generate_device_payload(222, 5);
+    let device2_resp = app.client.post(format!("{}/v1/devices", app.server_url))
+        .header("Authorization", format!("Bearer {}", user_token))
+        .json(&device2_payload)
+        .send().await.unwrap();
+        
+    let device2_json: serde_json::Value = device2_resp.json().await.unwrap();
+    let device2_token = device2_json["token"].as_str().unwrap().to_string();
+    let device2_id = Uuid::parse_str(device2_json["deviceId"].as_str().unwrap()).unwrap();
+    
+    // 2. Register Alice (sender)
+    let alice = app.register_user(&common::generate_username("alice_multi")).await;
+
+    // 3. Connect WebSockets for Bob's two devices
+    let mut ws1 = app.connect_ws(&bob.token).await;
+    ws1.ensure_subscribed().await;
+    
+    let mut ws2 = app.connect_ws(&device2_token).await;
+    ws2.ensure_subscribed().await;
+    
+    // 4. Alice sends a message ONLY to Bob's Device 2
+    app.send_message(&alice.token, device2_id, b"Targeting Device 2").await;
+    
+    // 5. Verify Device 2 receives the message
+    let env2 = ws2.receive_envelope_timeout(Duration::from_secs(2)).await.expect("Device 2 should receive the message");
+    assert_eq!(env2.message, b"Targeting Device 2");
+    
+    // 6. Verify Device 1 DOES NOT receive the message
+    let env1 = ws1.receive_envelope_timeout(Duration::from_millis(500)).await;
+    assert!(env1.is_none(), "Device 1 should NOT receive the message meant for Device 2");
 }

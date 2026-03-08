@@ -76,8 +76,8 @@ impl KeyService {
 
         // 2. Check thresholds asynchronously, so we don't hold the DB transaction or slow down the response
         for (bundle, remaining_opt) in results {
-            if let Some(remaining) = remaining_opt {
-                if remaining < i64::from(self.config.pre_key_refill_threshold) {
+            if let Some(remaining) = remaining_opt
+                && remaining < i64::from(self.config.pre_key_refill_threshold) {
                     self.metrics.prekey_low_total.add(1, &[]);
                     tracing::warn!(
                         device.id = %bundle.device_id,
@@ -86,7 +86,6 @@ impl KeyService {
                     );
                     self.notifier.notify(&[bundle.device_id], UserEvent::PreKeyLow).await;
                 }
-            }
             bundles.push(bundle);
         }
 

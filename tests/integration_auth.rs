@@ -165,3 +165,50 @@ async fn test_request_id_propagation() {
     // Should be a UUID (approx check)
     assert_eq!(generated_id.split('-').count(), 5);
 }
+
+#[tokio::test]
+async fn test_login_with_device_id() {
+    let app = common::TestApp::spawn().await;
+    let username = common::generate_username("login_device_id");
+
+    // 1. Register and create a device (which gives us a valid device ID)
+    let user = app.register_user_with_keys(&username, 123, 5).await;
+    
+    // 2. Login WITHOUT deviceId (should return user-scoped token)
+    let login_payload_user = json!({
+        "username": username,
+        "password": "password12345"
+    });
+    
+    let resp_user = app.client.post(format!("{}/v1/sessions", app.server_url))
+        .json(&login_payload_user)
+        .send().await.unwrap();
+    
+    assert_eq!(resp_user.status(), StatusCode::OK);
+    let json_user: serde_json::Value = resp_user.json().await.unwrap();
+    assert!(json_user.get("deviceId").is_none(), "User login should not return deviceId");
+    
+    // 3. Login WITH deviceId (should return device-scoped token)
+    let login_payload_device = json!({
+        "username": username,
+        "password": "password12345",
+        "deviceId": user.device_id.to_string()
+    });
+    
+    let resp_device = app.client.post(format!("{}/v1/sessions", app.server_url))
+        .json(&login_payload_device)
+        .send().await.unwrap();
+        
+    assert_eq!(resp_device.status(), StatusCode::OK);
+    let json_device: serde_json::Value = resp_device.json().await.unwrap();
+    assert_eq!(json_device["deviceId"].as_str().unwrap(), user.device_id.to_string(), "Device login should return the correct deviceId");
+    
+    let device_token = json_device["token"].as_str().unwrap().to_string();
+    
+    // 4. Verify we can fetch keys (which requires a device-scoped token)
+    let resp_keys = app.client.get(format!("{}/v1/keys/{}", app.server_url, user.user_id))
+        .header("Authorization", format!("Bearer {}", device_token))
+        .send().await.unwrap();
+        
+    assert_eq!(resp_keys.status(), StatusCode::OK, "Should be able to use device-scoped token on /keys");
+}

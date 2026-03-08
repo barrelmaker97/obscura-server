@@ -62,7 +62,7 @@ async fn test_register_flow() {
     assert!(device_json.get("deviceId").is_some(), "Device response must include deviceId");
 
     let device_token = device_json["token"].as_str().unwrap().to_string();
-    let device_id = device_json["deviceId"].as_str().unwrap();
+    let _device_id = device_json["deviceId"].as_str().unwrap();
 
     // Step 3: Login
     let login_payload = json!({
