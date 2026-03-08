@@ -3,7 +3,7 @@ info:
   title: Obscura Server API
   description: |
     A privacy-first messaging relay.
-    - **Control Plane (REST):** Registration, Key Management, Sending.
+    - **Control Plane (REST):** Registration, Device Management, Key Management, Sending.
     - **Data Plane (WebSocket):** Real-time message delivery and acknowledgement.
     - **Protocol:** Protocol Buffers (application/x-protobuf) are used for message bodies to minimize metadata leakage and binary bloat.
 
@@ -20,7 +20,12 @@ paths:
   /v1/users:
     post:
       operationId: registerUser
-      summary: Register a new user device.
+      summary: Register a new user account.
+      description: |
+        Creates a new user account with the provided credentials.
+        Returns a User-Scoped JWT (no `deviceId` claim). The client must then
+        create a device via `POST /v1/devices` to obtain a Device-Scoped JWT
+        required for key management, messaging, and WebSocket connections.
       tags: [Account]
       security: []
       requestBody:
@@ -42,9 +47,6 @@ paths:
           $ref: '#/components/responses/BadRequestError'
         '408':
           $ref: '#/components/responses/RequestTimeoutError'
-
-        '403':
-          $ref: '#/components/responses/ForbiddenError'
         '409':
           description: Username already exists.
           headers:
@@ -63,6 +65,10 @@ paths:
     post:
       operationId: login
       summary: Login and retrieve a session token.
+      description: |
+        Authenticates with username and password. If an optional `deviceId` is provided
+        and belongs to the user, the returned JWT will include that `deviceId` claim
+        (Device-Scoped). Otherwise, a User-Scoped JWT is returned.
       tags: [Account]
       security: []
       requestBody:
@@ -146,20 +152,118 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  # --- Devices ---
+  /v1/devices:
+    post:
+      operationId: createDevice
+      summary: Provision a new device.
+      description: |
+        Creates a new device for the authenticated user, uploads its cryptographic keys,
+        and returns a Device-Scoped JWT. Requires a User-Scoped or Device-Scoped JWT.
+
+        The server enforces a configurable maximum number of devices per user.
+      tags: [Devices]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDeviceRequest'
+      responses:
+        '201':
+          description: Device provisioned.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/x-request-id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '408':
+          $ref: '#/components/responses/RequestTimeoutError'
+        '429':
+          $ref: '#/components/responses/TooManyRequestsError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    get:
+      operationId: listDevices
+      summary: List all devices for the authenticated user.
+      tags: [Devices]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of devices.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/x-request-id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '408':
+          $ref: '#/components/responses/RequestTimeoutError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /v1/devices/{deviceId}:
+    delete:
+      operationId: deleteDevice
+      summary: Delete a device.
+      description: |
+        Deletes a device owned by the authenticated user. Cascade delete removes
+        all associated keys, pending messages, and push tokens.
+      tags: [Devices]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Device deleted.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/x-request-id'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '408':
+          $ref: '#/components/responses/RequestTimeoutError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   # --- Keys (X3DH) ---
   /v1/keys:
     post:
       operationId: uploadKeys
       summary: Upload PreKeys or Perform Device Takeover.
       description: |
-        Uploads new Signed PreKeys and One-Time PreKeys.
+        Uploads new Signed PreKeys and One-Time PreKeys for the authenticated device.
+        Requires a Device-Scoped JWT.
 
         **Device Takeover:**
-        If an `identityKey` is provided and it *differs* from the stored key for this user:
+        If an `identityKey` is provided and it *differs* from the stored key for this device:
         - Replaces the Identity Key.
         - Deletes ALL old keys (Signed and One-Time).
-        - Deletes ALL pending messages.
-        - Disconnects active WebSockets.
+        - Deletes ALL pending messages for this device.
+        - Disconnects active WebSockets for this device.
 
         If `identityKey` matches the stored key or is omitted, it acts as a standard key refill (appending new keys).
       tags: [Keys]
@@ -190,10 +294,11 @@ paths:
   /v1/keys/{userId}:
     get:
       operationId: getPreKeyBundle
-      summary: Fetch PreKey Bundle.
+      summary: Fetch PreKey Bundles for all of a user's devices.
       description: |
-        Returns active PreKey bundle for the target user.
-        Server atomically consumes one One-Time PreKey (if available).
+        Returns an array of PreKey bundles, one per device registered to the target user.
+        Server atomically consumes one One-Time PreKey per device (if available).
+        Requires a Device-Scoped JWT (the caller's own device must be identified).
       tags: [Keys]
       parameters:
         - name: userId
@@ -204,7 +309,7 @@ paths:
             format: uuid
       responses:
         '200':
-          description: PreKey Bundle.
+          description: Array of PreKey Bundles, one per device.
           headers:
             x-request-id:
               $ref: '#/components/headers/x-request-id'
@@ -289,6 +394,7 @@ paths:
         Generates a short-lived, single-use ticket for establishing a WebSocket connection.
         This allows the client to authenticate via the `Authorization` header once, and then
         pass the ticket as a query parameter in the WebSocket handshake (where custom headers are often difficult to set).
+        Requires a Device-Scoped JWT.
       tags: [Messaging]
       security:
         - bearerAuth: []
@@ -317,11 +423,11 @@ paths:
       summary: Connect to the Message Stream.
       description: |
         **WebSocket Endpoint.**
-        Clients must connect here to receive messages.
+        Clients must connect here to receive messages for a specific device.
         - **Protocol:** `WebSocketFrame` (Protobuf).
         - **Auth:** Pass a valid ticket in the query string: `ws://.../v1/gateway?ticket=<ticket>`.
         - **Handshake:** Server validates the ticket, ensuring it exists and hasn't expired or been used.
-        - **Welcome:** Upon successful connection, the server may immediately push a `PreKeyStatus` frame if the user's one-time pre-key count is below the configured threshold.
+        - **Welcome:** Upon successful connection, the server may immediately push a `PreKeyStatus` frame if the device's one-time pre-key count is below the configured threshold.
         - **Flow:** Server pushes `Envelope` frames. Client MUST respond with `AckMessage` frames. Server batches deletions based on ACKs.
       tags: [Messaging]
       security:
@@ -575,9 +681,6 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '408':
           $ref: '#/components/responses/RequestTimeoutError'
-
-        '403':
-          $ref: '#/components/responses/ForbiddenError'
         '409':
           $ref: '#/components/responses/ConflictError'
         '411':
@@ -597,8 +700,9 @@ paths:
       operationId: updatePushToken
       summary: Register or update a push notification token.
       description: |
-        Associates an FCM or APNS token with the authenticated user device for wake-up signals.
-        Obscura uses a "Single Device" policy; updating the token replaces any existing one.
+        Associates an FCM or APNS token with the authenticated device for wake-up signals.
+        Each device has its own push token. Updating the token replaces any existing one for this device.
+        Requires a Device-Scoped JWT.
       tags: [Push Notifications]
       security:
         - bearerAuth: []
@@ -614,12 +718,12 @@ paths:
           headers:
             x-request-id:
               $ref: '#/components/headers/x-request-id'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '408':
           $ref: '#/components/responses/RequestTimeoutError'
-        '400':
-          $ref: '#/components/responses/BadRequestError'
         '429':
           $ref: '#/components/responses/TooManyRequestsError'
         '500':
@@ -659,6 +763,15 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
     BadRequestError:
       description: Invalid input, malformed request, or missing required headers (e.g. version or length).
+      headers:
+        x-request-id:
+          $ref: '#/components/headers/x-request-id'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ForbiddenError:
+      description: Forbidden (Action not allowed or limit reached).
       headers:
         x-request-id:
           $ref: '#/components/headers/x-request-id'
@@ -763,6 +876,10 @@ components:
           type: integer
           format: int64
           description: UNIX timestamp of access token expiration.
+        deviceId:
+          type: string
+          format: uuid
+          description: Present when a Device-Scoped JWT is returned (e.g. after device creation or login with deviceId).
 
     LoginRequest:
       type: object
@@ -777,6 +894,10 @@ components:
         password:
           type: string
           minLength: 12
+        deviceId:
+          type: string
+          format: uuid
+          description: Optional. If provided and belongs to the user, the returned JWT will be Device-Scoped.
 
     LogoutRequest:
       type: object
@@ -805,10 +926,6 @@ components:
       required:
         - username
         - password
-        - identityKey
-        - registrationId
-        - signedPreKey
-        - oneTimePreKeys
       properties:
         username:
           type: string
@@ -817,6 +934,19 @@ components:
         password:
           type: string
           minLength: 12
+
+    CreateDeviceRequest:
+      type: object
+      required:
+        - identityKey
+        - registrationId
+        - signedPreKey
+        - oneTimePreKeys
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          description: Optional human-readable label for the device (e.g. "My Phone").
         identityKey:
           type: string
           format: byte
@@ -830,6 +960,28 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/OneTimePreKey'
+
+    DeviceResponse:
+      type: object
+      properties:
+        deviceId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    DeviceListResponse:
+      type: object
+      required: [devices]
+      properties:
+        devices:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeviceResponse'
 
     PreKeyUploadRequest:
       type: object
@@ -857,6 +1009,10 @@ components:
     PreKeyBundleResponse:
       type: object
       properties:
+        deviceId:
+          type: string
+          format: uuid
+          description: The device this bundle belongs to.
         registrationId:
           type: integer
           format: int32
@@ -922,12 +1078,3 @@ components:
         ticket:
           type: string
           description: A short-lived, single-use authentication ticket.
-    ForbiddenError:
-      description: Forbidden (Action not allowed or limit reached).
-      headers:
-        x-request-id:
-          $ref: '#/components/headers/x-request-id'
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
