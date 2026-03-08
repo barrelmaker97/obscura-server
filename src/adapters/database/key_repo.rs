@@ -212,10 +212,8 @@ impl KeyRepository {
         conn: &mut PgConnection,
         user_id: Uuid,
     ) -> Result<Vec<(PreKeyBundle, Option<i64>)>> {
-        let device_ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM devices WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_all(&mut *conn)
-            .await?;
+        let device_ids: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM devices WHERE user_id = $1").bind(user_id).fetch_all(&mut *conn).await?;
 
         tracing::info!(user.id = %user_id, count = %device_ids.len(), "Found devices for user");
 
@@ -238,7 +236,11 @@ impl KeyRepository {
     /// Returns `sqlx::Error` if the query fails.
     /// Returns `AppError::Internal` if stored data is corrupt.
     #[tracing::instrument(level = "debug", skip(self, conn), err)]
-    pub(crate) async fn fetch_identity_key(&self, conn: &mut PgConnection, device_id: Uuid) -> Result<Option<PublicKey>> {
+    pub(crate) async fn fetch_identity_key(
+        &self,
+        conn: &mut PgConnection,
+        device_id: Uuid,
+    ) -> Result<Option<PublicKey>> {
         let rec = sqlx::query_as::<_, IdentityKeyRecord>(
             "SELECT identity_key, registration_id FROM identity_keys WHERE device_id = $1",
         )

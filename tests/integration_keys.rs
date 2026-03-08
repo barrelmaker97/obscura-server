@@ -68,10 +68,14 @@ async fn test_format_typescript_standard() {
         "oneTimePreKeys": []
     });
 
-    let resp = app.client.post(format!("{}/v1/devices", app.server_url))
+    let resp = app
+        .client
+        .post(format!("{}/v1/devices", app.server_url))
         .header("Authorization", format!("Bearer {user_token}"))
         .json(&device_payload)
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 201, "Should accept 33-byte signed message");
 }
 
@@ -121,10 +125,14 @@ async fn test_format_pure_math_32_byte() {
         "oneTimePreKeys": []
     });
 
-    let resp = app.client.post(format!("{}/v1/devices", app.server_url))
+    let resp = app
+        .client
+        .post(format!("{}/v1/devices", app.server_url))
         .header("Authorization", format!("Bearer {user_token}"))
         .json(&device_payload)
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 201, "Should accept 32-byte signed message (Robust path)");
 }
 
@@ -168,13 +176,11 @@ async fn test_key_limit_enforced() {
 
     assert_eq!(resp.status(), 200);
 
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM one_time_pre_keys WHERE device_id = $1",
-    )
-    .bind(user.device_id)
-    .fetch_one(&app.pool)
-    .await
-    .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM one_time_pre_keys WHERE device_id = $1")
+        .bind(user.device_id)
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
     assert_eq!(count, 50, "Total keys should be capped at 50");
 }
 
@@ -322,34 +328,47 @@ async fn test_fetch_keys_multiple_devices() {
         "username": username,
         "password": "password12345"
     });
-    let login_resp = app.client.post(format!("{}/v1/sessions", app.server_url)).json(&login_payload).send().await.unwrap();
+    let login_resp =
+        app.client.post(format!("{}/v1/sessions", app.server_url)).json(&login_payload).send().await.unwrap();
     assert_eq!(login_resp.status(), 200);
     let user_token = login_resp.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
 
     // 3. Create a second device using the user-scoped token
     let (device2_payload, _) = common::generate_device_payload(222, 10);
-    let device2_resp = app.client.post(format!("{}/v1/devices", app.server_url))
+    let device2_resp = app
+        .client
+        .post(format!("{}/v1/devices", app.server_url))
         .header("Authorization", format!("Bearer {}", user_token))
         .json(&device2_payload)
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(device2_resp.status(), 201);
-    
+
     let device2_id = device2_resp.json::<serde_json::Value>().await.unwrap()["deviceId"].as_str().unwrap().to_string();
 
     // 4. Verify that fetching keys with a user-scoped token fails (requires device-scoped)
-    let failed_fetch_resp = app.client.get(format!("{}/v1/keys/{}", app.server_url, user.user_id))
+    let failed_fetch_resp = app
+        .client
+        .get(format!("{}/v1/keys/{}", app.server_url, user.user_id))
         .header("Authorization", format!("Bearer {}", user_token))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(failed_fetch_resp.status(), 400, "Should reject user-scoped token");
 
     // 5. Fetch keys with the first device's device-scoped token
-    let fetch_resp = app.client.get(format!("{}/v1/keys/{}", app.server_url, user.user_id))
+    let fetch_resp = app
+        .client
+        .get(format!("{}/v1/keys/{}", app.server_url, user.user_id))
         .header("Authorization", format!("Bearer {}", user.token))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(fetch_resp.status(), 200);
 
     let bundles: Vec<serde_json::Value> = fetch_resp.json().await.unwrap();
-    
+
     // We expect exactly 2 bundles, one for each device
     assert_eq!(bundles.len(), 2, "Should return an array of 2 bundles");
 

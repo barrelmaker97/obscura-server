@@ -18,12 +18,7 @@ impl DeviceRepository {
     /// # Errors
     /// Returns `sqlx::Error` if the insert fails.
     #[tracing::instrument(level = "debug", skip(self, conn), err)]
-    pub(crate) async fn create(
-        &self,
-        conn: &mut PgConnection,
-        user_id: Uuid,
-        name: Option<&str>,
-    ) -> Result<Device> {
+    pub(crate) async fn create(&self, conn: &mut PgConnection, user_id: Uuid, name: Option<&str>) -> Result<Device> {
         let record = sqlx::query_as::<_, DeviceRecord>(
             r#"
             INSERT INTO devices (user_id, name)
@@ -61,12 +56,7 @@ impl DeviceRepository {
     /// # Errors
     /// Returns `sqlx::Error` if the deletion fails.
     #[tracing::instrument(level = "debug", skip(self, conn), err)]
-    pub(crate) async fn delete(
-        &self,
-        conn: &mut PgConnection,
-        device_id: Uuid,
-        user_id: Uuid,
-    ) -> Result<bool> {
+    pub(crate) async fn delete(&self, conn: &mut PgConnection, device_id: Uuid, user_id: Uuid) -> Result<bool> {
         let result = sqlx::query("DELETE FROM devices WHERE id = $1 AND user_id = $2")
             .bind(device_id)
             .bind(user_id)
@@ -87,12 +77,11 @@ impl DeviceRepository {
         device_id: Uuid,
         user_id: Uuid,
     ) -> Result<bool> {
-        let exists: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM devices WHERE id = $1 AND user_id = $2)")
-                .bind(device_id)
-                .bind(user_id)
-                .fetch_one(conn)
-                .await?;
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM devices WHERE id = $1 AND user_id = $2)")
+            .bind(device_id)
+            .bind(user_id)
+            .fetch_one(conn)
+            .await?;
 
         Ok(exists)
     }

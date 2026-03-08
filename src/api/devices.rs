@@ -2,7 +2,12 @@ use crate::api::AppState;
 use crate::api::middleware::AuthUser;
 use crate::api::schemas::devices::{CreateDeviceRequest, DeviceListResponse, DeviceResponse};
 use crate::error::{AppError, Result};
-use axum::{Json, extract::{Path, State}, http::StatusCode, response::IntoResponse};
+use axum::{
+    Json,
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+};
 use std::convert::TryInto;
 use uuid::Uuid;
 
@@ -42,10 +47,7 @@ pub(crate) async fn create_device(
 ///
 /// # Errors
 /// Returns `AppError::Database` if the query fails.
-pub(crate) async fn list_devices(
-    auth_user: AuthUser,
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse> {
+pub(crate) async fn list_devices(auth_user: AuthUser, State(state): State<AppState>) -> Result<impl IntoResponse> {
     let devices = state.device_service.list_devices(auth_user.user_id).await?;
 
     let response = DeviceListResponse {
@@ -54,7 +56,10 @@ pub(crate) async fn list_devices(
             .map(|d| DeviceResponse {
                 device_id: d.id.to_string(),
                 name: d.name,
-                created_at: d.created_at.map(|ts| ts.format(&time::format_description::well_known::Rfc3339).unwrap_or_default()).unwrap_or_default(),
+                created_at: d
+                    .created_at
+                    .map(|ts| ts.format(&time::format_description::well_known::Rfc3339).unwrap_or_default())
+                    .unwrap_or_default(),
             })
             .collect(),
     };

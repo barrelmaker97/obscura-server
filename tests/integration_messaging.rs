@@ -16,10 +16,10 @@
 mod common;
 
 use common::TestApp;
-use serde_json::json;
 use futures::SinkExt;
 use obscura_server::proto::obscura::v1 as proto;
 use prost::Message as ProstMessage;
+use serde_json::json;
 
 use std::time::Duration;
 use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
@@ -454,7 +454,7 @@ async fn test_send_message_invalid_uuid_bytes() {
     let request = proto::SendMessageRequest {
         messages: vec![proto::send_message_request::Submission {
             submission_id: Uuid::new_v4().as_bytes().to_vec(), // Valid
-            device_id: vec![4, 5, 6],                       // Invalid length
+            device_id: vec![4, 5, 6],                          // Invalid length
             message: b"Hello".to_vec(),
         }],
     };
@@ -590,43 +590,48 @@ async fn test_multi_device_messaging() {
 
     // 1. Register Bob and give him TWO devices
     let bob = app.register_user_with_keys(&username, 111, 5).await;
-    
+
     // Login to get user token for creating second device
     let login_payload = json!({
         "username": username,
         "password": "password12345"
     });
-    let login_resp = app.client.post(format!("{}/v1/sessions", app.server_url)).json(&login_payload).send().await.unwrap();
+    let login_resp =
+        app.client.post(format!("{}/v1/sessions", app.server_url)).json(&login_payload).send().await.unwrap();
     let user_token = login_resp.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
-    
+
     // Create device 2
     let (device2_payload, _) = common::generate_device_payload(222, 5);
-    let device2_resp = app.client.post(format!("{}/v1/devices", app.server_url))
+    let device2_resp = app
+        .client
+        .post(format!("{}/v1/devices", app.server_url))
         .header("Authorization", format!("Bearer {}", user_token))
         .json(&device2_payload)
-        .send().await.unwrap();
-        
+        .send()
+        .await
+        .unwrap();
+
     let device2_json: serde_json::Value = device2_resp.json().await.unwrap();
     let device2_token = device2_json["token"].as_str().unwrap().to_string();
     let device2_id = Uuid::parse_str(device2_json["deviceId"].as_str().unwrap()).unwrap();
-    
+
     // 2. Register Alice (sender)
     let alice = app.register_user(&common::generate_username("alice_multi")).await;
 
     // 3. Connect WebSockets for Bob's two devices
     let mut ws1 = app.connect_ws(&bob.token).await;
     ws1.ensure_subscribed().await;
-    
+
     let mut ws2 = app.connect_ws(&device2_token).await;
     ws2.ensure_subscribed().await;
-    
+
     // 4. Alice sends a message ONLY to Bob's Device 2
     app.send_message(&alice.token, device2_id, b"Targeting Device 2").await;
-    
+
     // 5. Verify Device 2 receives the message
     let env2 = ws2.receive_envelope_timeout(Duration::from_secs(2)).await.expect("Device 2 should receive the message");
     assert_eq!(env2.message, b"Targeting Device 2");
-    
+
     // 6. Verify Device 1 DOES NOT receive the message
     let env1 = ws1.receive_envelope_timeout(Duration::from_millis(500)).await;
     assert!(env1.is_none(), "Device 1 should NOT receive the message meant for Device 2");

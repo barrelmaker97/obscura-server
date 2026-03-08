@@ -16,9 +16,7 @@ impl From<SubmissionOutcome> for proto::SendMessageResponse {
                 .map(|f| proto::send_message_response::FailedSubmission {
                     submission_id: f.submission_id,
                     error_code: match f.error_code {
-                        SubmissionErrorCode::InvalidDevice => {
-                            proto::send_message_response::ErrorCode::InvalidDevice
-                        }
+                        SubmissionErrorCode::InvalidDevice => proto::send_message_response::ErrorCode::InvalidDevice,
                         SubmissionErrorCode::MalformedDeviceId => {
                             proto::send_message_response::ErrorCode::MalformedDeviceId
                         }

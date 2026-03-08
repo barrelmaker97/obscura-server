@@ -244,9 +244,7 @@ pub fn app_router(config: &Config, services: Services, shutdown_rx: tokio::sync:
 
     let routes = Router::new().route("/openapi.yaml", get(docs::openapi_yaml)).nest(
         "/v1",
-        auth_router(config, extractor.clone())
-            .merge(api_router(config, extractor))
-            .merge(storage_router(config)),
+        auth_router(config, extractor.clone()).merge(api_router(config, extractor)).merge(storage_router(config)),
     );
 
     apply_middleware(routes, config, state)

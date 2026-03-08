@@ -42,10 +42,7 @@ mod tests {
     use super::*;
 
     fn mock_registration(password: &str) -> RegistrationRequest {
-        RegistrationRequest {
-            username: "testuser".into(),
-            password: password.into(),
-        }
+        RegistrationRequest { username: "testuser".into(), password: password.into() }
     }
 
     #[test]

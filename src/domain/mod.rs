@@ -1,9 +1,9 @@
 pub mod attachment;
 pub mod auth;
 pub mod auth_session;
-pub mod device;
 pub mod backup;
 pub mod crypto;
+pub mod device;
 pub mod keys;
 pub mod message;
 pub mod notification;

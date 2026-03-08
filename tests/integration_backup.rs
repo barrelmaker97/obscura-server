@@ -343,11 +343,12 @@ async fn test_backup_cleanup() {
     assert!(cleaned_count >= 1);
 
     // 5. Verification: DB State for OUR specific user
-    let backup: (String, Option<i32>) = sqlx::query_as("SELECT state, pending_version FROM backups WHERE device_id = $1")
-        .bind(user_id)
-        .fetch_one(&app.pool)
-        .await
-        .unwrap();
+    let backup: (String, Option<i32>) =
+        sqlx::query_as("SELECT state, pending_version FROM backups WHERE device_id = $1")
+            .bind(user_id)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
 
     assert_eq!(backup.0, "ACTIVE");
     assert!(backup.1.is_none());

@@ -317,13 +317,7 @@ mod tests {
             refresh_token_cleanup_interval_secs: 3600,
         };
         let pool = sqlx::PgPool::connect_lazy("postgres://localhost/test").expect("Valid test pool");
-        AuthService::new(
-            config,
-            pool,
-            UserRepository::new(),
-            RefreshTokenRepository::new(),
-            DeviceRepository::new(),
-        )
+        AuthService::new(config, pool, UserRepository::new(), RefreshTokenRepository::new(), DeviceRepository::new())
     }
 
     #[tokio::test]

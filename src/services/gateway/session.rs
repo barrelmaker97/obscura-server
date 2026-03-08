@@ -38,8 +38,9 @@ impl Session {
     pub(crate) async fn run(self) {
         // Destructuring allows independent mutable access to fields while the socket
         // is split into sink and stream halves.
-        let Self { device_id, socket, message_service, key_service, notifier, metrics, config, mut shutdown_rx, .. } =
-            self;
+        let Self {
+            device_id, socket, message_service, key_service, notifier, metrics, config, mut shutdown_rx, ..
+        } = self;
 
         metrics.active_connections.add(1, &[]);
         tracing::info!("WebSocket connected");

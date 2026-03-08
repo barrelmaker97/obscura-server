@@ -19,11 +19,7 @@ impl MessageRepository {
     /// # Errors
     /// Returns `AppError::Database` if the query fails.
     #[tracing::instrument(level = "debug", skip(self, conn))]
-    pub(crate) async fn check_devices_exist(
-        &self,
-        conn: &mut PgConnection,
-        device_ids: &[Uuid],
-    ) -> Result<Vec<Uuid>> {
+    pub(crate) async fn check_devices_exist(&self, conn: &mut PgConnection, device_ids: &[Uuid]) -> Result<Vec<Uuid>> {
         if device_ids.is_empty() {
             return Ok(Vec::new());
         }

@@ -34,10 +34,7 @@ pub(crate) async fn register(
 ) -> Result<impl IntoResponse> {
     payload.validate().map_err(AppError::BadRequest)?;
 
-    let session = state
-        .auth_service
-        .register(payload.username.to_lowercase(), payload.password)
-        .await?;
+    let session = state.auth_service.register(payload.username.to_lowercase(), payload.password).await?;
 
     let auth_response = map_session(session);
     Ok((StatusCode::CREATED, Json(auth_response)))

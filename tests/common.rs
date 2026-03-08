@@ -230,10 +230,7 @@ pub fn generate_registration_payload(
 }
 
 /// Generates a device creation payload (keys without username/password) for POST /v1/devices.
-pub fn generate_device_payload(
-    reg_id: u32,
-    otpk_count: usize,
-) -> (serde_json::Value, [u8; 32]) {
+pub fn generate_device_payload(reg_id: u32, otpk_count: usize) -> (serde_json::Value, [u8; 32]) {
     let identity_key = generate_signing_key();
     let ik_priv = PrivateKey(identity_key);
     let (_, ik_pub_ed) = ik_priv.calculate_key_pair(0);
@@ -410,7 +407,9 @@ impl TestApp {
         // Step 2: Create device (with keys) to get device-scoped JWT
         let (device_payload, identity_key) = generate_device_payload(reg_id, otpk_count);
 
-        let resp = self.client.post(format!("{}/v1/devices", self.server_url))
+        let resp = self
+            .client
+            .post(format!("{}/v1/devices", self.server_url))
             .header("Authorization", format!("Bearer {user_token}"))
             .json(&device_payload)
             .send()

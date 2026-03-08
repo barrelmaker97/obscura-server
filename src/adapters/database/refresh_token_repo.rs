@@ -28,16 +28,14 @@ impl RefreshTokenRepository {
     ) -> Result<()> {
         let expires_at = OffsetDateTime::now_utc() + time::Duration::days(ttl_days);
 
-        sqlx::query(
-            "INSERT INTO refresh_tokens (token_hash, user_id, device_id, expires_at) VALUES ($1, $2, $3, $4)",
-        )
-        .bind(token_hash)
-        .bind(user_id)
-        .bind(device_id)
-        .bind(expires_at)
-        .execute(conn)
-        .await
-        .map_err(AppError::Database)?;
+        sqlx::query("INSERT INTO refresh_tokens (token_hash, user_id, device_id, expires_at) VALUES ($1, $2, $3, $4)")
+            .bind(token_hash)
+            .bind(user_id)
+            .bind(device_id)
+            .bind(expires_at)
+            .execute(conn)
+            .await
+            .map_err(AppError::Database)?;
 
         Ok(())
     }
