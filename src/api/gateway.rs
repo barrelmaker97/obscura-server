@@ -13,7 +13,7 @@ pub(crate) async fn generate_ticket(
 ) -> Result<impl IntoResponse, crate::error::AppError> {
     let device_id = auth_user
         .device_id
-        .ok_or_else(|| crate::error::AppError::BadRequest("Device-scoped token required".to_string()))?;
+        .ok_or_else(|| crate::error::AppError::Forbidden("Device-scoped token required".to_string()))?;
 
     let ticket = uuid::Uuid::new_v4().to_string();
     state.ws_ticket_cache.set(&ticket, device_id.to_string().as_bytes()).await.map_err(|e| {

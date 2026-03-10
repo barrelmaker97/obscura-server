@@ -21,7 +21,7 @@ pub(crate) async fn upload_backup(
     headers: HeaderMap,
     body: Body,
 ) -> Result<impl IntoResponse> {
-    let device_id = auth_user.device_id.ok_or(AppError::BadRequest("Device-scoped token required".to_string()))?;
+    let device_id = auth_user.device_id.ok_or(AppError::Forbidden("Device-scoped token required".to_string()))?;
 
     // 1. Determine target version using Optimistic Locking headers
     let if_match_version = if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH) {
@@ -71,7 +71,7 @@ pub(crate) async fn download_backup(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse> {
-    let device_id = auth_user.device_id.ok_or(AppError::BadRequest("Device-scoped token required".to_string()))?;
+    let device_id = auth_user.device_id.ok_or(AppError::Forbidden("Device-scoped token required".to_string()))?;
 
     // 1. Check If-None-Match for caching optimization
     if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH).and_then(|v| v.to_str().ok()) {
@@ -110,7 +110,7 @@ pub(crate) async fn download_backup(
 /// Returns `AppError::NotFound` if the backup does not exist.
 /// Returns `AppError::Internal` if there is an error.
 pub(crate) async fn head_backup(auth_user: AuthUser, State(state): State<AppState>) -> Result<impl IntoResponse> {
-    let device_id = auth_user.device_id.ok_or(AppError::BadRequest("Device-scoped token required".to_string()))?;
+    let device_id = auth_user.device_id.ok_or(AppError::Forbidden("Device-scoped token required".to_string()))?;
 
     let (version, len) = state.backup_service.head(device_id).await?;
 

@@ -15,7 +15,7 @@ pub(crate) async fn register_token(
     State(state): State<AppState>,
     Json(payload): Json<RegisterPushTokenRequest>,
 ) -> Result<impl IntoResponse> {
-    let device_id = auth_user.device_id.ok_or(AppError::BadRequest("Device-scoped token required".to_string()))?;
+    let device_id = auth_user.device_id.ok_or(AppError::Forbidden("Device-scoped token required".to_string()))?;
 
     payload.validate().map_err(AppError::BadRequest)?;
 

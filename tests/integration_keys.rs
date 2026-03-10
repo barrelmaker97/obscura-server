@@ -355,7 +355,7 @@ async fn test_fetch_keys_multiple_devices() {
         .send()
         .await
         .unwrap();
-    assert_eq!(failed_fetch_resp.status(), 400, "Should reject user-scoped token");
+    assert_eq!(failed_fetch_resp.status(), 403, "Should reject user-scoped token");
 
     // 5. Fetch keys with the first device's device-scoped token
     let fetch_resp = app

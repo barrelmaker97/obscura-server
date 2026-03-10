@@ -17,7 +17,7 @@ pub(crate) async fn send_messages(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<impl IntoResponse> {
-    let _ = auth_user.device_id.ok_or_else(|| AppError::BadRequest("Device-scoped token required".to_string()))?;
+    let _ = auth_user.device_id.ok_or_else(|| AppError::Forbidden("Device-scoped token required".to_string()))?;
 
     let idempotency_key = headers
         .get("idempotency-key")

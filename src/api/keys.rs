@@ -21,7 +21,7 @@ pub(crate) async fn get_pre_key_bundles(
     State(state): State<AppState>,
     Path(user_id): Path<Uuid>,
 ) -> Result<impl IntoResponse> {
-    let _ = auth_user.device_id.ok_or_else(|| AppError::BadRequest("Device-scoped token required".to_string()))?;
+    let _ = auth_user.device_id.ok_or_else(|| AppError::Forbidden("Device-scoped token required".to_string()))?;
 
     let bundles = state.key_service.get_pre_key_bundles_for_user(user_id).await?;
 
@@ -37,13 +37,13 @@ pub(crate) async fn get_pre_key_bundles(
 ///
 /// # Errors
 /// Returns `AppError::BadRequest` if the keys are malformed or validation fails.
-/// Returns `AppError::AuthError` if no `device_id` in token.
+/// Returns `AppError::Forbidden` if no `device_id` in token (user-scoped token).
 pub(crate) async fn upload_keys(
     auth_user: AuthUser,
     State(state): State<AppState>,
     Json(payload): Json<PreKeyUploadRequest>,
 ) -> Result<impl IntoResponse> {
-    let device_id = auth_user.device_id.ok_or(AppError::BadRequest("Device-scoped token required".to_string()))?;
+    let device_id = auth_user.device_id.ok_or(AppError::Forbidden("Device-scoped token required".to_string()))?;
 
     payload.validate().map_err(AppError::BadRequest)?;
 

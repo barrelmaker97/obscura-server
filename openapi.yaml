@@ -284,6 +284,8 @@ paths:
           $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '408':
           $ref: '#/components/responses/RequestTimeoutError'
         '429':
@@ -319,6 +321,10 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/PreKeyBundleResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
         '408':
@@ -375,6 +381,8 @@ paths:
           $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '408':
           $ref: '#/components/responses/RequestTimeoutError'
         '413':
@@ -410,6 +418,8 @@ paths:
                 $ref: '#/components/schemas/TicketResponse'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '408':
           $ref: '#/components/responses/RequestTimeoutError'
         '429':
@@ -585,6 +595,8 @@ paths:
               $ref: '#/components/headers/x-request-id'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
         '408':
@@ -619,6 +631,8 @@ paths:
                 format: int32
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
         '408':
@@ -679,6 +693,8 @@ paths:
           $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '408':
           $ref: '#/components/responses/RequestTimeoutError'
         '409':
@@ -722,6 +738,8 @@ paths:
           $ref: '#/components/responses/BadRequestError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '408':
           $ref: '#/components/responses/RequestTimeoutError'
         '429':
