@@ -27,8 +27,8 @@ async fn test_unauthenticated_access_denied() {
     let target_resource_id = Uuid::new_v4();
 
     let endpoints = vec![
-        ("GET", format!("{}/v1/keys/{}", app.server_url, target_user_id)),
-        ("POST", format!("{}/v1/keys", app.server_url)),
+        ("GET", format!("{}/v1/users/{}", app.server_url, target_user_id)),
+        ("POST", format!("{}/v1/devices/keys", app.server_url)),
         ("POST", format!("{}/v1/messages", app.server_url)),
         ("DELETE", format!("{}/v1/sessions", app.server_url)),
         ("POST", format!("{}/v1/attachments", app.server_url)),
@@ -61,7 +61,7 @@ async fn test_invalid_token_access_denied() {
 
     let resp = app
         .client
-        .get(format!("{}/v1/keys/{}", app.server_url, target_user_id))
+        .get(format!("{}/v1/users/{}", app.server_url, target_user_id))
         .header("Authorization", "Bearer invalid-token")
         .send()
         .await
@@ -77,7 +77,7 @@ async fn test_malformed_auth_header() {
 
     let resp = app
         .client
-        .get(format!("{}/v1/keys/{}", app.server_url, target_user_id))
+        .get(format!("{}/v1/users/{}", app.server_url, target_user_id))
         .header("Authorization", "NotBearer some-token")
         .send()
         .await
@@ -121,8 +121,8 @@ async fn test_user_scoped_token_rejected_on_device_endpoints() {
     // All endpoints that require a Device-Scoped JWT
     let device_scoped_endpoints: Vec<(&str, String)> = vec![
         // Keys
-        ("POST", format!("{}/v1/keys", app.server_url)),
-        ("GET", format!("{}/v1/keys/{}", app.server_url, target_user_id)),
+        ("POST", format!("{}/v1/devices/keys", app.server_url)),
+        ("GET", format!("{}/v1/users/{}", app.server_url, target_user_id)),
         // Messaging
         ("POST", format!("{}/v1/messages", app.server_url)),
         // Gateway

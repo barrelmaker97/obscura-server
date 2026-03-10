@@ -16,7 +16,7 @@ info:
 security:
   - bearerAuth: []
 paths:
-  # --- Account & Identity ---
+  # --- Users ---
   /v1/users:
     post:
       operationId: registerUser
@@ -26,7 +26,7 @@ paths:
         Returns a User-Scoped JWT (no `deviceId` claim). The client must then
         create a device via `POST /v1/devices` to obtain a Device-Scoped JWT
         required for key management, messaging, and WebSocket connections.
-      tags: [Account]
+      tags: [Users]
       security: []
       requestBody:
         content:
@@ -61,6 +61,48 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /v1/users/{userId}:
+    get:
+      operationId: getPreKeyBundle
+      summary: Fetch PreKey Bundles for all of a user's devices.
+      description: |
+        Returns an array of PreKey bundles, one per device registered to the target user.
+        Server atomically consumes one One-Time PreKey per device (if available).
+        Requires a Device-Scoped JWT (the caller's own device must be identified).
+      tags: [Users]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Array of PreKey Bundles, one per device.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/x-request-id'
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PreKeyBundleResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '408':
+          $ref: '#/components/responses/RequestTimeoutError'
+        '429':
+          $ref: '#/components/responses/TooManyRequestsError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # --- Sessions ---
   /v1/sessions:
     post:
       operationId: login
@@ -69,7 +111,7 @@ paths:
         Authenticates with username and password. If an optional `deviceId` is provided
         and belongs to the user, the returned JWT will include that `deviceId` claim
         (Device-Scoped). Otherwise, a User-Scoped JWT is returned.
-      tags: [Account]
+      tags: [Sessions]
       security: []
       requestBody:
         content:
@@ -100,7 +142,7 @@ paths:
       summary: Logout (Revoke Refresh Token).
       description: |
         Revokes the provided Refresh Token, effectively logging the user out of that session.
-      tags: [Account]
+      tags: [Sessions]
       security:
         - bearerAuth: []
       requestBody:
@@ -128,7 +170,7 @@ paths:
       description: |
         Exchanges a valid Refresh Token for a new pair (Access Token + Refresh Token).
         Implements Rotation: The old Refresh Token is invalidated immediately.
-      tags: [Account]
+      tags: [Sessions]
       security: []
       requestBody:
         content:
@@ -218,6 +260,79 @@ paths:
           $ref: '#/components/responses/InternalServerError'
 
   /v1/devices/{deviceId}:
+    get:
+      operationId: getDevice
+      summary: Get a single device.
+      description: |
+        Returns the details of a specific device owned by the authenticated user.
+      tags: [Devices]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Device details.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/x-request-id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '408':
+          $ref: '#/components/responses/RequestTimeoutError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    put:
+      operationId: updateDevice
+      summary: Update a device.
+      description: |
+        Updates the metadata (e.g., name) of a device owned by the authenticated user.
+      tags: [Devices]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDeviceRequest'
+      responses:
+        '200':
+          description: Device updated.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/x-request-id'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '408':
+          $ref: '#/components/responses/RequestTimeoutError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
     delete:
       operationId: deleteDevice
       summary: Delete a device.
@@ -249,8 +364,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  # --- Keys (X3DH) ---
-  /v1/keys:
+  /v1/devices/keys:
     post:
       operationId: uploadKeys
       summary: Upload PreKeys or Perform Device Takeover.
@@ -266,7 +380,7 @@ paths:
         - Disconnects active WebSockets for this device.
 
         If `identityKey` matches the stored key or is omitted, it acts as a standard key refill (appending new keys).
-      tags: [Keys]
+      tags: [Devices]
       security:
         - bearerAuth: []
       requestBody:
@@ -293,46 +407,6 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /v1/keys/{userId}:
-    get:
-      operationId: getPreKeyBundle
-      summary: Fetch PreKey Bundles for all of a user's devices.
-      description: |
-        Returns an array of PreKey bundles, one per device registered to the target user.
-        Server atomically consumes one One-Time PreKey per device (if available).
-        Requires a Device-Scoped JWT (the caller's own device must be identified).
-      tags: [Keys]
-      parameters:
-        - name: userId
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '200':
-          description: Array of PreKey Bundles, one per device.
-          headers:
-            x-request-id:
-              $ref: '#/components/headers/x-request-id'
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/PreKeyBundleResponse'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
-        '403':
-          $ref: '#/components/responses/ForbiddenError'
-        '404':
-          $ref: '#/components/responses/NotFoundError'
-        '408':
-          $ref: '#/components/responses/RequestTimeoutError'
-        '429':
-          $ref: '#/components/responses/TooManyRequestsError'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
 
   # --- Messaging (REST Upstream) ---
   /v1/messages:
@@ -1000,6 +1074,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/DeviceResponse'
+
+    UpdateDeviceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          nullable: true
+          description: Optional human-readable label for the device.
 
     PreKeyUploadRequest:
       type: object

@@ -210,7 +210,7 @@ async fn test_login_with_device_id() {
     // 4. Verify we can fetch keys (which requires a device-scoped token)
     let resp_keys = app
         .client
-        .get(format!("{}/v1/keys/{}", app.server_url, user.user_id))
+        .get(format!("{}/v1/users/{}", app.server_url, user.user_id))
         .header("Authorization", format!("Bearer {}", device_token))
         .send()
         .await

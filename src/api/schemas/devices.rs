@@ -41,3 +41,9 @@ pub struct DeviceResponse {
 pub struct DeviceListResponse {
     pub devices: Vec<DeviceResponse>,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDeviceRequest {
+    pub name: Option<String>,
+}

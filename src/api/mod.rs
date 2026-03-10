@@ -129,9 +129,12 @@ fn api_router(
     let standard_routes = Router::new()
         .route("/devices", post(devices::create_device))
         .route("/devices", get(devices::list_devices))
-        .route("/devices/{deviceId}", delete(devices::delete_device))
-        .route("/keys", post(keys::upload_keys))
-        .route("/keys/{userId}", get(keys::get_pre_key_bundles))
+        .route(
+            "/devices/{deviceId}",
+            delete(devices::delete_device).get(devices::get_device).put(devices::update_device),
+        )
+        .route("/devices/keys", post(keys::upload_keys))
+        .route("/users/{userId}", get(keys::get_pre_key_bundles))
         .route("/messages", post(messages::send_messages))
         .route("/gateway", get(gateway::websocket_handler))
         .route("/gateway/ticket", post(gateway::generate_ticket))

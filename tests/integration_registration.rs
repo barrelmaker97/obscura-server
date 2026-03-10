@@ -83,7 +83,7 @@ async fn test_register_flow() {
     // Step 4: Fetch Keys (should succeed using user_id)
     let resp_keys = app
         .client
-        .get(format!("{}/v1/keys/{}", app.server_url, user_id))
+        .get(format!("{}/v1/users/{}", app.server_url, user_id))
         .header("Authorization", format!("Bearer {device_token}"))
         .send()
         .await

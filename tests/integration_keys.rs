@@ -167,7 +167,7 @@ async fn test_key_limit_enforced() {
 
     let resp = app
         .client
-        .post(format!("{}/v1/keys", app.server_url))
+        .post(format!("{}/v1/devices/keys", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
         .json(&refill_payload)
         .send()
@@ -192,7 +192,7 @@ async fn test_key_rotation_monotonic_check() {
 
     // Rotate to 11
     let (spk_pub_11, spk_sig_11) = common::generate_signed_pre_key(&user.identity_key);
-    let resp_11 = app.client.post(format!("{}/v1/keys", app.server_url))
+    let resp_11 = app.client.post(format!("{}/v1/devices/keys", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
         .json(&json!({
             "registrationId": 123,
@@ -203,7 +203,7 @@ async fn test_key_rotation_monotonic_check() {
 
     // Replay 10 (Fail - ID is smaller than current max)
     let (spk_pub_10, spk_sig_10) = common::generate_signed_pre_key(&user.identity_key);
-    let resp_10 = app.client.post(format!("{}/v1/keys", app.server_url))
+    let resp_10 = app.client.post(format!("{}/v1/devices/keys", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
         .json(&json!({
             "registrationId": 123,
@@ -221,7 +221,7 @@ async fn test_key_rotation_cleanup() {
 
     // Rotate to ID 10
     let (spk_pub, spk_sig) = common::generate_signed_pre_key(&user.identity_key);
-    app.client.post(format!("{}/v1/keys", app.server_url))
+    app.client.post(format!("{}/v1/devices/keys", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
         .json(&json!({
             "registrationId": 123,
@@ -274,7 +274,7 @@ async fn test_device_takeover_success() {
         .to_vec();
     new_ik_wire.insert(0, 0x05);
 
-    let resp = app.client.post(format!("{}/v1/keys", app.server_url))
+    let resp = app.client.post(format!("{}/v1/devices/keys", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
         .json(&json!({
             "identityKey": STANDARD.encode(&new_ik_wire),
@@ -306,7 +306,7 @@ async fn test_upload_keys_bad_signature() {
 
     let resp = app
         .client
-        .post(format!("{}/v1/keys", app.server_url))
+        .post(format!("{}/v1/devices/keys", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
         .json(&payload)
         .send()
@@ -350,7 +350,7 @@ async fn test_fetch_keys_multiple_devices() {
     // 4. Verify that fetching keys with a user-scoped token fails (requires device-scoped)
     let failed_fetch_resp = app
         .client
-        .get(format!("{}/v1/keys/{}", app.server_url, user.user_id))
+        .get(format!("{}/v1/users/{}", app.server_url, user.user_id))
         .header("Authorization", format!("Bearer {}", user_token))
         .send()
         .await
@@ -360,7 +360,7 @@ async fn test_fetch_keys_multiple_devices() {
     // 5. Fetch keys with the first device's device-scoped token
     let fetch_resp = app
         .client
-        .get(format!("{}/v1/keys/{}", app.server_url, user.user_id))
+        .get(format!("{}/v1/users/{}", app.server_url, user.user_id))
         .header("Authorization", format!("Bearer {}", user.token))
         .send()
         .await

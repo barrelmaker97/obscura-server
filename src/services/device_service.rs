@@ -193,4 +193,31 @@ impl DeviceService {
 
         Ok(())
     }
+
+    /// Fetches a single device by ID, verifying ownership.
+    ///
+    /// # Errors
+    /// Returns `AppError::NotFound` if the device doesn't exist or isn't owned by the user.
+    #[tracing::instrument(skip(self), fields(user.id = %user_id, device.id = %device_id), err)]
+    pub(crate) async fn get_device(&self, device_id: Uuid, user_id: Uuid) -> Result<Device> {
+        let mut conn = self.pool.acquire().await?;
+        self.device_repo.find_by_id(&mut conn, device_id, user_id).await?.ok_or(AppError::NotFound)
+    }
+
+    /// Updates a device's name! verifying ownership.
+    ///
+    /// # Errors
+    /// Returns `AppError::NotFound` if the device doesn't exist or isn't owned by the user.
+    #[tracing::instrument(skip(self), fields(user.id = %user_id, device.id = %device_id), err)]
+    pub(crate) async fn update_device(&self, device_id: Uuid, user_id: Uuid, name: Option<String>) -> Result<Device> {
+        let mut conn = self.pool.acquire().await?;
+        let device = self
+            .device_repo
+            .update_name(&mut conn, device_id, user_id, name.as_deref())
+            .await?
+            .ok_or(AppError::NotFound)?;
+
+        tracing::info!("Device updated");
+        Ok(device)
+    }
 }

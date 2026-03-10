@@ -66,6 +66,57 @@ impl DeviceRepository {
         Ok(result.rows_affected() > 0)
     }
 
+    /// Fetches a single device owned by a specific user.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the query fails.
+    #[tracing::instrument(level = "debug", skip(self, conn), err)]
+    pub(crate) async fn find_by_id(
+        &self,
+        conn: &mut PgConnection,
+        device_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<Option<Device>> {
+        let record = sqlx::query_as::<_, DeviceRecord>(
+            "SELECT id, user_id, name, created_at FROM devices WHERE id = $1 AND user_id = $2",
+        )
+        .bind(device_id)
+        .bind(user_id)
+        .fetch_optional(conn)
+        .await?;
+
+        Ok(record.map(Into::into))
+    }
+
+    /// Updates the name of a device owned by a specific user.
+    /// Returns the updated device, or `None` if not found or not owned.
+    ///
+    /// # Errors
+    /// Returns `sqlx::Error` if the update fails.
+    #[tracing::instrument(level = "debug", skip(self, conn), err)]
+    pub(crate) async fn update_name(
+        &self,
+        conn: &mut PgConnection,
+        device_id: Uuid,
+        user_id: Uuid,
+        name: Option<&str>,
+    ) -> Result<Option<Device>> {
+        let record = sqlx::query_as::<_, DeviceRecord>(
+            r#"
+            UPDATE devices SET name = $1
+            WHERE id = $2 AND user_id = $3
+            RETURNING id, user_id, name, created_at
+            "#,
+        )
+        .bind(name)
+        .bind(device_id)
+        .bind(user_id)
+        .fetch_optional(conn)
+        .await?;
+
+        Ok(record.map(Into::into))
+    }
+
     /// Checks if a device belongs to a specific user.
     ///
     /// # Errors

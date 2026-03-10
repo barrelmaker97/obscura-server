@@ -142,7 +142,7 @@ async fn test_multi_node_disconnect_notification() {
 
     let resp = app_b
         .client
-        .post(format!("{}/v1/keys", app_b.server_url))
+        .post(format!("{}/v1/devices/keys", app_b.server_url))
         .header("Authorization", format!("Bearer {}", user_alice.token))
         .json(&takeover_payload)
         .send()
@@ -207,7 +207,7 @@ async fn test_distributed_fan_out_disconnect() {
 
     let resp = app_c
         .client
-        .post(format!("{}/v1/keys", app_c.server_url))
+        .post(format!("{}/v1/devices/keys", app_c.server_url))
         .header("Authorization", format!("Bearer {}", user_alice.token))
         .json(&takeover_payload)
         .send()
