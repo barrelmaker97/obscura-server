@@ -9,6 +9,7 @@ use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 ///
 /// # Errors
 /// Returns `AppError::AuthError` if the credentials are invalid.
+/// Returns `AppError::BadRequest` if the device ID is invalid.
 pub(crate) async fn login(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,

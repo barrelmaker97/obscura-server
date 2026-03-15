@@ -15,6 +15,7 @@ use uuid::Uuid;
 /// Fetches all pre-key bundles for a user (one per device).
 ///
 /// # Errors
+/// Returns `AppError::Forbidden` if a device-scoped token is not provided.
 /// Returns `AppError::NotFound` if the user has no registered devices or keys.
 pub(crate) async fn get_pre_key_bundles(
     auth_user: AuthUser,
@@ -36,8 +37,8 @@ pub(crate) async fn get_pre_key_bundles(
 /// Uploads new pre-keys for the authenticated device.
 ///
 /// # Errors
+/// Returns `AppError::Forbidden` if a device-scoped token is not provided.
 /// Returns `AppError::BadRequest` if the keys are malformed or validation fails.
-/// Returns `AppError::Forbidden` if no `device_id` in token (user-scoped token).
 pub(crate) async fn upload_keys(
     auth_user: AuthUser,
     State(state): State<AppState>,

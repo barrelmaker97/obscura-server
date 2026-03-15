@@ -10,7 +10,9 @@ use uuid::Uuid;
 /// Sends a batch of encrypted messages.
 ///
 /// # Errors
-/// Returns `AppError::BadRequest` if the request protobuf is malformed.
+/// Returns `AppError::Forbidden` if a device-scoped token is not provided.
+/// Returns `AppError::BadRequest` if the request protobuf is malformed or missing the idempotency key.
+/// Returns `AppError::PayloadTooLarge` if the batch size exceeds the limit.
 pub(crate) async fn send_messages(
     auth_user: AuthUser,
     State(state): State<AppState>,

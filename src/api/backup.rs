@@ -12,6 +12,7 @@ use futures::StreamExt;
 /// Uploads a new backup version.
 ///
 /// # Errors
+/// Returns `AppError::Forbidden` if a device-scoped token is not provided.
 /// Returns `AppError::BadRequest` if headers are invalid.
 /// Returns `AppError::LengthRequired` if the Content-Length header is missing.
 /// Returns `AppError::Internal` if the upload fails.
@@ -64,6 +65,7 @@ pub(crate) async fn upload_backup(
 /// Downloads the current backup.
 ///
 /// # Errors
+/// Returns `AppError::Forbidden` if a device-scoped token is not provided.
 /// Returns `AppError::NotFound` if the backup does not exist.
 /// Returns `AppError::Internal` if there is an error during download.
 pub(crate) async fn download_backup(
@@ -107,6 +109,7 @@ pub(crate) async fn download_backup(
 /// Checks for backup existence and returns metadata.
 ///
 /// # Errors
+/// Returns `AppError::Forbidden` if a device-scoped token is not provided.
 /// Returns `AppError::NotFound` if the backup does not exist.
 /// Returns `AppError::Internal` if there is an error.
 pub(crate) async fn head_backup(auth_user: AuthUser, State(state): State<AppState>) -> Result<impl IntoResponse> {
