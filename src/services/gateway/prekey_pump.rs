@@ -16,7 +16,7 @@ pub struct PreKeyPump {
 
 impl PreKeyPump {
     pub fn new(
-        user_id: Uuid,
+        device_id: Uuid,
         key_service: KeyService,
         outbound_tx: mpsc::Sender<WsMessage>,
         debounce_interval_ms: u64,
@@ -26,9 +26,9 @@ impl PreKeyPump {
 
         tokio::spawn(
             async move {
-                Self::run_background(user_id, notify_rx, key_service, outbound_tx, debounce_interval_ms).await;
+                Self::run_background(device_id, notify_rx, key_service, outbound_tx, debounce_interval_ms).await;
             }
-            .instrument(tracing::info_span!("prekey_pump", "user.id" = %user_id)),
+            .instrument(tracing::info_span!("prekey_pump", "device.id" = %device_id)),
         );
 
         Self { notify_tx }
@@ -39,7 +39,7 @@ impl PreKeyPump {
     }
 
     async fn run_background(
-        user_id: Uuid,
+        device_id: Uuid,
         mut rx: mpsc::Receiver<()>,
         key_service: KeyService,
         outbound_tx: mpsc::Sender<WsMessage>,
@@ -53,7 +53,7 @@ impl PreKeyPump {
             while rx.try_recv().is_ok() {}
 
             // 3. Query the database once and send the frame
-            match key_service.check_pre_key_status(user_id).await {
+            match key_service.check_pre_key_status(device_id).await {
                 Ok(Some(status)) => {
                     let frame = proto::WebSocketFrame {
                         payload: Some(proto::web_socket_frame::Payload::PreKeyStatus(proto::PreKeyStatus {

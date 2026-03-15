@@ -50,7 +50,7 @@ async fn test_full_system_flow() {
     {
         let mut conn = app_b.pool.acquire().await.unwrap();
         let repo = obscura_server::adapters::database::push_token_repo::PushTokenRepository::new();
-        repo.upsert_token(&mut conn, receiver.user_id, &format!("token:{}", receiver.user_id)).await.unwrap();
+        repo.upsert_token(&mut conn, receiver.device_id, &format!("token:{}", receiver.device_id)).await.unwrap();
     }
 
     // 5. Construct Batch of 50 Messages
@@ -66,16 +66,16 @@ async fn test_full_system_flow() {
         expected_content.insert(content.clone());
         messages.push(proto::send_message_request::Submission {
             submission_id: Uuid::new_v4().as_bytes().to_vec(),
-            recipient_id: receiver.user_id.as_bytes().to_vec(),
+            device_id: receiver.device_id.as_bytes().to_vec(),
             message: content.clone(),
         });
     }
 
     // 1 Invalid Recipient
-    let invalid_id = Uuid::new_v4();
+    let invalid_device_id = Uuid::new_v4();
     messages.push(proto::send_message_request::Submission {
         submission_id: Uuid::new_v4().as_bytes().to_vec(),
-        recipient_id: invalid_id.as_bytes().to_vec(),
+        device_id: invalid_device_id.as_bytes().to_vec(),
         message: b"Invalid".to_vec(),
     });
 
@@ -85,7 +85,7 @@ async fn test_full_system_flow() {
         expected_content.insert(content.clone());
         messages.push(proto::send_message_request::Submission {
             submission_id: Uuid::new_v4().as_bytes().to_vec(),
-            recipient_id: receiver.user_id.as_bytes().to_vec(),
+            device_id: receiver.device_id.as_bytes().to_vec(),
             message: content.clone(),
         });
     }
@@ -116,7 +116,7 @@ async fn test_full_system_flow() {
     assert_eq!(response.failed_submissions.len(), 1, "Expected 1 failed message in the batch");
     assert_eq!(
         response.failed_submissions[0].error_code,
-        proto::send_message_response::ErrorCode::InvalidRecipient as i32
+        proto::send_message_response::ErrorCode::InvalidDevice as i32
     );
 
     // 8. Verify Push Coalescing
@@ -125,7 +125,7 @@ async fn test_full_system_flow() {
     // Wait for the push delay (2s) + buffer.
     tokio::time::sleep(Duration::from_secs(4)).await;
 
-    let push_count = notification_counts().get(&receiver.user_id).map_or(0, |c| *c);
+    let push_count = notification_counts().get(&receiver.device_id).map_or(0, |c| *c);
     assert_eq!(push_count, 1, "Expected exactly 1 coalesced push notification, got {push_count}");
 
     // 9. Connect Receiver to Node C (WebSocket)
@@ -161,7 +161,7 @@ async fn test_full_system_flow() {
     let mut conn = client.get_multiplexed_async_connection().await.unwrap();
     let score: Option<f64> = redis::cmd("ZSCORE")
         .arg(&config.notifications.push_queue_key)
-        .arg(receiver.user_id.to_string())
+        .arg(receiver.device_id.to_string())
         .query_async(&mut conn)
         .await
         .unwrap();
@@ -171,7 +171,7 @@ async fn test_full_system_flow() {
     // 12. Verify Fast Path (No Extra Push)
     // Send 1 more message
     let single_msg_content = b"Fast Path".to_vec();
-    app_a.send_message(&sender.token, receiver.user_id, &single_msg_content).await;
+    app_a.send_message(&sender.token, receiver.device_id, &single_msg_content).await;
 
     let env = ws.receive_envelope().await.expect("Failed to receive fast-path message");
     assert_eq!(env.message, single_msg_content);
@@ -179,6 +179,6 @@ async fn test_full_system_flow() {
     // Ensure NO extra push was sent for this fast-path message
     // Wait a bit to be sure
     tokio::time::sleep(Duration::from_secs(3)).await;
-    let final_push_count = notification_counts().get(&receiver.user_id).map_or(0, |c| *c);
+    let final_push_count = notification_counts().get(&receiver.device_id).map_or(0, |c| *c);
     assert_eq!(final_push_count, 1, "Fast-path message should not trigger push");
 }

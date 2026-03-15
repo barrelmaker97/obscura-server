@@ -19,7 +19,6 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use common::TestApp;
 use rand::rngs::OsRng;
 use serde_json::json;
-use uuid::Uuid;
 use xeddsa::xed25519::PrivateKey;
 use xeddsa::{CalculateKeyPair, Sign};
 
@@ -28,6 +27,16 @@ async fn test_format_typescript_standard() {
     let app = TestApp::spawn().await;
     let username = common::generate_username("ts_std");
 
+    // Step 1: Register user (auth-only)
+    let reg_payload = json!({
+        "username": username,
+        "password": "password12345",
+    });
+    let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&reg_payload).send().await.unwrap();
+    assert_eq!(resp.status(), 201);
+    let user_token = resp.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
+
+    // Step 2: Create device with 33-byte key format
     let identity_key = common::generate_signing_key();
     let ik_priv = PrivateKey(identity_key);
     let (_, ik_pub_ed) = ik_priv.calculate_key_pair(0);
@@ -48,9 +57,7 @@ async fn test_format_typescript_standard() {
 
     let signature: [u8; 64] = ik_priv.sign(&spk_pub_wire, OsRng);
 
-    let payload = json!({
-        "username": username,
-        "password": "password12345",
+    let device_payload = json!({
         "registrationId": 123,
         "identityKey": STANDARD.encode(ik_pub_wire),
         "signedPreKey": {
@@ -61,7 +68,14 @@ async fn test_format_typescript_standard() {
         "oneTimePreKeys": []
     });
 
-    let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&payload).send().await.unwrap();
+    let resp = app
+        .client
+        .post(format!("{}/v1/devices", app.server_url))
+        .header("Authorization", format!("Bearer {user_token}"))
+        .json(&device_payload)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 201, "Should accept 33-byte signed message");
 }
 
@@ -70,6 +84,16 @@ async fn test_format_pure_math_32_byte() {
     let app = TestApp::spawn().await;
     let username = common::generate_username("pure_math");
 
+    // Step 1: Register
+    let reg_payload = json!({
+        "username": username,
+        "password": "password12345",
+    });
+    let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&reg_payload).send().await.unwrap();
+    assert_eq!(resp.status(), 201);
+    let user_token = resp.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
+
+    // Step 2: Create device with 32-byte signed message (Robust path)
     let identity_key = common::generate_signing_key();
     let ik_priv = PrivateKey(identity_key);
     let (_, ik_pub_ed) = ik_priv.calculate_key_pair(0);
@@ -90,9 +114,7 @@ async fn test_format_pure_math_32_byte() {
 
     let signature: [u8; 64] = ik_priv.sign(&spk_pub_mont, OsRng);
 
-    let payload = json!({
-        "username": username,
-        "password": "password12345",
+    let device_payload = json!({
         "registrationId": 123,
         "identityKey": STANDARD.encode(ik_pub_wire),
         "signedPreKey": {
@@ -103,7 +125,14 @@ async fn test_format_pure_math_32_byte() {
         "oneTimePreKeys": []
     });
 
-    let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&payload).send().await.unwrap();
+    let resp = app
+        .client
+        .post(format!("{}/v1/devices", app.server_url))
+        .header("Authorization", format!("Bearer {user_token}"))
+        .json(&device_payload)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 201, "Should accept 32-byte signed message (Robust path)");
 }
 
@@ -114,11 +143,8 @@ async fn test_key_limit_enforced() {
     let app = TestApp::spawn_with_config(config).await;
 
     let username = common::generate_username("limit");
-
-    let (reg_payload, identity_key) = common::generate_registration_payload(&username, "password12345", 123, 40);
-    let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&reg_payload).send().await.unwrap();
-    assert_eq!(resp.status(), 201);
-    let token = resp.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
+    // register_user_with_keys does two-step: register + create device with 40 OTPKs
+    let user = app.register_user_with_keys(&username, 123, 40).await;
 
     let mut refill_keys = Vec::new();
     for i in 40..60 {
@@ -128,7 +154,7 @@ async fn test_key_limit_enforced() {
         }));
     }
 
-    let (new_spk_pub, new_spk_sig) = common::generate_signed_pre_key(&identity_key);
+    let (new_spk_pub, new_spk_sig) = common::generate_signed_pre_key(&user.identity_key);
     let refill_payload = json!({
         "registrationId": 123,
         "signedPreKey": {
@@ -141,8 +167,8 @@ async fn test_key_limit_enforced() {
 
     let resp = app
         .client
-        .post(format!("{}/v1/keys", app.server_url))
-        .header("Authorization", format!("Bearer {token}"))
+        .post(format!("{}/v1/devices/keys", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
         .json(&refill_payload)
         .send()
         .await
@@ -150,13 +176,11 @@ async fn test_key_limit_enforced() {
 
     assert_eq!(resp.status(), 200);
 
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM one_time_pre_keys WHERE user_id IN (SELECT id FROM users WHERE username = $1)",
-    )
-    .bind(&username)
-    .fetch_one(&app.pool)
-    .await
-    .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM one_time_pre_keys WHERE device_id = $1")
+        .bind(user.device_id)
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
     assert_eq!(count, 50, "Total keys should be capped at 50");
 }
 
@@ -164,17 +188,12 @@ async fn test_key_limit_enforced() {
 async fn test_key_rotation_monotonic_check() {
     let app = TestApp::spawn().await;
     let username = common::generate_username("rotate");
+    let user = app.register_user_with_keys(&username, 123, 0).await;
 
-    // 1. Initial Registration
-    let (reg_payload, identity_key) = common::generate_registration_payload(&username, "password12345", 123, 0);
-    let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&reg_payload).send().await.unwrap();
-    assert_eq!(resp.status(), 201);
-    let token = resp.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
-
-    // 2. Rotate to 11
-    let (spk_pub_11, spk_sig_11) = common::generate_signed_pre_key(&identity_key);
-    let resp_11 = app.client.post(format!("{}/v1/keys", app.server_url))
-        .header("Authorization", format!("Bearer {token}"))
+    // Rotate to 11
+    let (spk_pub_11, spk_sig_11) = common::generate_signed_pre_key(&user.identity_key);
+    let resp_11 = app.client.post(format!("{}/v1/devices/keys", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
         .json(&json!({
             "registrationId": 123,
             "signedPreKey": { "keyId": 11, "publicKey": STANDARD.encode(&spk_pub_11), "signature": STANDARD.encode(&spk_sig_11) },
@@ -182,10 +201,10 @@ async fn test_key_rotation_monotonic_check() {
         })).send().await.unwrap();
     assert_eq!(resp_11.status(), 200);
 
-    // 3. Replay 10 (Fail - ID is smaller than current max)
-    let (spk_pub_10, spk_sig_10) = common::generate_signed_pre_key(&identity_key);
-    let resp_10 = app.client.post(format!("{}/v1/keys", app.server_url))
-        .header("Authorization", format!("Bearer {token}"))
+    // Replay 10 (Fail - ID is smaller than current max)
+    let (spk_pub_10, spk_sig_10) = common::generate_signed_pre_key(&user.identity_key);
+    let resp_10 = app.client.post(format!("{}/v1/devices/keys", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
         .json(&json!({
             "registrationId": 123,
             "signedPreKey": { "keyId": 10, "publicKey": STANDARD.encode(&spk_pub_10), "signature": STANDARD.encode(&spk_sig_10) },
@@ -198,23 +217,12 @@ async fn test_key_rotation_monotonic_check() {
 async fn test_key_rotation_cleanup() {
     let app = TestApp::spawn().await;
     let username = common::generate_username("cleanup");
-
-    let (reg_payload, identity_key) = common::generate_registration_payload(&username, "password12345", 123, 0);
-    let resp = app.client.post(format!("{}/v1/users", app.server_url)).json(&reg_payload).send().await.unwrap();
-    assert_eq!(resp.status(), 201);
-    let body = resp.json::<serde_json::Value>().await.unwrap();
-    let token = body["token"].as_str().unwrap().to_string();
-
-    // Extract user_id from token
-    let parts: Vec<&str> = token.split('.').collect();
-    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[1]).unwrap();
-    let claims: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
-    let user_id = Uuid::parse_str(claims["sub"].as_str().unwrap()).unwrap();
+    let user = app.register_user_with_keys(&username, 123, 0).await;
 
     // Rotate to ID 10
-    let (spk_pub, spk_sig) = common::generate_signed_pre_key(&identity_key);
-    app.client.post(format!("{}/v1/keys", app.server_url))
-        .header("Authorization", format!("Bearer {token}"))
+    let (spk_pub, spk_sig) = common::generate_signed_pre_key(&user.identity_key);
+    app.client.post(format!("{}/v1/devices/keys", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
         .json(&json!({
             "registrationId": 123,
             "signedPreKey": { "keyId": 10, "publicKey": STANDARD.encode(&spk_pub), "signature": STANDARD.encode(&spk_sig) },
@@ -222,15 +230,15 @@ async fn test_key_rotation_cleanup() {
         })).send().await.unwrap();
 
     // Verify DB
-    let count_1: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM signed_pre_keys WHERE user_id = $1 AND id = 1")
-        .bind(user_id)
+    let count_1: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM signed_pre_keys WHERE device_id = $1 AND id = 1")
+        .bind(user.device_id)
         .fetch_one(&app.pool)
         .await
         .unwrap();
     assert_eq!(count_1, 0, "Old key ID 1 should be deleted");
 
-    let count_10: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM signed_pre_keys WHERE user_id = $1 AND id = 10")
-        .bind(user_id)
+    let count_10: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM signed_pre_keys WHERE device_id = $1 AND id = 10")
+        .bind(user.device_id)
         .fetch_one(&app.pool)
         .await
         .unwrap();
@@ -253,7 +261,7 @@ async fn test_device_takeover_success() {
     let username = common::generate_username("takeover");
     let user = app.register_user_with_keys(&username, 111, 1).await;
 
-    app.send_message(&user.token, user.user_id, b"hello").await;
+    app.send_message(&user.token, user.device_id, b"hello").await;
 
     let new_identity_key = common::generate_signing_key();
     let (new_spk_pub, new_spk_sig) = common::generate_signed_pre_key(&new_identity_key);
@@ -266,7 +274,7 @@ async fn test_device_takeover_success() {
         .to_vec();
     new_ik_wire.insert(0, 0x05);
 
-    let resp = app.client.post(format!("{}/v1/keys", app.server_url))
+    let resp = app.client.post(format!("{}/v1/devices/keys", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
         .json(&json!({
             "identityKey": STANDARD.encode(&new_ik_wire),
@@ -278,7 +286,7 @@ async fn test_device_takeover_success() {
     assert_eq!(resp.status(), 200);
 
     // Verify inbox is WIPED on takeover
-    app.assert_message_count(user.user_id, 0).await;
+    app.assert_message_count(user.device_id, 0).await;
 }
 
 #[tokio::test]
@@ -298,12 +306,74 @@ async fn test_upload_keys_bad_signature() {
 
     let resp = app
         .client
-        .post(format!("{}/v1/keys", app.server_url))
+        .post(format!("{}/v1/devices/keys", app.server_url))
         .header("Authorization", format!("Bearer {}", user.token))
         .json(&payload)
         .send()
         .await
         .unwrap();
-
     assert_eq!(resp.status(), 400);
+}
+
+#[tokio::test]
+async fn test_fetch_keys_multiple_devices() {
+    let app = TestApp::spawn().await;
+    let username = common::generate_username("multi_dev");
+
+    // 1. Register user and create first device
+    let user = app.register_user_with_keys(&username, 111, 10).await;
+
+    // 2. Login to get a user-scoped token (no device_id)
+    let login_payload = json!({
+        "username": username,
+        "password": "password12345"
+    });
+    let login_resp =
+        app.client.post(format!("{}/v1/sessions", app.server_url)).json(&login_payload).send().await.unwrap();
+    assert_eq!(login_resp.status(), 200);
+    let user_token = login_resp.json::<serde_json::Value>().await.unwrap()["token"].as_str().unwrap().to_string();
+
+    // 3. Create a second device using the user-scoped token
+    let (device2_payload, _) = common::generate_device_payload(222, 10);
+    let device2_resp = app
+        .client
+        .post(format!("{}/v1/devices", app.server_url))
+        .header("Authorization", format!("Bearer {}", user_token))
+        .json(&device2_payload)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(device2_resp.status(), 201);
+
+    let device2_id = device2_resp.json::<serde_json::Value>().await.unwrap()["deviceId"].as_str().unwrap().to_string();
+
+    // 4. Verify that fetching keys with a user-scoped token fails (requires device-scoped)
+    let failed_fetch_resp = app
+        .client
+        .get(format!("{}/v1/users/{}", app.server_url, user.user_id))
+        .header("Authorization", format!("Bearer {}", user_token))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(failed_fetch_resp.status(), 403, "Should reject user-scoped token");
+
+    // 5. Fetch keys with the first device's device-scoped token
+    let fetch_resp = app
+        .client
+        .get(format!("{}/v1/users/{}", app.server_url, user.user_id))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(fetch_resp.status(), 200);
+
+    let bundles: Vec<serde_json::Value> = fetch_resp.json().await.unwrap();
+
+    // We expect exactly 2 bundles, one for each device
+    assert_eq!(bundles.len(), 2, "Should return an array of 2 bundles");
+
+    let d1_bundle = bundles.iter().find(|b| b["deviceId"] == user.device_id.to_string());
+    assert!(d1_bundle.is_some(), "Bundle for device 1 not found");
+    let d2_bundle = bundles.iter().find(|b| b["deviceId"] == device2_id);
+    assert!(d2_bundle.is_some(), "Bundle for device 2 not found");
 }

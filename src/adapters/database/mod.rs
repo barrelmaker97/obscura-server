@@ -1,5 +1,6 @@
 pub mod attachment_repo;
 pub mod backup_repo;
+pub mod device_repo;
 pub mod key_repo;
 pub mod message_repo;
 pub mod push_token_repo;

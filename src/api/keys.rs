@@ -12,34 +12,44 @@ use axum::{
 use std::convert::TryInto;
 use uuid::Uuid;
 
-/// Fetches a pre-key bundle for a user.
+/// Fetches all pre-key bundles for a user (one per device).
 ///
 /// # Errors
-/// Returns `AppError::NotFound` if the user or their keys do not exist.
-pub(crate) async fn get_pre_key_bundle(
-    _auth_user: AuthUser,
+/// Returns `AppError::Forbidden` if a device-scoped token is not provided.
+/// Returns `AppError::NotFound` if the user has no registered devices or keys.
+pub(crate) async fn get_pre_key_bundles(
+    auth_user: AuthUser,
     State(state): State<AppState>,
     Path(user_id): Path<Uuid>,
 ) -> Result<impl IntoResponse> {
-    let bundle = state.key_service.get_pre_key_bundle(user_id).await?;
+    let _ = auth_user.device_id.ok_or_else(|| AppError::Forbidden("Device-scoped token required".to_string()))?;
 
-    bundle.map_or_else(|| Err(AppError::NotFound), |b| Ok(Json(PreKeyBundleResponse::from(b))))
+    let bundles = state.key_service.get_pre_key_bundles_for_user(user_id).await?;
+
+    if bundles.is_empty() {
+        return Err(AppError::NotFound);
+    }
+
+    let response: Vec<PreKeyBundleResponse> = bundles.into_iter().map(PreKeyBundleResponse::from).collect();
+    Ok(Json(response))
 }
 
-/// Uploads new pre-keys for the authenticated user.
+/// Uploads new pre-keys for the authenticated device.
 ///
 /// # Errors
+/// Returns `AppError::Forbidden` if a device-scoped token is not provided.
 /// Returns `AppError::BadRequest` if the keys are malformed or validation fails.
 pub(crate) async fn upload_keys(
     auth_user: AuthUser,
     State(state): State<AppState>,
     Json(payload): Json<PreKeyUploadRequest>,
 ) -> Result<impl IntoResponse> {
+    let device_id = auth_user.device_id.ok_or(AppError::Forbidden("Device-scoped token required".to_string()))?;
+
     payload.validate().map_err(AppError::BadRequest)?;
 
-    // Call Service directly with domain types from payload
     let params = KeyUploadParams {
-        user_id: auth_user.user_id,
+        device_id,
         identity_key: payload.identity_key.map(TryInto::try_into).transpose().map_err(AppError::BadRequest)?,
         registration_id: payload.registration_id,
         signed_pre_key: payload.signed_pre_key.try_into().map_err(AppError::BadRequest)?,
@@ -51,7 +61,7 @@ pub(crate) async fn upload_keys(
             .map_err(AppError::BadRequest)?,
     };
 
-    state.account_service.upload_keys(params).await?;
+    state.device_service.upload_keys(params).await?;
 
     Ok(StatusCode::OK)
 }

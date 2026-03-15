@@ -1,4 +1,5 @@
 use crate::domain::crypto::{PublicKey, Signature};
+use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct SignedPreKey {
@@ -15,6 +16,7 @@ pub struct OneTimePreKey {
 
 #[derive(Debug, Clone)]
 pub struct PreKeyBundle {
+    pub device_id: Uuid,
     pub registration_id: i32,
     pub identity_key: PublicKey,
     pub signed_pre_key: SignedPreKey,

@@ -2,6 +2,7 @@ pub mod attachments;
 pub mod auth;
 pub mod common;
 pub mod crypto;
+pub mod devices;
 pub mod gateway;
 pub mod health;
 pub mod keys;

@@ -4,12 +4,14 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct Claims {
     pub sub: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<Uuid>,
     pub exp: usize,
 }
 impl Claims {
     #[must_use]
-    pub(crate) const fn new(user_id: Uuid, exp: usize) -> Self {
-        Self { sub: user_id, exp }
+    pub(crate) const fn new(user_id: Uuid, device_id: Option<Uuid>, exp: usize) -> Self {
+        Self { sub: user_id, device_id, exp }
     }
 }
 

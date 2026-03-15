@@ -34,7 +34,7 @@ async fn test_ping_pong_under_load() {
     // 100 messages * 500KB = 50MB.
     let large_payload = vec![0u8; 1024 * 500];
     for _ in 0..100 {
-        app.send_message(&user_a.token, user_b.user_id, &large_payload).await;
+        app.send_message(&user_a.token, user_b.device_id, &large_payload).await;
     }
 
     // 4. Connect via WebSocket

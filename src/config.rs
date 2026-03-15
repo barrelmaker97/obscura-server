@@ -310,6 +310,14 @@ pub struct AuthConfig {
         default_value_t = AuthConfig::default().refresh_token_cleanup_interval_secs
     )]
     pub refresh_token_cleanup_interval_secs: u64,
+
+    /// Maximum number of devices a single user can have registered
+    #[arg(
+        long = "auth-max-devices-per-user",
+        env = "OBSCURA_AUTH_MAX_DEVICES_PER_USER",
+        default_value_t = AuthConfig::default().max_devices_per_user
+    )]
+    pub max_devices_per_user: i64,
 }
 
 impl Default for AuthConfig {
@@ -319,6 +327,7 @@ impl Default for AuthConfig {
             access_token_ttl_secs: 900,
             refresh_token_ttl_days: 30,
             refresh_token_cleanup_interval_secs: 86400, // 24 hours
+            max_devices_per_user: 10,
         }
     }
 }

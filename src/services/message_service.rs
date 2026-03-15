@@ -55,7 +55,7 @@ impl MessageService {
     }
 
     /// Processes a batch of raw submissions.
-    /// Performs structural validation, recipient checking, and bulk insertion.
+    /// Performs structural validation, device checking, and bulk insertion.
     ///
     /// # Errors
     /// Returns `AppError::Database` if any database operation fails.
@@ -67,7 +67,7 @@ impl MessageService {
     pub(crate) async fn send(&self, sender_id: Uuid, submissions: Vec<RawSubmission>) -> Result<SubmissionOutcome> {
         let mut failed_submissions = Vec::new();
         let mut potential_valid = Vec::with_capacity(submissions.len());
-        let mut recipient_ids_to_check = std::collections::HashSet::new();
+        let mut device_ids_to_check = std::collections::HashSet::new();
 
         // Pass 1: Structural Validation
         for raw in submissions {
@@ -80,11 +80,11 @@ impl MessageService {
                 continue;
             };
 
-            let Ok(recipient_id) = Uuid::from_slice(&raw.recipient_id) else {
+            let Ok(device_id) = Uuid::from_slice(&raw.device_id) else {
                 failed_submissions.push(FailedSubmission {
                     submission_id: raw.submission_id,
-                    error_code: SubmissionErrorCode::MalformedRecipientId,
-                    error_message: "Invalid recipient UUID bytes (expected 16)".to_string(),
+                    error_code: SubmissionErrorCode::MalformedDeviceId,
+                    error_message: "Invalid device_id UUID bytes (expected 16)".to_string(),
                 });
                 continue;
             };
@@ -98,29 +98,29 @@ impl MessageService {
                 continue;
             }
 
-            recipient_ids_to_check.insert(recipient_id);
-            potential_valid.push((recipient_id, submission_id, raw.message));
+            device_ids_to_check.insert(device_id);
+            potential_valid.push((device_id, submission_id, raw.message));
         }
 
         if potential_valid.is_empty() {
             return Ok(SubmissionOutcome { failed_submissions });
         }
 
-        // Pass 2: Business Validation (Recipient Existence)
+        // Pass 2: Business Validation (Device Existence)
         let mut tx = self.pool.begin().await?;
-        let check_ids: Vec<Uuid> = recipient_ids_to_check.into_iter().collect();
-        let valid_recipients_set: std::collections::HashSet<Uuid> =
-            self.repo.check_recipients_exist(&mut tx, &check_ids).await?.into_iter().collect();
+        let check_ids: Vec<Uuid> = device_ids_to_check.into_iter().collect();
+        let valid_devices_set: std::collections::HashSet<Uuid> =
+            self.repo.check_devices_exist(&mut tx, &check_ids).await?.into_iter().collect();
 
         let mut to_insert = Vec::with_capacity(potential_valid.len());
-        for (r_id, s_id, msg) in potential_valid {
-            if valid_recipients_set.contains(&r_id) {
-                to_insert.push((r_id, s_id, msg));
+        for (d_id, s_id, msg) in potential_valid {
+            if valid_devices_set.contains(&d_id) {
+                to_insert.push((d_id, s_id, msg));
             } else {
                 failed_submissions.push(FailedSubmission {
                     submission_id: s_id.as_bytes().to_vec(),
-                    error_code: SubmissionErrorCode::InvalidRecipient,
-                    error_message: "Recipient not found".to_string(),
+                    error_code: SubmissionErrorCode::InvalidDevice,
+                    error_message: "Device not found".to_string(),
                 });
             }
         }
@@ -132,31 +132,31 @@ impl MessageService {
 
             self.metrics.sent_total.add(inserted.len() as u64, &[KeyValue::new("status", "success")]);
 
-            // Notify Recipients
-            let inserted_recipient_ids: Vec<Uuid> = inserted.into_iter().map(|(id, _)| id).collect();
-            self.notifier.notify(&inserted_recipient_ids, UserEvent::MessageReceived).await;
+            // Notify target devices
+            let inserted_device_ids: Vec<Uuid> = inserted.into_iter().map(|(id, _)| id).collect();
+            self.notifier.notify(&inserted_device_ids, UserEvent::MessageReceived).await;
         }
 
         Ok(SubmissionOutcome { failed_submissions })
     }
 
-    /// Fetches a batch of pending messages for a recipient.
+    /// Fetches a batch of pending messages for a device.
     ///
     /// # Errors
     /// Returns `AppError::Database` if the query fails.
     #[tracing::instrument(
         err(level = "warn"),
         skip(self),
-        fields(recipient_id = %recipient_id, batch_limit = %limit)
+        fields(device.id = %device_id, batch_limit = %limit)
     )]
     pub(crate) async fn fetch_pending_batch(
         &self,
-        recipient_id: Uuid,
+        device_id: Uuid,
         cursor: Option<(time::OffsetDateTime, Uuid)>,
         limit: i64,
     ) -> Result<Vec<Message>> {
         let mut conn = self.pool.acquire().await?;
-        let messages = self.repo.fetch_pending_batch(&mut conn, recipient_id, cursor, limit).await?;
+        let messages = self.repo.fetch_pending_batch(&mut conn, device_id, cursor, limit).await?;
 
         self.metrics.fetch_batch_size.record(messages.len() as u64, &[]);
 
@@ -172,8 +172,8 @@ impl MessageService {
         skip(self),
         fields(batch_count = message_ids.len())
     )]
-    pub(crate) async fn delete_batch(&self, user_id: Uuid, message_ids: &[Uuid]) -> Result<()> {
+    pub(crate) async fn delete_batch(&self, device_id: Uuid, message_ids: &[Uuid]) -> Result<()> {
         let mut conn = self.pool.acquire().await?;
-        self.repo.delete_batch(&mut conn, user_id, message_ids).await
+        self.repo.delete_batch(&mut conn, device_id, message_ids).await
     }
 }

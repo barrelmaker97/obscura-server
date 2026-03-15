@@ -73,11 +73,11 @@ impl BackupService {
     #[tracing::instrument(
         err(level = "warn"),
         skip(self, stream),
-        fields(user.id = %user_id, version = %if_match_version)
+        fields(device.id = %device_id, version = %if_match_version)
     )]
     pub async fn handle_upload(
         &self,
-        user_id: Uuid,
+        device_id: Uuid,
         if_match_version: i32,
         content_len: Option<usize>,
         stream: StorageStream,
@@ -93,12 +93,12 @@ impl BackupService {
 
         let mut conn = self.pool.acquire().await.map_err(AppError::Database)?;
 
-        let _ = self.repo.create_if_not_exists(&mut conn, user_id).await?;
+        let _ = self.repo.create_if_not_exists(&mut conn, device_id).await?;
 
-        let backup = if let Some(b) = self.repo.reserve_active_slot(&mut conn, user_id, if_match_version).await? {
+        let backup = if let Some(b) = self.repo.reserve_active_slot(&mut conn, device_id, if_match_version).await? {
             b
         } else {
-            let current = self.repo.find_by_user_id(&mut conn, user_id).await?.ok_or(AppError::Internal)?;
+            let current = self.repo.find_by_device_id(&mut conn, device_id).await?.ok_or(AppError::Internal)?;
 
             if current.current_version != if_match_version {
                 return Err(AppError::PreconditionFailed);
@@ -113,7 +113,7 @@ impl BackupService {
                 }
 
                 // Takeover
-                self.repo.reserve_slot_force(&mut conn, user_id).await?
+                self.repo.reserve_slot_force(&mut conn, device_id).await?
             } else {
                 return Err(AppError::Conflict("Concurrent modification".into()));
             }
@@ -122,7 +122,7 @@ impl BackupService {
         drop(conn);
 
         let pending_version = backup.pending_version.ok_or(AppError::Internal)?;
-        let key = format!("{}{}/v{}", self.backup_config.prefix, user_id, pending_version);
+        let key = format!("{}{}/v{}", self.backup_config.prefix, device_id, pending_version);
 
         let put_future = self.storage.put(
             &key,
@@ -139,7 +139,7 @@ impl BackupService {
         })?;
 
         let mut conn = self.pool.acquire().await.map_err(AppError::Database)?;
-        self.repo.commit_version(&mut conn, user_id, pending_version).await?;
+        self.repo.commit_version(&mut conn, device_id, pending_version).await?;
 
         // Record metrics
         self.metrics.uploaded_bytes.add(actual_len, &[]);
@@ -148,7 +148,7 @@ impl BackupService {
         // Cleanup old version
         let old_version = backup.current_version;
         if old_version > 0 {
-            let old_key = format!("{}{}/v{}", self.backup_config.prefix, user_id, old_version);
+            let old_key = format!("{}{}/v{}", self.backup_config.prefix, device_id, old_version);
             let storage = Arc::clone(&self.storage);
             tokio::spawn(async move {
                 let _ = storage.delete(&old_key).await;
@@ -158,21 +158,21 @@ impl BackupService {
         Ok(pending_version)
     }
 
-    /// Downloads the current backup for the user.
+    /// Downloads the current backup for the device.
     ///
     /// # Errors
     /// Returns `AppError::NotFound` if no backup exists or the current version is 0.
-    #[tracing::instrument(err(level = "warn"), skip(self), fields(user.id = %user_id))]
-    pub async fn download(&self, user_id: Uuid) -> Result<(i32, u64, StorageStream)> {
+    #[tracing::instrument(err(level = "warn"), skip(self), fields(device.id = %device_id))]
+    pub async fn download(&self, device_id: Uuid) -> Result<(i32, u64, StorageStream)> {
         let mut conn = self.pool.acquire().await.map_err(AppError::Database)?;
-        let backup = self.repo.find_by_user_id(&mut conn, user_id).await?;
+        let backup = self.repo.find_by_device_id(&mut conn, device_id).await?;
 
         if let Some(backup) = backup {
             if backup.current_version == 0 {
                 return Err(AppError::NotFound);
             }
 
-            let key = format!("{}{}/v{}", self.backup_config.prefix, user_id, backup.current_version);
+            let key = format!("{}{}/v{}", self.backup_config.prefix, device_id, backup.current_version);
             let (len, stream) = self.storage.get(&key).await.map_err(|e| match e {
                 StorageError::NotFound => AppError::NotFound,
                 _ => AppError::Internal,
@@ -188,17 +188,17 @@ impl BackupService {
     ///
     /// # Errors
     /// Returns `AppError::NotFound` if no backup exists or the current version is 0.
-    #[tracing::instrument(err(level = "warn"), skip(self), fields(user.id = %user_id))]
-    pub async fn head(&self, user_id: Uuid) -> Result<(i32, u64)> {
+    #[tracing::instrument(err(level = "warn"), skip(self), fields(device.id = %device_id))]
+    pub async fn head(&self, device_id: Uuid) -> Result<(i32, u64)> {
         let mut conn = self.pool.acquire().await.map_err(AppError::Database)?;
-        let backup = self.repo.find_by_user_id(&mut conn, user_id).await?;
+        let backup = self.repo.find_by_device_id(&mut conn, device_id).await?;
 
         if let Some(backup) = backup {
             if backup.current_version == 0 {
                 return Err(AppError::NotFound);
             }
 
-            let key = format!("{}{}/v{}", self.backup_config.prefix, user_id, backup.current_version);
+            let key = format!("{}{}/v{}", self.backup_config.prefix, device_id, backup.current_version);
             let len = self.storage.head(&key).await.map_err(|e| match e {
                 StorageError::NotFound => AppError::NotFound,
                 _ => AppError::Internal,
@@ -210,13 +210,13 @@ impl BackupService {
         }
     }
 
-    /// Returns the current version of the user's backup if it exists.
+    /// Returns the current version of the device's backup if it exists.
     ///
     /// # Errors
     /// Returns `AppError::Database` if the query fails.
-    pub async fn get_current_version(&self, user_id: Uuid) -> Result<Option<i32>> {
+    pub async fn get_current_version(&self, device_id: Uuid) -> Result<Option<i32>> {
         let mut conn = self.pool.acquire().await.map_err(AppError::Database)?;
-        let backup = self.repo.find_by_user_id(&mut conn, user_id).await?;
+        let backup = self.repo.find_by_device_id(&mut conn, device_id).await?;
         Ok(backup.map(|b| b.current_version))
     }
 }

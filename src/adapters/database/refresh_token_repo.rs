@@ -22,14 +22,16 @@ impl RefreshTokenRepository {
         &self,
         conn: &mut PgConnection,
         user_id: Uuid,
+        device_id: Option<Uuid>,
         token_hash: &str,
         ttl_days: i64,
     ) -> Result<()> {
         let expires_at = OffsetDateTime::now_utc() + time::Duration::days(ttl_days);
 
-        sqlx::query("INSERT INTO refresh_tokens (token_hash, user_id, expires_at) VALUES ($1, $2, $3)")
+        sqlx::query("INSERT INTO refresh_tokens (token_hash, user_id, device_id, expires_at) VALUES ($1, $2, $3, $4)")
             .bind(token_hash)
             .bind(user_id)
+            .bind(device_id)
             .bind(expires_at)
             .execute(conn)
             .await
@@ -40,7 +42,7 @@ impl RefreshTokenRepository {
 
     /// Atomically rotates a refresh token.
     /// Deletes the old token and inserts a new one only if the old one was not expired.
-    /// Returns the `user_id` if successful, or None if the old token was invalid or expired.
+    /// Returns the `(user_id, device_id)` if successful, or None if the old token was invalid or expired.
     ///
     /// # Errors
     /// Returns `sqlx::Error` if the operation fails.
@@ -51,21 +53,21 @@ impl RefreshTokenRepository {
         old_hash: &str,
         new_hash: &str,
         ttl_days: i64,
-    ) -> Result<Option<Uuid>> {
+    ) -> Result<Option<(Uuid, Option<Uuid>)>> {
         let expires_at = OffsetDateTime::now_utc() + time::Duration::days(ttl_days);
 
-        let user_id = sqlx::query_scalar::<_, Uuid>(
+        let row = sqlx::query_as::<_, (Uuid, Option<Uuid>)>(
             r#"
             WITH deleted AS (
                 DELETE FROM refresh_tokens
                 WHERE token_hash = $1
-                RETURNING user_id, expires_at
+                RETURNING user_id, device_id, expires_at
             )
-            INSERT INTO refresh_tokens (token_hash, user_id, expires_at)
-            SELECT $2, user_id, $3
+            INSERT INTO refresh_tokens (token_hash, user_id, device_id, expires_at)
+            SELECT $2, user_id, device_id, $3
             FROM deleted
             WHERE expires_at > NOW()
-            RETURNING user_id
+            RETURNING user_id, device_id
             "#,
         )
         .bind(old_hash)
@@ -74,7 +76,7 @@ impl RefreshTokenRepository {
         .fetch_optional(conn)
         .await?;
 
-        Ok(user_id)
+        Ok(row)
     }
 
     /// Revokes a specific refresh token owned by the user (Logout).

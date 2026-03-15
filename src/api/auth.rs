@@ -4,25 +4,30 @@ use crate::api::schemas::auth::{AuthResponse, LoginRequest, LogoutRequest, Refre
 use crate::domain::auth_session::AuthSession;
 use crate::error::{AppError, Result};
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
-use std::convert::TryInto;
 
 /// Authenticates a user and returns a session.
 ///
 /// # Errors
 /// Returns `AppError::AuthError` if the credentials are invalid.
+/// Returns `AppError::BadRequest` if the device ID is invalid.
 pub(crate) async fn login(
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
 ) -> Result<impl IntoResponse> {
-    let session = state.auth_service.login(payload.username.to_lowercase(), payload.password).await?;
+    let device_id = payload
+        .device_id
+        .map(|s| uuid::Uuid::parse_str(&s).map_err(|_| AppError::BadRequest("Invalid device_id".to_string())))
+        .transpose()?;
+
+    let session = state.auth_service.login(payload.username.to_lowercase(), payload.password, device_id).await?;
     let auth_response = map_session(session);
     Ok(Json(auth_response))
 }
 
-/// Registers a new user.
+/// Registers a new user. Returns a user-only JWT (no `device_id`).
 ///
 /// # Errors
-/// Returns `AppError::BadRequest` if validation fails or keys are malformed.
+/// Returns `AppError::BadRequest` if validation fails.
 /// Returns `AppError::Conflict` if the username is already taken.
 pub(crate) async fn register(
     State(state): State<AppState>,
@@ -30,22 +35,7 @@ pub(crate) async fn register(
 ) -> Result<impl IntoResponse> {
     payload.validate().map_err(AppError::BadRequest)?;
 
-    let session = state
-        .account_service
-        .register(
-            payload.username.to_lowercase(),
-            payload.password,
-            payload.identity_key.try_into().map_err(AppError::BadRequest)?,
-            payload.registration_id,
-            payload.signed_pre_key.try_into().map_err(AppError::BadRequest)?,
-            payload
-                .one_time_pre_keys
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect::<std::result::Result<Vec<_>, _>>()
-                .map_err(AppError::BadRequest)?,
-        )
-        .await?;
+    let session = state.auth_service.register(payload.username.to_lowercase(), payload.password).await?;
 
     let auth_response = map_session(session);
     Ok((StatusCode::CREATED, Json(auth_response)))
@@ -77,6 +67,11 @@ pub(crate) async fn logout(
     Ok(StatusCode::OK)
 }
 
-fn map_session(session: AuthSession) -> AuthResponse {
-    AuthResponse { token: session.token, refresh_token: session.refresh_token, expires_at: session.expires_at }
+pub(crate) fn map_session(session: AuthSession) -> AuthResponse {
+    AuthResponse {
+        token: session.token,
+        refresh_token: session.refresh_token,
+        expires_at: session.expires_at,
+        device_id: session.device_id.map(|d| d.to_string()),
+    }
 }

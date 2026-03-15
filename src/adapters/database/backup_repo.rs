@@ -14,14 +14,14 @@ impl BackupRepository {
         Self {}
     }
 
-    /// Finds a backup record by user ID.
+    /// Finds a backup record by device ID.
     ///
     /// # Errors
     /// Returns `sqlx::Error` if the query fails.
     #[tracing::instrument(level = "debug", skip(self, conn), err)]
-    pub(crate) async fn find_by_user_id(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Option<Backup>> {
-        let record = sqlx::query_as::<_, BackupRecord>("SELECT * FROM backups WHERE user_id = $1")
-            .bind(user_id)
+    pub(crate) async fn find_by_device_id(&self, conn: &mut PgConnection, device_id: Uuid) -> Result<Option<Backup>> {
+        let record = sqlx::query_as::<_, BackupRecord>("SELECT * FROM backups WHERE device_id = $1")
+            .bind(device_id)
             .fetch_optional(conn)
             .await?;
 
@@ -33,16 +33,16 @@ impl BackupRepository {
     /// # Errors
     /// Returns `sqlx::Error` if the query fails.
     #[tracing::instrument(level = "debug", skip(self, conn), err)]
-    pub(crate) async fn create_if_not_exists(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Backup> {
+    pub(crate) async fn create_if_not_exists(&self, conn: &mut PgConnection, device_id: Uuid) -> Result<Backup> {
         let record = sqlx::query_as::<_, BackupRecord>(
             r#"
-            INSERT INTO backups (user_id)
+            INSERT INTO backups (device_id)
             VALUES ($1)
-            ON CONFLICT (user_id) DO UPDATE SET user_id = EXCLUDED.user_id
+            ON CONFLICT (device_id) DO UPDATE SET device_id = EXCLUDED.device_id
             RETURNING *
             "#,
         )
-        .bind(user_id)
+        .bind(device_id)
         .fetch_one(conn)
         .await?;
 
@@ -58,7 +58,7 @@ impl BackupRepository {
     pub(crate) async fn reserve_active_slot(
         &self,
         conn: &mut PgConnection,
-        user_id: Uuid,
+        device_id: Uuid,
         expected_version: i32,
     ) -> Result<Option<Backup>> {
         let record = sqlx::query_as::<_, BackupRecord>(
@@ -68,11 +68,11 @@ impl BackupRepository {
                 state = 'UPLOADING',
                 pending_version = current_version + 1,
                 pending_at = NOW()
-            WHERE user_id = $1 AND current_version = $2 AND state = 'ACTIVE'
+            WHERE device_id = $1 AND current_version = $2 AND state = 'ACTIVE'
             RETURNING *
             "#,
         )
-        .bind(user_id)
+        .bind(device_id)
         .bind(expected_version)
         .fetch_optional(conn)
         .await?;
@@ -85,7 +85,7 @@ impl BackupRepository {
     /// # Errors
     /// Returns `sqlx::Error` if the query fails.
     #[tracing::instrument(level = "debug", skip(self, conn), err)]
-    pub(crate) async fn reserve_slot_force(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<Backup> {
+    pub(crate) async fn reserve_slot_force(&self, conn: &mut PgConnection, device_id: Uuid) -> Result<Backup> {
         let record = sqlx::query_as::<_, BackupRecord>(
             r#"
             UPDATE backups
@@ -93,11 +93,11 @@ impl BackupRepository {
                 state = 'UPLOADING',
                 pending_version = current_version + 1,
                 pending_at = NOW()
-            WHERE user_id = $1
+            WHERE device_id = $1
             RETURNING *
             "#,
         )
-        .bind(user_id)
+        .bind(device_id)
         .fetch_one(conn)
         .await?;
         Ok(record.into())
@@ -111,7 +111,7 @@ impl BackupRepository {
     pub(crate) async fn commit_version(
         &self,
         conn: &mut PgConnection,
-        user_id: Uuid,
+        device_id: Uuid,
         pending_version: i32,
     ) -> Result<()> {
         sqlx::query(
@@ -123,10 +123,10 @@ impl BackupRepository {
                 state = 'ACTIVE',
                 updated_at = NOW(),
                 pending_at = NULL
-            WHERE user_id = $1 AND pending_version = $2 AND state = 'UPLOADING'
+            WHERE device_id = $1 AND pending_version = $2 AND state = 'UPLOADING'
             "#,
         )
-        .bind(user_id)
+        .bind(device_id)
         .bind(pending_version)
         .execute(conn)
         .await?;
@@ -160,11 +160,11 @@ impl BackupRepository {
     /// # Errors
     /// Returns `sqlx::Error` if the query fails.
     #[tracing::instrument(level = "debug", skip(self, conn), err)]
-    pub(crate) async fn reset_stale(&self, conn: &mut PgConnection, user_id: Uuid) -> Result<()> {
+    pub(crate) async fn reset_stale(&self, conn: &mut PgConnection, device_id: Uuid) -> Result<()> {
         sqlx::query(
-            "UPDATE backups SET state = 'ACTIVE', pending_version = NULL, pending_at = NULL WHERE user_id = $1",
+            "UPDATE backups SET state = 'ACTIVE', pending_version = NULL, pending_at = NULL WHERE device_id = $1",
         )
-        .bind(user_id)
+        .bind(device_id)
         .execute(conn)
         .await?;
         Ok(())

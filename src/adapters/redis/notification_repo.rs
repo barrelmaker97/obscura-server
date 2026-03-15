@@ -25,20 +25,20 @@ impl NotificationRepository {
         }
     }
 
-    /// Publishes a realtime event to multiple users using a pipeline.
+    /// Publishes a realtime event to multiple devices using a pipeline.
     ///
     /// # Errors
     /// Returns an error if the Redis operation fails.
-    #[tracing::instrument(level = "debug", skip(self, user_ids), err)]
-    pub async fn publish_realtime(&self, user_ids: &[Uuid], event: UserEvent) -> anyhow::Result<()> {
-        if user_ids.is_empty() {
+    #[tracing::instrument(level = "debug", skip(self, device_ids), err)]
+    pub async fn publish_realtime(&self, device_ids: &[Uuid], event: UserEvent) -> anyhow::Result<()> {
+        if device_ids.is_empty() {
             return Ok(());
         }
         let payload = [event as u8];
         let mut pipe = redis::pipe();
 
-        for user_id in user_ids {
-            let channel_name = format!("{}{user_id}", self.channel_prefix);
+        for device_id in device_ids {
+            let channel_name = format!("{}{device_id}", self.channel_prefix);
             pipe.publish(&channel_name, &payload);
         }
 
@@ -47,7 +47,7 @@ impl NotificationRepository {
         Ok(())
     }
 
-    /// Subscribes to realtime events for all users.
+    /// Subscribes to realtime events for all devices.
     ///
     /// # Errors
     /// Returns an error if the subscription fails.
@@ -61,12 +61,12 @@ impl NotificationRepository {
         // Spawn a mapper task to translate technical PubSubMessages into domain RealtimeNotifications
         tokio::spawn(async move {
             while let Ok(msg) = redis_rx.recv().await {
-                if let Some(user_id_str) = msg.channel.strip_prefix(&prefix)
-                    && let Ok(user_id) = Uuid::parse_str(user_id_str)
+                if let Some(device_id_str) = msg.channel.strip_prefix(&prefix)
+                    && let Ok(device_id) = Uuid::parse_str(device_id_str)
                     && let Some(payload_byte) = msg.payload.first()
                     && let Ok(event) = UserEvent::try_from(*payload_byte)
                 {
-                    let _ = tx.send(RealtimeNotification { user_id, event });
+                    let _ = tx.send(RealtimeNotification { device_id, event });
                 }
             }
         });
@@ -74,22 +74,22 @@ impl NotificationRepository {
         Ok(rx)
     }
 
-    /// Schedules push notification jobs for multiple users using a pipeline.
+    /// Schedules push notification jobs for multiple devices using a pipeline.
     ///
     /// # Errors
     /// Returns an error if the Redis operation fails.
     #[allow(clippy::cast_precision_loss)]
-    #[tracing::instrument(level = "debug", skip(self, user_ids), err)]
-    pub async fn push_jobs(&self, user_ids: &[Uuid], delay_secs: u64) -> anyhow::Result<()> {
-        if user_ids.is_empty() {
+    #[tracing::instrument(level = "debug", skip(self, device_ids), err)]
+    pub async fn push_jobs(&self, device_ids: &[Uuid], delay_secs: u64) -> anyhow::Result<()> {
+        if device_ids.is_empty() {
             return Ok(());
         }
 
         let run_at = time::OffsetDateTime::now_utc().unix_timestamp() + i64::try_from(delay_secs).unwrap_or(0);
         let mut pipe = redis::pipe();
 
-        for user_id in user_ids {
-            pipe.cmd("ZADD").arg(&self.push_queue_key).arg("NX").arg(run_at as f64).arg(user_id.to_string());
+        for device_id in device_ids {
+            pipe.cmd("ZADD").arg(&self.push_queue_key).arg("NX").arg(run_at as f64).arg(device_id.to_string());
         }
 
         let mut conn = self.redis.publisher();
@@ -97,14 +97,14 @@ impl NotificationRepository {
         Ok(())
     }
 
-    /// Cancels a pending push notification job for a user.
+    /// Cancels a pending push notification job for a device.
     ///
     /// # Errors
     /// Returns an error if the Redis operation fails.
     #[tracing::instrument(level = "debug", skip(self), err)]
-    pub async fn cancel_job(&self, user_id: Uuid) -> anyhow::Result<()> {
+    pub async fn cancel_job(&self, device_id: Uuid) -> anyhow::Result<()> {
         let mut conn = self.redis.publisher();
-        let _: i64 = conn.zrem(&self.push_queue_key, user_id.to_string()).await?;
+        let _: i64 = conn.zrem(&self.push_queue_key, device_id.to_string()).await?;
         Ok(())
     }
 
@@ -148,9 +148,9 @@ impl NotificationRepository {
     /// # Errors
     /// Returns an error if the Redis operation fails.
     #[tracing::instrument(level = "debug", skip(self), err)]
-    pub async fn delete_job(&self, user_id: Uuid) -> anyhow::Result<()> {
+    pub async fn delete_job(&self, device_id: Uuid) -> anyhow::Result<()> {
         let mut conn = self.redis.publisher();
-        let _: i64 = conn.zrem(&self.push_queue_key, user_id.to_string()).await?;
+        let _: i64 = conn.zrem(&self.push_queue_key, device_id.to_string()).await?;
         Ok(())
     }
 }

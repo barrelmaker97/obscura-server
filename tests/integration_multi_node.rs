@@ -40,10 +40,10 @@ async fn test_multi_node_notification() {
 
     // MANDATORY PROOF: Verify the database is empty for Bob.
     // This ensures Bob cannot receive the message via the "initial connection poll".
-    app_b.assert_message_count(user_bob.user_id, 0).await;
+    app_b.assert_message_count(user_bob.device_id, 0).await;
 
     let content = b"Cross-node message proved via PubSub".to_vec();
-    app_a.send_message(&user_alice.token, user_bob.user_id, &content).await;
+    app_a.send_message(&user_alice.token, user_bob.device_id, &content).await;
 
     // If Bob receives this now, it MUST be via the Redis notification path.
     let env = ws_bob.receive_envelope().await.expect("Bob did not receive message on Node B");
@@ -72,7 +72,7 @@ async fn test_multi_node_push_cancellation() {
         .arg(&queue_key)
         .arg("NX")
         .arg(run_at as f64)
-        .arg(user.user_id.to_string())
+        .arg(user.device_id.to_string())
         .query_async::<i64>(&mut conn)
         .await
         .unwrap();
@@ -85,7 +85,7 @@ async fn test_multi_node_push_cancellation() {
         .wait_until(
             || {
                 let pubsub = pubsub.clone();
-                let user_id = user.user_id;
+                let user_id = user.device_id;
                 let queue_key = queue_key.clone();
                 async move {
                     let mut conn = pubsub.publisher();
@@ -142,7 +142,7 @@ async fn test_multi_node_disconnect_notification() {
 
     let resp = app_b
         .client
-        .post(format!("{}/v1/keys", app_b.server_url))
+        .post(format!("{}/v1/devices/keys", app_b.server_url))
         .header("Authorization", format!("Bearer {}", user_alice.token))
         .json(&takeover_payload)
         .send()
@@ -207,7 +207,7 @@ async fn test_distributed_fan_out_disconnect() {
 
     let resp = app_c
         .client
-        .post(format!("{}/v1/keys", app_c.server_url))
+        .post(format!("{}/v1/devices/keys", app_c.server_url))
         .header("Authorization", format!("Bearer {}", user_alice.token))
         .json(&takeover_payload)
         .send()

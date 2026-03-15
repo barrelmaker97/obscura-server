@@ -76,17 +76,17 @@ impl NotificationService {
 
     /// Dispatches an external real-time notification to local subscribers.
     pub fn dispatch_event(&self, notification: &crate::domain::notification::RealtimeNotification) {
-        let user_id = notification.user_id;
+        let device_id = notification.device_id;
         let event = notification.event;
         let event_label = format!("{event:?}");
 
         self.metrics.received_total.add(1, &[KeyValue::new("event", event_label.clone())]);
 
-        if let Some(tx) = self.channels.get(&user_id) {
-            tracing::trace!(%user_id, ?event, "Dispatched notification to local channel");
+        if let Some(tx) = self.channels.get(&device_id) {
+            tracing::trace!(%device_id, ?event, "Dispatched notification to local channel");
             let _ = tx.send(event);
         } else {
-            tracing::debug!(%user_id, ?event, "No local subscriber for notification");
+            tracing::debug!(%device_id, ?event, "No local subscriber for notification");
             self.metrics.unrouted_total.add(1, &[KeyValue::new("event", event_label)]);
         }
     }
@@ -116,11 +116,11 @@ impl NotificationService {
         tracing::debug!(duration_secs = %duration, "Notification channel cleanup cycle completed");
     }
 
-    #[tracing::instrument(skip(self), fields(user.id = %user_id))]
-    pub async fn subscribe(&self, user_id: Uuid) -> broadcast::Receiver<UserEvent> {
+    #[tracing::instrument(skip(self), fields(device.id = %device_id))]
+    pub async fn subscribe(&self, device_id: Uuid) -> broadcast::Receiver<UserEvent> {
         let tx = self
             .channels
-            .entry(user_id)
+            .entry(device_id)
             .or_insert_with(|| {
                 self.metrics.active_channels.add(1, &[]);
                 let (tx, _rx) = broadcast::channel(self.user_channel_capacity);
@@ -154,9 +154,9 @@ impl NotificationService {
         }
     }
 
-    #[tracing::instrument(skip(self), fields(user.id = %user_id))]
-    pub async fn cancel_pending_notifications(&self, user_id: Uuid) {
-        if let Err(e) = self.repo.cancel_job(user_id).await {
+    #[tracing::instrument(skip(self), fields(device.id = %device_id))]
+    pub async fn cancel_pending_notifications(&self, device_id: Uuid) {
+        if let Err(e) = self.repo.cancel_job(device_id).await {
             tracing::error!(error = %e, "Failed to cancel pending push notification");
         }
     }

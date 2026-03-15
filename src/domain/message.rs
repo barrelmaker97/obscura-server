@@ -14,7 +14,7 @@ impl Message {}
 #[derive(Debug, Clone)]
 pub(crate) struct RawSubmission {
     pub submission_id: Vec<u8>,
-    pub recipient_id: Vec<u8>,
+    pub device_id: Vec<u8>,
     pub message: Vec<u8>,
 }
 
@@ -32,8 +32,8 @@ pub struct FailedSubmission {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubmissionErrorCode {
-    InvalidRecipient,
-    MalformedRecipientId,
+    InvalidDevice,
+    MalformedDeviceId,
     MalformedSubmissionId,
     MessageMissing,
 }

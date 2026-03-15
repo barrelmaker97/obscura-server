@@ -40,6 +40,7 @@ pub(crate) async fn upload_attachment(
 ///
 /// # Errors
 /// Returns `AppError::NotFound` if the attachment is not found.
+/// Returns `AppError::Internal` if there is an error during download or header serialization.
 ///
 /// # Panics
 /// Panics if the default Content-Type cannot be parsed.

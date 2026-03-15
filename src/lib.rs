@@ -10,6 +10,7 @@ pub mod workers;
 
 use crate::adapters::database::attachment_repo::AttachmentRepository;
 use crate::adapters::database::backup_repo::BackupRepository;
+use crate::adapters::database::device_repo::DeviceRepository;
 use crate::adapters::database::key_repo::KeyRepository;
 use crate::adapters::database::message_repo::MessageRepository;
 use crate::adapters::database::push_token_repo::PushTokenRepository;
@@ -19,11 +20,11 @@ use crate::adapters::push::PushProvider;
 use crate::adapters::redis::RedisCache;
 use crate::adapters::storage::S3Storage;
 use crate::config::{Config, StorageConfig};
-use crate::services::account_service::AccountService;
 use crate::services::attachment_service::AttachmentService;
 use crate::services::auth_service::AuthService;
 use crate::services::backup_service::BackupService;
 use crate::services::crypto_service::CryptoService;
+use crate::services::device_service::DeviceService;
 use crate::services::gateway::GatewayService;
 use crate::services::health_service::HealthService;
 use crate::services::key_service::KeyService;
@@ -47,6 +48,7 @@ pub struct Resources {
 
 #[derive(Clone)]
 pub struct Adapters {
+    pub device: DeviceRepository,
     pub key: KeyRepository,
     pub message: MessageRepository,
     pub user: UserRepository,
@@ -62,6 +64,7 @@ pub struct Adapters {
 impl std::fmt::Debug for Adapters {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Adapters")
+            .field("device", &self.device)
             .field("key", &self.key)
             .field("message", &self.message)
             .field("user", &self.user)
@@ -79,7 +82,7 @@ pub struct Services {
     pub key_service: KeyService,
     pub attachment_service: AttachmentService,
     pub backup_service: BackupService,
-    pub account_service: AccountService,
+    pub device_service: DeviceService,
     pub auth_service: AuthService,
     pub(crate) message_service: MessageService,
     pub(crate) gateway_service: GatewayService,
@@ -225,6 +228,7 @@ impl AppBuilder {
 
         // Initialize Adapters (Trait implementations and Repositories)
         let adapters = Adapters {
+            device: DeviceRepository::new(),
             key: KeyRepository::new(),
             message: MessageRepository::new(),
             user: UserRepository::new(),
@@ -250,8 +254,13 @@ impl AppBuilder {
             notifier.clone(),
             config.messaging.clone(),
         );
-        let auth_service =
-            AuthService::new(config.auth.clone(), pool.clone(), adapters.user.clone(), adapters.refresh.clone());
+        let auth_service = AuthService::new(
+            config.auth.clone(),
+            pool.clone(),
+            adapters.user.clone(),
+            adapters.refresh.clone(),
+            adapters.device.clone(),
+        );
         let submission_cache = RedisCache::new(
             Arc::clone(&pubsub),
             "idempotency:submission:".to_string(),
@@ -266,13 +275,14 @@ impl AppBuilder {
             config.messaging.clone(),
             config.ttl_days,
         );
-        let account_service = AccountService::new(
+        let device_service = DeviceService::new(
             pool.clone(),
-            adapters.user.clone(),
+            adapters.device.clone(),
             adapters.message.clone(),
-            auth_service.clone(),
             key_service.clone(),
+            auth_service.clone(),
             notifier.clone(),
+            config.auth.max_devices_per_user,
         );
         let gateway_service = GatewayService::new(
             message_service.clone(),
@@ -307,7 +317,7 @@ impl AppBuilder {
             key_service,
             attachment_service,
             backup_service,
-            account_service,
+            device_service,
             auth_service,
             message_service,
             gateway_service,
