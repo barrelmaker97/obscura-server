@@ -86,20 +86,13 @@ impl AuthService {
     )]
     pub(crate) async fn register(&self, username: String, password: String) -> Result<AuthSession> {
         let password_hash = self.hash_password(&password).await?;
-
         let mut tx = self.pool.begin().await?;
-
         let user = self.user_repo.create(&mut tx, &username, &password_hash).await?;
-
         tracing::Span::current().record("user_id", tracing::field::display(user.id));
-
         let session = self.create_session(&mut tx, user.id, None).await?;
-
         tx.commit().await?;
-
         tracing::info!("User registered successfully");
         self.metrics.registered_total.add(1, &[]);
-
         Ok(session)
     }
 
