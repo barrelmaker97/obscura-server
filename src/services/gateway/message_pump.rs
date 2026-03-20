@@ -87,26 +87,32 @@ impl MessagePump {
             *cursor = Some((ts, last_msg.id));
         }
 
-        for msg in messages {
-            let timestamp = msg.created_at.map_or_else(
-                || u64::try_from(time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000).unwrap_or(0),
-                |ts| u64::try_from(ts.unix_timestamp_nanos() / 1_000_000).unwrap_or(0),
-            );
+        let envelopes: Vec<proto::Envelope> = messages
+            .into_iter()
+            .map(|msg| {
+                let timestamp = msg.created_at.map_or_else(
+                    || u64::try_from(time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000).unwrap_or(0),
+                    |ts| u64::try_from(ts.unix_timestamp_nanos() / 1_000_000).unwrap_or(0),
+                );
 
-            let envelope = proto::Envelope {
-                id: msg.id.as_bytes().to_vec(),
-                sender_id: msg.sender_id.as_bytes().to_vec(),
-                timestamp,
-                message: msg.content,
-            };
+                proto::Envelope {
+                    id: msg.id.as_bytes().to_vec(),
+                    sender_id: msg.sender_id.as_bytes().to_vec(),
+                    timestamp,
+                    message: msg.content,
+                }
+            })
+            .collect();
 
-            let frame = proto::WebSocketFrame { payload: Some(proto::web_socket_frame::Payload::Envelope(envelope)) };
-            let mut buf = Vec::new();
+        let batch = proto::EnvelopeBatch { envelopes };
+        let frame = proto::WebSocketFrame {
+            payload: Some(proto::web_socket_frame::Payload::EnvelopeBatch(batch)),
+        };
+        let mut buf = Vec::new();
 
-            if frame.encode(&mut buf).is_ok() && outbound_tx.send(WsMessage::Binary(buf.into())).await.is_err() {
-                metrics.outbound_dropped_total.add(1, &[KeyValue::new("reason", "channel_closed")]);
-                return Ok(false);
-            }
+        if frame.encode(&mut buf).is_ok() && outbound_tx.send(WsMessage::Binary(buf.into())).await.is_err() {
+            metrics.outbound_dropped_total.add(1, &[KeyValue::new("reason", "channel_closed")]);
+            return Ok(false);
         }
 
         Ok(batch_size >= usize::try_from(limit).unwrap_or(usize::MAX))

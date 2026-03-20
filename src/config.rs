@@ -523,7 +523,7 @@ pub struct WsConfig {
     #[arg(long = "ws-prekey-debounce-interval-ms", env = "OBSCURA_WS_PREKEY_DEBOUNCE_INTERVAL_MS", default_value_t = WsConfig::default().prekey_debounce_interval_ms)]
     pub prekey_debounce_interval_ms: u64,
 
-    /// Maximum number of messages to fetch in a single database query loop
+    /// Maximum number of messages to fetch in a single database query and deliver in a single WebSocket batch frame
     #[arg(
         long = "ws-message-fetch-batch-size",
         env = "OBSCURA_WS_MESSAGE_FETCH_BATCH_SIZE",
