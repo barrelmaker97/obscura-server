@@ -494,7 +494,9 @@ impl TestApp {
                                 }
                                 Some(proto::web_socket_frame::Payload::EnvelopeBatch(batch)) => {
                                     for e in batch.envelopes {
-                                        let _ = tx_env.send(e);
+                                        if tx_env.send(e).is_err() {
+                                            break;
+                                        }
                                     }
                                 }
                                 Some(proto::web_socket_frame::Payload::PreKeyStatus(s)) => {

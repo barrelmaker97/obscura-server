@@ -110,7 +110,13 @@ impl MessagePump {
         };
         let mut buf = Vec::new();
 
-        if frame.encode(&mut buf).is_ok() && outbound_tx.send(WsMessage::Binary(buf.into())).await.is_err() {
+        if let Err(err) = frame.encode(&mut buf) {
+            metrics.outbound_dropped_total.add(1, &[KeyValue::new("reason", "encode_failed")]);
+            tracing::warn!(error = ?err, "failed to encode outbound websocket frame");
+            return Ok(false);
+        }
+
+        if outbound_tx.send(WsMessage::Binary(buf.into())).await.is_err() {
             metrics.outbound_dropped_total.add(1, &[KeyValue::new("reason", "channel_closed")]);
             return Ok(false);
         }
