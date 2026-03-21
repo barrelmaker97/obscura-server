@@ -130,7 +130,8 @@ Obscura Server is configured via command-line flags or environment variables usi
 | `--ws-prekey-debounce-interval-ms` | `OBSCURA_WS_PREKEY_DEBOUNCE_INTERVAL_MS` | `500` | Interval in milliseconds to debounce PreKeyLow events before sending a status frame to the client. |
 | `--ws-ping-interval-secs` | `OBSCURA_WS_PING_INTERVAL_SECS` | `30` | WebSocket heartbeat interval in seconds. |
 | `--ws-ping-timeout-secs` | `OBSCURA_WS_PING_TIMEOUT_SECS` | `10` | Wait time for a pong response before closing the connection. |
-| `--ws-message-fetch-batch-size` | `OBSCURA_WS_MESSAGE_FETCH_BATCH_SIZE` | `50` | Maximum number of messages to fetch in a single database query loop. |
+| `--ws-message-fetch-batch-size` | `OBSCURA_WS_MESSAGE_FETCH_BATCH_SIZE` | `50` | Maximum number of messages to fetch in a single database query and deliver in a single WebSocket batch frame. |
+| `--ws-max-batch-bytes` | `OBSCURA_WS_MAX_BATCH_BYTES` | `8388608` | Maximum size in bytes for a single WebSocket batch frame. Envelopes are split into sub-batches that stay under this limit to avoid exceeding client-side frame size limits. |
 | `--ws-ticket-ttl-secs` | `OBSCURA_WS_TICKET_TTL_SECS` | `30` | Time-to-live for WebSocket authentication tickets in seconds. |
 
 ## Health Checks

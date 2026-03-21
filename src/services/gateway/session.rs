@@ -70,6 +70,7 @@ impl Session {
             outbound_tx.clone(),
             metrics.clone(),
             config.message_fetch_batch_size,
+            config.max_batch_bytes,
         );
 
         let prekey_pump =

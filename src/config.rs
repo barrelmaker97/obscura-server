@@ -523,13 +523,23 @@ pub struct WsConfig {
     #[arg(long = "ws-prekey-debounce-interval-ms", env = "OBSCURA_WS_PREKEY_DEBOUNCE_INTERVAL_MS", default_value_t = WsConfig::default().prekey_debounce_interval_ms)]
     pub prekey_debounce_interval_ms: u64,
 
-    /// Maximum number of messages to fetch in a single database query loop
+    /// Maximum number of messages to fetch in a single database query and deliver in a single WebSocket batch frame
     #[arg(
         long = "ws-message-fetch-batch-size",
         env = "OBSCURA_WS_MESSAGE_FETCH_BATCH_SIZE",
         default_value_t = WsConfig::default().message_fetch_batch_size
     )]
     pub message_fetch_batch_size: i64,
+
+    /// Maximum size in bytes for a single WebSocket batch frame.
+    /// Envelopes are split into sub-batches that stay under this limit to avoid
+    /// exceeding client-side frame size limits (e.g. tungstenite's 16 MiB default).
+    #[arg(
+        long = "ws-max-batch-bytes",
+        env = "OBSCURA_WS_MAX_BATCH_BYTES",
+        default_value_t = WsConfig::default().max_batch_bytes
+    )]
+    pub max_batch_bytes: usize,
 
     /// Time-to-live for WebSocket authentication tickets in seconds
     #[arg(
@@ -551,6 +561,7 @@ impl Default for WsConfig {
             ping_timeout_secs: 10,
             prekey_debounce_interval_ms: 500,
             message_fetch_batch_size: 50,
+            max_batch_bytes: 8 * 1024 * 1024, // 8 MiB
             ticket_ttl_secs: 30,
         }
     }
