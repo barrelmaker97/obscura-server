@@ -22,13 +22,14 @@ impl MessagePump {
         outbound_tx: mpsc::Sender<WsMessage>,
         metrics: Metrics,
         batch_limit: i64,
+        max_batch_bytes: usize,
     ) -> Self {
         // Channel size 1 effectively coalesces notifications while a fetch is in progress.
         let (notify_tx, notify_rx) = mpsc::channel(1);
 
         tokio::spawn(
             async move {
-                Self::run_background(device_id, notify_rx, message_service, outbound_tx, metrics, batch_limit).await;
+                Self::run_background(device_id, notify_rx, message_service, outbound_tx, metrics, batch_limit, max_batch_bytes).await;
             }
             .instrument(tracing::info_span!("message_pump", "device.id" = %device_id)),
         );
@@ -47,13 +48,14 @@ impl MessagePump {
         outbound_tx: mpsc::Sender<WsMessage>,
         metrics: Metrics,
         limit: i64,
+        max_batch_bytes: usize,
     ) {
         let mut cursor: Option<(time::OffsetDateTime, Uuid)> = None;
 
         while rx.recv().await.is_some() {
             // Continues fetching until the backlog is fully drained for the user.
             while matches!(
-                Self::flush_batch(device_id, &message_service, &outbound_tx, &metrics, limit, &mut cursor).await,
+                Self::flush_batch(device_id, &message_service, &outbound_tx, &metrics, limit, max_batch_bytes, &mut cursor).await,
                 Ok(true)
             ) {}
         }
@@ -70,6 +72,7 @@ impl MessagePump {
         outbound_tx: &mpsc::Sender<WsMessage>,
         metrics: &Metrics,
         limit: i64,
+        max_batch_bytes: usize,
         cursor: &mut Option<(time::OffsetDateTime, Uuid)>,
     ) -> Result<bool> {
         let messages = service.fetch_pending_batch(device_id, *cursor, limit).await?;
@@ -104,6 +107,35 @@ impl MessagePump {
             })
             .collect();
 
+        // Split envelopes into sub-batches that stay under the WebSocket frame
+        // size limit, sending each as a separate EnvelopeBatch frame.
+        let mut current_batch: Vec<proto::Envelope> = Vec::new();
+        let mut current_size: usize = 0;
+
+        for envelope in envelopes {
+            let envelope_size = envelope.encoded_len();
+
+            if !current_batch.is_empty() && current_size + envelope_size > max_batch_bytes {
+                Self::send_batch(std::mem::take(&mut current_batch), outbound_tx, metrics).await?;
+                current_size = 0;
+            }
+
+            current_size += envelope_size;
+            current_batch.push(envelope);
+        }
+
+        if !current_batch.is_empty() {
+            Self::send_batch(current_batch, outbound_tx, metrics).await?;
+        }
+
+        Ok(batch_size >= usize::try_from(limit).unwrap_or(usize::MAX))
+    }
+
+    async fn send_batch(
+        envelopes: Vec<proto::Envelope>,
+        outbound_tx: &mpsc::Sender<WsMessage>,
+        metrics: &Metrics,
+    ) -> Result<bool> {
         let batch = proto::EnvelopeBatch { envelopes };
         let frame = proto::WebSocketFrame {
             payload: Some(proto::web_socket_frame::Payload::EnvelopeBatch(batch)),
@@ -121,6 +153,6 @@ impl MessagePump {
             return Ok(false);
         }
 
-        Ok(batch_size >= usize::try_from(limit).unwrap_or(usize::MAX))
+        Ok(true)
     }
 }

@@ -489,9 +489,6 @@ impl TestApp {
                     Ok(Message::Binary(bin)) => {
                         if let Ok(frame) = proto::WebSocketFrame::decode(bin.as_ref()) {
                             match frame.payload {
-                                Some(proto::web_socket_frame::Payload::Envelope(e)) => {
-                                    let _ = tx_env.send(e);
-                                }
                                 Some(proto::web_socket_frame::Payload::EnvelopeBatch(batch)) => {
                                     for e in batch.envelopes {
                                         if tx_env.send(e).is_err() {
