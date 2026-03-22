@@ -78,9 +78,10 @@ See [**docs/CONFIGURATION.md**](./docs/CONFIGURATION.md) for the full list of ov
 - PostgreSQL 16+
 - Valkey 8+ (or Redis)
 - `protoc` (Protocol Buffers compiler)
+- [`just`](https://github.com/casey/just) (task runner)
 
 ### Running Locally
-1. Start infrastructure: `docker compose up -d db minio valkey`
+1. Start infrastructure: `just services`
 2. Run migrations and start:
    ```bash
    export OBSCURA_DATABASE_URL=postgres://user:password@localhost/signal_server
@@ -92,7 +93,19 @@ See [**docs/CONFIGURATION.md**](./docs/CONFIGURATION.md) for the full list of ov
 
 ### Testing
 ```bash
-cargo test
+just test
+```
+
+### Code Coverage
+```bash
+just coverage       # LCOV report with summary
+just coverage-html  # Browsable HTML report in coverage/
+```
+
+### Available Commands
+Run `just` to see all available recipes:
+```bash
+just
 ```
 
 ---
