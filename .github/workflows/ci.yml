@@ -64,11 +64,11 @@ jobs:
       - name: Install just
         uses: extractions/setup-just@v3
 
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
-
       - name: Cache dependencies
         uses: swatinem/rust-cache@v2
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov
 
       - name: Run CI checks
         run: just ci
