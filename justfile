@@ -43,48 +43,25 @@ services-down:
     docker compose down
 
 # Generate LCOV coverage report
-coverage: _test-coverage
-    grcov . \
-        --binary-path ./target/debug/ \
-        -s . \
-        -t lcov \
-        --branch \
-        --ignore-not-existing \
-        --ignore "/*" \
-        --ignore "target/*" \
-        --ignore "tests/*" \
-        --ignore "build.rs" \
-        -o lcov.info
+coverage:
+    cargo llvm-cov \
+        --lcov \
+        --ignore-filename-regex '(tests/|build\.rs)' \
+        --output-path lcov.info
     @echo ""
     @echo "Coverage report written to lcov.info"
     @awk '/^LH:/{h+=substr($0,4)} /^LF:/{t+=substr($0,4)} END{printf "Overall: %d/%d lines (%.1f%%)\n",h,t,(h/t)*100}' lcov.info
-    find . -name "*.profraw" -delete
 
 # Generate HTML coverage report
-coverage-html: _test-coverage
-    grcov . \
-        --binary-path ./target/debug/ \
-        -s . \
-        -t html \
-        --branch \
-        --ignore-not-existing \
-        --ignore "/*" \
-        --ignore "target/*" \
-        --ignore "tests/*" \
-        --ignore "build.rs" \
-        -o coverage/
+coverage-html:
+    cargo llvm-cov \
+        --html \
+        --ignore-filename-regex '(tests/|build\.rs)' \
+        --output-dir coverage/
     @echo ""
     @echo "HTML report written to coverage/"
-    find . -name "*.profraw" -delete
 
 # Remove coverage artifacts
 clean-coverage:
+    cargo llvm-cov clean
     rm -rf lcov.info coverage/
-    find . -name "*.profraw" -delete
-
-_test-coverage:
-    find . -name "*.profraw" -delete
-    CARGO_INCREMENTAL=0 \
-    RUSTFLAGS="-C instrument-coverage" \
-    LLVM_PROFILE_FILE="obscura-%p-%m.profraw" \
-    cargo test
