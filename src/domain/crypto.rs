@@ -119,4 +119,57 @@ mod tests {
         let key = PublicKey::try_from_bytes(&bytes).expect("Valid public key bytes");
         assert_eq!(key.as_crypto_bytes(), &inner);
     }
+
+    #[test]
+    fn test_public_key_invalid_length() {
+        let result = PublicKey::try_from_bytes(&[0u8; 32]);
+        assert!(result.expect_err("should fail for wrong length").contains("Invalid key length"));
+    }
+
+    #[test]
+    fn test_public_key_invalid_prefix() {
+        let mut bytes = [0u8; 33];
+        bytes[0] = 0x04;
+        let result = PublicKey::try_from_bytes(&bytes);
+        assert!(result.expect_err("should fail for wrong prefix").contains("Invalid key prefix"));
+    }
+
+    #[test]
+    fn test_public_key_from_vec() {
+        let mut bytes = vec![0u8; 33];
+        bytes[0] = DJB_KEY_PREFIX;
+        let key = PublicKey::try_from(bytes).expect("Valid public key from Vec");
+        assert_eq!(key.as_bytes()[0], DJB_KEY_PREFIX);
+    }
+
+    #[test]
+    fn test_public_key_into_vec() {
+        let mut bytes = [0u8; 33];
+        bytes[0] = DJB_KEY_PREFIX;
+        let key = PublicKey::new(bytes);
+        let vec: Vec<u8> = key.into();
+        assert_eq!(vec.len(), 33);
+        assert_eq!(vec[0], DJB_KEY_PREFIX);
+    }
+
+    #[test]
+    fn test_signature_invalid_length() {
+        let result = Signature::try_from([0u8; 63].as_slice());
+        assert!(result.expect_err("should fail for wrong length").contains("Invalid signature length"));
+    }
+
+    #[test]
+    fn test_signature_from_vec() {
+        let bytes = vec![0u8; 64];
+        let sig = Signature::try_from(bytes).expect("Valid signature from Vec");
+        assert_eq!(sig.as_bytes().len(), 64);
+    }
+
+    #[test]
+    fn test_signature_into_vec() {
+        let sig = Signature::new([1u8; 64]);
+        let vec: Vec<u8> = sig.into();
+        assert_eq!(vec.len(), 64);
+        assert_eq!(vec[0], 1);
+    }
 }

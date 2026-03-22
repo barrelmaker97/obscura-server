@@ -58,3 +58,37 @@ impl IntoResponse for AppError {
         (status, body).into_response()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::response::IntoResponse;
+    use http_body_util::BodyExt;
+
+    fn status_of(err: AppError) -> StatusCode {
+        err.into_response().status()
+    }
+
+    #[test]
+    fn test_error_status_codes() {
+        assert_eq!(status_of(AppError::AuthError), StatusCode::UNAUTHORIZED);
+        assert_eq!(status_of(AppError::NotFound), StatusCode::NOT_FOUND);
+        assert_eq!(status_of(AppError::BadRequest("bad".into())), StatusCode::BAD_REQUEST);
+        assert_eq!(status_of(AppError::Conflict("dup".into())), StatusCode::CONFLICT);
+        assert_eq!(status_of(AppError::Forbidden("no".into())), StatusCode::FORBIDDEN);
+        assert_eq!(status_of(AppError::PreconditionFailed), StatusCode::PRECONDITION_FAILED);
+        assert_eq!(status_of(AppError::Timeout), StatusCode::REQUEST_TIMEOUT);
+        assert_eq!(status_of(AppError::LengthRequired), StatusCode::LENGTH_REQUIRED);
+        assert_eq!(status_of(AppError::PayloadTooLarge), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(status_of(AppError::Internal), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(status_of(AppError::InternalMsg("oops".into())), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn test_error_response_body_format() {
+        let response = AppError::NotFound.into_response();
+        let body = response.into_body().collect().await.expect("body").to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).expect("valid JSON");
+        assert_eq!(json["error"], "Not found");
+    }
+}

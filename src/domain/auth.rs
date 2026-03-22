@@ -45,3 +45,50 @@ impl std::fmt::Display for Jwt {
 pub struct Password;
 #[derive(Debug)]
 pub struct OpaqueToken;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[test]
+    fn test_jwt_debug_is_redacted() {
+        let jwt = Jwt::new("super-secret-token".to_string());
+        let debug = format!("{jwt:?}");
+        assert_eq!(debug, "Jwt(***)");
+        assert!(!debug.contains("super-secret-token"));
+    }
+
+    #[test]
+    fn test_jwt_display_is_redacted() {
+        let jwt = Jwt::new("super-secret-token".to_string());
+        let display = format!("{jwt}");
+        assert_eq!(display, "***");
+        assert!(!display.contains("super-secret-token"));
+    }
+
+    #[test]
+    fn test_jwt_as_str_returns_inner_value() {
+        let jwt = Jwt::new("my-token".to_string());
+        assert_eq!(jwt.as_str(), "my-token");
+    }
+
+    #[test]
+    fn test_claims_new_with_device_id() {
+        let user_id = Uuid::new_v4();
+        let device_id = Uuid::new_v4();
+        let claims = Claims::new(user_id, Some(device_id), 3600);
+        assert_eq!(claims.sub, user_id);
+        assert_eq!(claims.device_id, Some(device_id));
+        assert_eq!(claims.exp, 3600);
+    }
+
+    #[test]
+    fn test_claims_new_without_device_id() {
+        let user_id = Uuid::new_v4();
+        let claims = Claims::new(user_id, None, 7200);
+        assert_eq!(claims.sub, user_id);
+        assert_eq!(claims.device_id, None);
+        assert_eq!(claims.exp, 7200);
+    }
+}

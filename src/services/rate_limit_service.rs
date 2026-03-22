@@ -104,3 +104,70 @@ impl RateLimitService {
         self.metrics.decisions_total.add(1, &[KeyValue::new("status", label)]);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn extractor_with_trusted(cidrs: &[&str]) -> IpKeyExtractor {
+        let trusted = cidrs.iter().map(|c| c.parse().expect("valid CIDR")).collect();
+        IpKeyExtractor::new(trusted)
+    }
+
+    #[test]
+    fn test_direct_connection_no_forwarding() {
+        let extractor = extractor_with_trusted(&["10.0.0.0/8"]);
+        let headers = axum::http::HeaderMap::new();
+        let peer: IpAddr = "203.0.113.5".parse().expect("valid IP");
+        assert_eq!(extractor.identify_client_ip(&headers, peer), peer);
+    }
+
+    #[test]
+    fn test_untrusted_peer_ignores_xff() {
+        let extractor = extractor_with_trusted(&["10.0.0.0/8"]);
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("x-forwarded-for", "1.2.3.4".parse().expect("valid header"));
+        let peer: IpAddr = "203.0.113.5".parse().expect("valid IP");
+        assert_eq!(extractor.identify_client_ip(&headers, peer), peer);
+    }
+
+    #[test]
+    fn test_trusted_peer_uses_xff() {
+        let extractor = extractor_with_trusted(&["10.0.0.0/8"]);
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("x-forwarded-for", "203.0.113.50".parse().expect("valid header"));
+        let peer: IpAddr = "10.0.0.1".parse().expect("valid IP");
+        let expected: IpAddr = "203.0.113.50".parse().expect("valid IP");
+        assert_eq!(extractor.identify_client_ip(&headers, peer), expected);
+    }
+
+    #[test]
+    fn test_trusted_peer_xff_chain_picks_rightmost_untrusted() {
+        let extractor = extractor_with_trusted(&["10.0.0.0/8"]);
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("x-forwarded-for", "1.1.1.1, 2.2.2.2, 10.0.0.5".parse().expect("valid header"));
+        let peer: IpAddr = "10.0.0.1".parse().expect("valid IP");
+        let expected: IpAddr = "2.2.2.2".parse().expect("valid IP");
+        assert_eq!(extractor.identify_client_ip(&headers, peer), expected);
+    }
+
+    #[test]
+    fn test_trusted_peer_no_xff_falls_back_to_peer() {
+        let extractor = extractor_with_trusted(&["10.0.0.0/8"]);
+        let headers = axum::http::HeaderMap::new();
+        let peer: IpAddr = "10.0.0.1".parse().expect("valid IP");
+        assert_eq!(extractor.identify_client_ip(&headers, peer), peer);
+    }
+
+    #[test]
+    fn test_is_trusted_matching_cidr() {
+        let extractor = extractor_with_trusted(&["192.168.1.0/24"]);
+        assert!(extractor.is_trusted(&"192.168.1.50".parse().expect("valid IP")));
+    }
+
+    #[test]
+    fn test_is_trusted_non_matching() {
+        let extractor = extractor_with_trusted(&["192.168.1.0/24"]);
+        assert!(!extractor.is_trusted(&"10.0.0.1".parse().expect("valid IP")));
+    }
+}
