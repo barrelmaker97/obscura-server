@@ -29,7 +29,16 @@ impl MessagePump {
 
         tokio::spawn(
             async move {
-                Self::run_background(device_id, notify_rx, message_service, outbound_tx, metrics, batch_limit, max_batch_bytes).await;
+                Self::run_background(
+                    device_id,
+                    notify_rx,
+                    message_service,
+                    outbound_tx,
+                    metrics,
+                    batch_limit,
+                    max_batch_bytes,
+                )
+                .await;
             }
             .instrument(tracing::info_span!("message_pump", "device.id" = %device_id)),
         );
@@ -55,7 +64,16 @@ impl MessagePump {
         while rx.recv().await.is_some() {
             // Continues fetching until the backlog is fully drained for the user.
             while matches!(
-                Self::flush_batch(device_id, &message_service, &outbound_tx, &metrics, limit, max_batch_bytes, &mut cursor).await,
+                Self::flush_batch(
+                    device_id,
+                    &message_service,
+                    &outbound_tx,
+                    &metrics,
+                    limit,
+                    max_batch_bytes,
+                    &mut cursor
+                )
+                .await,
                 Ok(true)
             ) {}
         }
@@ -137,9 +155,7 @@ impl MessagePump {
         metrics: &Metrics,
     ) -> Result<bool> {
         let batch = proto::EnvelopeBatch { envelopes };
-        let frame = proto::WebSocketFrame {
-            payload: Some(proto::web_socket_frame::Payload::EnvelopeBatch(batch)),
-        };
+        let frame = proto::WebSocketFrame { payload: Some(proto::web_socket_frame::Payload::EnvelopeBatch(batch)) };
         let mut buf = Vec::new();
 
         if let Err(err) = frame.encode(&mut buf) {
