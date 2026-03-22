@@ -2,6 +2,10 @@
 default:
     @just --list
 
+# Remove build artifacts
+clean:
+    cargo clean
+
 # Type-check without building
 check:
     cargo check
@@ -26,7 +30,7 @@ clippy:
 test:
     cargo test
 
-# Run full CI suite locally (format check + clippy + coverage)
+# Run full CI suite locally
 ci: fmt-check clippy coverage
 
 # Start backing services for local development
