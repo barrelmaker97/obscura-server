@@ -37,3 +37,35 @@ pub struct Backup {
     pub updated_at: OffsetDateTime,
     pub pending_at: Option<OffsetDateTime>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_backup_state_from_str_active() {
+        let state: BackupState = "ACTIVE".parse().expect("Valid state");
+        assert_eq!(state, BackupState::Active);
+    }
+
+    #[test]
+    fn test_backup_state_from_str_uploading() {
+        let state: BackupState = "UPLOADING".parse().expect("Valid state");
+        assert_eq!(state, BackupState::Uploading);
+    }
+
+    #[test]
+    fn test_backup_state_from_str_invalid() {
+        let result: Result<BackupState, _> = "INVALID".parse();
+        assert!(result.is_err());
+        assert!(result.expect_err("should fail for invalid state").contains("Invalid backup state"));
+    }
+
+    #[test]
+    fn test_backup_state_display_roundtrip() {
+        let active = BackupState::Active;
+        let uploading = BackupState::Uploading;
+        assert_eq!(active.to_string().parse::<BackupState>().expect("Active roundtrip"), active);
+        assert_eq!(uploading.to_string().parse::<BackupState>().expect("Uploading roundtrip"), uploading);
+    }
+}

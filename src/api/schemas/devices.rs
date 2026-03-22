@@ -47,3 +47,46 @@ pub struct DeviceListResponse {
 pub struct UpdateDeviceRequest {
     pub name: Option<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::schemas::crypto::Signature;
+
+    fn mock_device_request(key_ids: Vec<i32>) -> CreateDeviceRequest {
+        CreateDeviceRequest {
+            name: Some("test-device".to_string()),
+            identity_key: PublicKey("A".repeat(44)),
+            registration_id: 1,
+            signed_pre_key: SignedPreKey {
+                key_id: 1,
+                public_key: PublicKey("B".repeat(44)),
+                signature: Signature("C".repeat(88)),
+            },
+            one_time_pre_keys: key_ids
+                .into_iter()
+                .map(|id| OneTimePreKey { key_id: id, public_key: PublicKey("D".repeat(44)) })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn test_validate_unique_prekey_ids() {
+        let req = mock_device_request(vec![1, 2, 3]);
+        assert!(req.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_duplicate_prekey_ids() {
+        let req = mock_device_request(vec![1, 2, 1]);
+        let result = req.validate();
+        assert!(result.is_err());
+        assert!(result.expect_err("should fail for duplicate IDs").contains("Duplicate prekey ID: 1"));
+    }
+
+    #[test]
+    fn test_validate_empty_prekeys() {
+        let req = mock_device_request(vec![]);
+        assert!(req.validate().is_ok());
+    }
+}
