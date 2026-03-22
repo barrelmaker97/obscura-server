@@ -27,6 +27,11 @@ target
 # Logs
 *.log
 
+# Code coverage
+*.profraw
+lcov.info
+coverage/
+
 # Added by cargo
 
 /target

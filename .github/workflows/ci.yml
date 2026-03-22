@@ -61,14 +61,23 @@ jobs:
       - name: Set up Rust toolchain
         run: rustup show
 
+      - name: Install just
+        uses: extractions/setup-just@v3
+
+      - name: Install grcov
+        run: cargo install grcov
+
       - name: Cache dependencies
         uses: swatinem/rust-cache@v2
 
-      - name: Run clippy
-        run: cargo clippy -- -D warnings
+      - name: Run CI checks
+        run: just ci
 
-      - name: Run tests
-        run: cargo test
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: lcov.info
 
       - name: Run smoke test
         run: cargo run -- --help
