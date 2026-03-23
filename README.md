@@ -58,14 +58,17 @@ curl http://localhost:3000/openapi.yaml
 
 ## Configuration
 
-Obscura can be configured via command-line flags or environment variables. **Essential configurations** include:
+Obscura can be configured via command-line flags or environment variables. Every option has a default, but the following must be set for a working deployment:
 
-| Option | Environment Variable | Default |
-|--------|----------------------|---------|
-| `--db-url` | `OBSCURA_DATABASE_URL` | `postgres://user:password@localhost/signal_server` |
-| `--pubsub-url` | `OBSCURA_PUBSUB_URL` | `redis://localhost:6379` |
-| `--auth-jwt-secret` | `OBSCURA_AUTH_JWT_SECRET` | `change_me_in_production` |
-| `--storage-bucket` | `OBSCURA_STORAGE_BUCKET` | `obscura-storage` |
+| Option | Environment Variable | Default | Notes |
+|--------|----------------------|---------|-------|
+| `--db-url` | `OBSCURA_DATABASE_URL` | `postgres://user:password@localhost/signal_server` | |
+| `--pubsub-url` | `OBSCURA_PUBSUB_URL` | `redis://localhost:6379` | |
+| `--auth-jwt-secret` | `OBSCURA_AUTH_JWT_SECRET` | `change_me_in_production` | **Must** change in production |
+| `--storage-bucket` | `OBSCURA_STORAGE_BUCKET` | `obscura-storage` | |
+| `--storage-endpoint` | `OBSCURA_STORAGE_ENDPOINT` | *(none)* | Required for MinIO / self-hosted S3 |
+| `--storage-access-key` | `OBSCURA_STORAGE_ACCESS_KEY` | *(none)* | Required for MinIO / self-hosted S3 |
+| `--storage-secret-key` | `OBSCURA_STORAGE_SECRET_KEY` | *(none)* | Required for MinIO / self-hosted S3 |
 
 See [**docs/CONFIGURATION.md**](./docs/CONFIGURATION.md) for the full list of over 50 configuration options.
 
