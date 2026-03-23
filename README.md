@@ -81,8 +81,8 @@ See [**docs/CONFIGURATION.md**](./docs/CONFIGURATION.md) for the full list of ov
 - [`just`](https://github.com/casey/just) (task runner)
 
 **Runtime:**
-- PostgreSQL 16+
-- Valkey 8+ (or Redis)
+- PostgreSQL (17+; migrations use `uuidv7()`)
+- Valkey (or Redis)
 - S3-compatible storage (e.g. MinIO)
 
 > **Tip:** `just services` starts all runtime dependencies via Docker Compose for local development.
