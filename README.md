@@ -37,7 +37,7 @@ Obscura is designed to protect the **content** of communications even if the ser
 ## Quick Start
 
 ### 1. Run with Docker Compose
-A `docker-compose.yml` is provided for a complete local stack (Postgres + Valkey + MinIO + Server):
+A `docker-compose.yml` is provided for a complete local stack (Postgres + Valkey + MinIO + Grafana OTEL LGTM + Server):
 
 ```bash
 docker compose up -d
@@ -64,7 +64,7 @@ Obscura can be configured via command-line flags or environment variables. **Ess
 |--------|----------------------|---------|
 | `--db-url` | `OBSCURA_DATABASE_URL` | `postgres://user:password@localhost/signal_server` |
 | `--pubsub-url` | `OBSCURA_PUBSUB_URL` | `redis://localhost:6379` |
-| `--jwt-secret` | `OBSCURA_AUTH_JWT_SECRET` | `change_me_in_production` |
+| `--auth-jwt-secret` | `OBSCURA_AUTH_JWT_SECRET` | `change_me_in_production` |
 | `--storage-bucket` | `OBSCURA_STORAGE_BUCKET` | `obscura-storage` |
 
 See [**docs/CONFIGURATION.md**](./docs/CONFIGURATION.md) for the full list of over 50 configuration options.
@@ -74,20 +74,23 @@ See [**docs/CONFIGURATION.md**](./docs/CONFIGURATION.md) for the full list of ov
 ## Development
 
 ### Prerequisites
-- Rust 1.83+
-- PostgreSQL 16+
-- Valkey 8+ (or Redis)
+- Rust (stable toolchain, see [rust-toolchain.toml](./rust-toolchain.toml))
 - `protoc` (Protocol Buffers compiler)
 - [`just`](https://github.com/casey/just) (task runner)
+- Docker (for backing services)
 
 ### Running Locally
 1. Start infrastructure: `just services`
-2. Run migrations and start:
+2. Start the server (migrations run automatically):
    ```bash
    export OBSCURA_DATABASE_URL=postgres://user:password@localhost/signal_server
    export OBSCURA_PUBSUB_URL=redis://localhost:6379
    export OBSCURA_AUTH_JWT_SECRET=test
-   export OBSCURA_STORAGE_BUCKET=test
+   export OBSCURA_STORAGE_BUCKET=test-bucket
+   export OBSCURA_STORAGE_ENDPOINT=http://localhost:9000
+   export OBSCURA_STORAGE_ACCESS_KEY=minioadmin
+   export OBSCURA_STORAGE_SECRET_KEY=minioadmin
+   export OBSCURA_STORAGE_FORCE_PATH_STYLE=true
    cargo run
    ```
 
@@ -116,7 +119,7 @@ just
 - **Configuration Guide**: [docs/CONFIGURATION.md](./docs/CONFIGURATION.md)
 - **Release Process**: [docs/RELEASING.md](./docs/RELEASING.md)
 - **System Architecture**: [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
-- **Design Docs**: [docs/design/](./docs/design/)
+- **Planning Docs**: [docs/planning/](./docs/planning/)
 
 # License
 
