@@ -74,10 +74,18 @@ See [**docs/CONFIGURATION.md**](./docs/CONFIGURATION.md) for the full list of ov
 ## Development
 
 ### Prerequisites
+
+**Build:**
 - Rust (stable toolchain, see [rust-toolchain.toml](./rust-toolchain.toml))
 - `protoc` (Protocol Buffers compiler)
 - [`just`](https://github.com/casey/just) (task runner)
-- Docker (for backing services)
+
+**Runtime:**
+- PostgreSQL 16+
+- Valkey 8+ (or Redis)
+- S3-compatible storage (e.g. MinIO)
+
+> **Tip:** `just services` starts all runtime dependencies via Docker Compose for local development.
 
 ### Running Locally
 1. Start infrastructure: `just services`
