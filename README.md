@@ -58,7 +58,7 @@ curl http://localhost:3000/openapi.yaml
 
 ## Configuration
 
-Obscura can be configured via command-line flags or environment variables. Every option has a default, but the following must be set for a working deployment:
+Obscura can be configured via command-line flags or environment variables. The following must be set for a working deployment:
 
 | Option | Environment Variable | Default | Notes |
 |--------|----------------------|---------|-------|
