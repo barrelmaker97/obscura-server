@@ -37,7 +37,7 @@ Obscura is designed to protect the **content** of communications even if the ser
 ## Quick Start
 
 ### 1. Run with Docker Compose
-A `docker-compose.yml` is provided for a complete local stack (Postgres + Valkey + MinIO + Server):
+A `docker-compose.yml` is provided for a complete local stack (Postgres + Valkey + MinIO + Grafana OTEL LGTM + Server):
 
 ```bash
 docker compose up -d
@@ -58,14 +58,17 @@ curl http://localhost:3000/openapi.yaml
 
 ## Configuration
 
-Obscura can be configured via command-line flags or environment variables. **Essential configurations** include:
+Obscura can be configured via command-line flags or environment variables. Every option has a default, but the following must be set for a working deployment:
 
-| Option | Environment Variable | Default |
-|--------|----------------------|---------|
-| `--db-url` | `OBSCURA_DATABASE_URL` | `postgres://user:password@localhost/signal_server` |
-| `--pubsub-url` | `OBSCURA_PUBSUB_URL` | `redis://localhost:6379` |
-| `--jwt-secret` | `OBSCURA_AUTH_JWT_SECRET` | `change_me_in_production` |
-| `--storage-bucket` | `OBSCURA_STORAGE_BUCKET` | `obscura-storage` |
+| Option | Environment Variable | Default | Notes |
+|--------|----------------------|---------|-------|
+| `--db-url` | `OBSCURA_DATABASE_URL` | `postgres://user:password@localhost/signal_server` | |
+| `--pubsub-url` | `OBSCURA_PUBSUB_URL` | `redis://localhost:6379` | |
+| `--auth-jwt-secret` | `OBSCURA_AUTH_JWT_SECRET` | `change_me_in_production` | **Must** change in production |
+| `--storage-bucket` | `OBSCURA_STORAGE_BUCKET` | `obscura-storage` | |
+| `--storage-endpoint` | `OBSCURA_STORAGE_ENDPOINT` | *(none)* | Required for MinIO / self-hosted S3 |
+| `--storage-access-key` | `OBSCURA_STORAGE_ACCESS_KEY` | *(none)* | Required for MinIO / self-hosted S3 |
+| `--storage-secret-key` | `OBSCURA_STORAGE_SECRET_KEY` | *(none)* | Required for MinIO / self-hosted S3 |
 
 See [**docs/CONFIGURATION.md**](./docs/CONFIGURATION.md) for the full list of over 50 configuration options.
 
@@ -74,20 +77,29 @@ See [**docs/CONFIGURATION.md**](./docs/CONFIGURATION.md) for the full list of ov
 ## Development
 
 ### Prerequisites
-- Rust 1.83+
-- PostgreSQL 16+
-- Valkey 8+ (or Redis)
+
+**Build:**
+- Rust (stable toolchain, see [rust-toolchain.toml](./rust-toolchain.toml))
 - `protoc` (Protocol Buffers compiler)
 - [`just`](https://github.com/casey/just) (task runner)
 
+**Runtime:**
+- PostgreSQL 17+
+- Valkey (or Redis)
+- S3-compatible storage
+
 ### Running Locally
 1. Start infrastructure: `just services`
-2. Run migrations and start:
+2. Start the server (migrations run automatically):
    ```bash
    export OBSCURA_DATABASE_URL=postgres://user:password@localhost/signal_server
    export OBSCURA_PUBSUB_URL=redis://localhost:6379
    export OBSCURA_AUTH_JWT_SECRET=test
-   export OBSCURA_STORAGE_BUCKET=test
+   export OBSCURA_STORAGE_BUCKET=test-bucket
+   export OBSCURA_STORAGE_ENDPOINT=http://localhost:9000
+   export OBSCURA_STORAGE_ACCESS_KEY=minioadmin
+   export OBSCURA_STORAGE_SECRET_KEY=minioadmin
+   export OBSCURA_STORAGE_FORCE_PATH_STYLE=true
    cargo run
    ```
 
@@ -116,7 +128,7 @@ just
 - **Configuration Guide**: [docs/CONFIGURATION.md](./docs/CONFIGURATION.md)
 - **Release Process**: [docs/RELEASING.md](./docs/RELEASING.md)
 - **System Architecture**: [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
-- **Design Docs**: [docs/design/](./docs/design/)
+- **Planning Docs**: [docs/planning/](./docs/planning/)
 
 # License
 
