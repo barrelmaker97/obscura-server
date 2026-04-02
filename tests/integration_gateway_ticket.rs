@@ -14,6 +14,7 @@
     clippy::similar_names
 )]
 use reqwest::StatusCode;
+use tokio_tungstenite::tungstenite;
 
 mod common;
 
@@ -63,4 +64,75 @@ async fn test_generate_websocket_ticket_unauthenticated() {
     let resp = app.client.post(format!("{}/v1/gateway/ticket", app.server_url)).send().await.unwrap();
 
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "Expected unauthorized response");
+}
+
+// --- Gateway WebSocket ticket error path tests ---
+
+/// Covers the `Ok(None)` branch in `websocket_handler` (ticket not found / expired).
+#[tokio::test]
+async fn test_websocket_with_nonexistent_ticket() {
+    let app = common::TestApp::spawn().await;
+
+    let url = format!("{}?ticket=nonexistent-ticket-value", app.ws_url);
+    let result = tokio_tungstenite::connect_async(url).await;
+
+    match result {
+        Err(tungstenite::Error::Http(resp)) => {
+            assert_eq!(resp.status(), 401, "Expected UNAUTHORIZED for missing ticket");
+        }
+        Err(e) => panic!("Expected HTTP 401 error, got: {e:?}"),
+        Ok(_) => panic!("Expected connection failure for nonexistent ticket"),
+    }
+}
+
+/// Covers the `Err("Invalid device ID format in cache")` branch in `websocket_handler`.
+#[tokio::test]
+async fn test_websocket_with_invalid_device_id_in_cache() {
+    let app = common::TestApp::spawn().await;
+
+    // Write a non-UUID string directly into the ticket cache
+    let cache = obscura_server::adapters::redis::RedisCache::new(
+        std::sync::Arc::clone(&app.resources.pubsub),
+        "ws:ticket:".to_string(),
+        30,
+    );
+    let ticket = "test-corrupt-ticket";
+    cache.set(ticket, b"not-a-valid-uuid").await.expect("Failed to seed cache");
+
+    let url = format!("{}?ticket={}", app.ws_url, ticket);
+    let result = tokio_tungstenite::connect_async(url).await;
+
+    match result {
+        Err(tungstenite::Error::Http(resp)) => {
+            assert_eq!(resp.status(), 401, "Expected UNAUTHORIZED for corrupt device ID");
+        }
+        Err(e) => panic!("Expected HTTP 401 error, got: {e:?}"),
+        Ok(_) => panic!("Expected connection failure for invalid device ID in cache"),
+    }
+}
+
+/// Covers the `Err("Invalid UTF-8 in cache")` branch in `websocket_handler`.
+#[tokio::test]
+async fn test_websocket_with_invalid_utf8_in_cache() {
+    let app = common::TestApp::spawn().await;
+
+    // Write invalid UTF-8 bytes directly into the ticket cache
+    let cache = obscura_server::adapters::redis::RedisCache::new(
+        std::sync::Arc::clone(&app.resources.pubsub),
+        "ws:ticket:".to_string(),
+        30,
+    );
+    let ticket = "test-invalid-utf8-ticket";
+    cache.set(ticket, &[0xFF, 0xFE, 0x80, 0x81]).await.expect("Failed to seed cache");
+
+    let url = format!("{}?ticket={}", app.ws_url, ticket);
+    let result = tokio_tungstenite::connect_async(url).await;
+
+    match result {
+        Err(tungstenite::Error::Http(resp)) => {
+            assert_eq!(resp.status(), 401, "Expected UNAUTHORIZED for invalid UTF-8");
+        }
+        Err(e) => panic!("Expected HTTP 401 error, got: {e:?}"),
+        Ok(_) => panic!("Expected connection failure for invalid UTF-8 in cache"),
+    }
 }

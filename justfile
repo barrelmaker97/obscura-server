@@ -50,6 +50,7 @@ services-down:
 coverage:
     cargo llvm-cov \
         --lcov \
+        --fail-under-lines 80 \
         --ignore-filename-regex '(tests/|build\.rs)' \
         --output-path lcov.info
     @echo ""
@@ -60,6 +61,7 @@ coverage:
 coverage-html:
     cargo llvm-cov \
         --html \
+        --fail-under-lines 80 \
         --ignore-filename-regex '(tests/|build\.rs)' \
         --output-dir coverage/
     @echo ""
