@@ -596,3 +596,138 @@ async fn test_backup_header_conflicts() {
         .unwrap();
     assert_eq!(resp_missing.status(), StatusCode::BAD_REQUEST);
 }
+
+/// When the DB has a committed backup (current_version > 0) but the S3 object
+/// is missing, download should return 404 via the `StorageError::NotFound` mapping.
+#[tokio::test]
+async fn test_backup_download_orphaned_db_record() {
+    let mut config = common::get_test_config();
+    config.storage.bucket = format!("test-orphan-dl-{}", &Uuid::new_v4().to_string()[..8]);
+    config.backup.min_size_bytes = 0;
+
+    let app = common::TestApp::spawn_with_config(config.clone()).await;
+    common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
+
+    let user = app.register_user(&common::generate_username("orphan_dl")).await;
+
+    // Insert a DB record claiming version 1 exists, but don't upload to S3
+    sqlx::query(
+        "INSERT INTO backups (device_id, current_version, state) VALUES ($1, 1, 'ACTIVE')",
+    )
+    .bind(user.device_id)
+    .execute(&app.pool)
+    .await
+    .unwrap();
+
+    let resp = app
+        .client
+        .get(format!("{}/v1/backup", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+/// Same as above but for HEAD — covers the `StorageError::NotFound` mapping in `head()`.
+#[tokio::test]
+async fn test_backup_head_orphaned_db_record() {
+    let mut config = common::get_test_config();
+    config.storage.bucket = format!("test-orphan-hd-{}", &Uuid::new_v4().to_string()[..8]);
+    config.backup.min_size_bytes = 0;
+
+    let app = common::TestApp::spawn_with_config(config.clone()).await;
+    common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
+
+    let user = app.register_user(&common::generate_username("orphan_hd")).await;
+
+    // Insert a DB record claiming version 1 exists, but don't upload to S3
+    sqlx::query(
+        "INSERT INTO backups (device_id, current_version, state) VALUES ($1, 1, 'ACTIVE')",
+    )
+    .bind(user.device_id)
+    .execute(&app.pool)
+    .await
+    .unwrap();
+
+    let resp = app
+        .client
+        .head(format!("{}/v1/backup", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+/// Tests the actual stale-upload takeover path in `handle_upload`.
+///
+/// Manually puts the DB into UPLOADING state with an OLD `pending_at`, then
+/// sends a new upload with the matching version. The service should detect
+/// the stale upload and force-reserve a new slot (takeover).
+#[tokio::test]
+async fn test_backup_stale_takeover_via_db_state() {
+    let mut config = common::get_test_config();
+    config.storage.bucket = format!("test-stale-take-{}", &Uuid::new_v4().to_string()[..8]);
+    config.backup.min_size_bytes = 0;
+    config.backup.stale_threshold_mins = 1; // 1 minute threshold
+
+    let app = common::TestApp::spawn_with_config(config.clone()).await;
+    common::ensure_storage_bucket(&app.s3_client, &config.storage.bucket).await;
+
+    let user = app.register_user(&common::generate_username("stale_take")).await;
+
+    // Upload v1 to S3 so there's a real backup on disk
+    let key_v1 = format!("{}{}/v1", config.backup.prefix, user.device_id);
+    app.s3_client
+        .put_object()
+        .bucket(&config.storage.bucket)
+        .key(&key_v1)
+        .body(aws_sdk_s3::primitives::ByteStream::from(b"original backup".to_vec()))
+        .send()
+        .await
+        .unwrap();
+
+    // Put DB into UPLOADING state with a STALE pending_at (2 minutes ago)
+    // This simulates a previous upload that started but never completed.
+    sqlx::query(
+        "INSERT INTO backups (device_id, current_version, pending_version, state, pending_at) \
+         VALUES ($1, 1, 2, 'UPLOADING', NOW() - INTERVAL '2 minutes')",
+    )
+    .bind(user.device_id)
+    .execute(&app.pool)
+    .await
+    .unwrap();
+
+    // Send a new upload with If-Match: 1 (matching current_version).
+    // reserve_active_slot fails (state=UPLOADING), but the fallback detects
+    // stale pending_at and performs a takeover via reserve_slot_force.
+    let resp = app
+        .client
+        .post(format!("{}/v1/backup", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .header("If-Match", "1")
+        .body(b"Takeover backup data".to_vec())
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let etag = resp.headers().get("ETag").unwrap().to_str().unwrap();
+    assert_eq!(etag, "\"2\"", "Takeover should produce version 2");
+
+    // Verify the backup is downloadable
+    let dl = app
+        .client
+        .get(format!("{}/v1/backup", app.server_url))
+        .header("Authorization", format!("Bearer {}", user.token))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(dl.status(), StatusCode::OK);
+    assert_eq!(dl.bytes().await.unwrap(), b"Takeover backup data".as_ref());
+}
+
+
