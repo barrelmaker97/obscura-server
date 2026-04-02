@@ -611,13 +611,11 @@ async fn test_backup_download_orphaned_db_record() {
     let user = app.register_user(&common::generate_username("orphan_dl")).await;
 
     // Insert a DB record claiming version 1 exists, but don't upload to S3
-    sqlx::query(
-        "INSERT INTO backups (device_id, current_version, state) VALUES ($1, 1, 'ACTIVE')",
-    )
-    .bind(user.device_id)
-    .execute(&app.pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO backups (device_id, current_version, state) VALUES ($1, 1, 'ACTIVE')")
+        .bind(user.device_id)
+        .execute(&app.pool)
+        .await
+        .unwrap();
 
     let resp = app
         .client
@@ -643,13 +641,11 @@ async fn test_backup_head_orphaned_db_record() {
     let user = app.register_user(&common::generate_username("orphan_hd")).await;
 
     // Insert a DB record claiming version 1 exists, but don't upload to S3
-    sqlx::query(
-        "INSERT INTO backups (device_id, current_version, state) VALUES ($1, 1, 'ACTIVE')",
-    )
-    .bind(user.device_id)
-    .execute(&app.pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO backups (device_id, current_version, state) VALUES ($1, 1, 'ACTIVE')")
+        .bind(user.device_id)
+        .execute(&app.pool)
+        .await
+        .unwrap();
 
     let resp = app
         .client
@@ -729,5 +725,3 @@ async fn test_backup_stale_takeover_via_db_state() {
     assert_eq!(dl.status(), StatusCode::OK);
     assert_eq!(dl.bytes().await.unwrap(), b"Takeover backup data".as_ref());
 }
-
-
