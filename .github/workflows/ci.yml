@@ -63,7 +63,7 @@ jobs:
         run: rustup show
 
       - name: Install just
-        uses: extractions/setup-just@v3
+        uses: extractions/setup-just@v4
 
       - name: Cache dependencies
         uses: swatinem/rust-cache@v2
