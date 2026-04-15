@@ -46,6 +46,9 @@ pub struct Config {
 
     #[command(flatten)]
     pub telemetry: TelemetryConfig,
+
+    #[command(flatten)]
+    pub fcm: FcmConfig,
 }
 
 impl Default for Config {
@@ -65,6 +68,7 @@ impl Default for Config {
             attachment: AttachmentConfig::default(),
             storage: StorageConfig::default(),
             telemetry: TelemetryConfig::default(),
+            fcm: FcmConfig::default(),
         }
     }
 }
@@ -796,6 +800,17 @@ impl Default for HealthConfig {
     fn default() -> Self {
         Self { db_timeout_ms: 2000, storage_timeout_ms: 2000, pubsub_timeout_ms: 2000 }
     }
+}
+
+#[derive(Clone, Debug, Default, Args)]
+pub struct FcmConfig {
+    /// Google Cloud Project ID for FCM
+    #[arg(long = "fcm-project-id", env = "OBSCURA_FCM_PROJECT_ID")]
+    pub project_id: Option<String>,
+
+    /// Path to the Google service account JSON credentials file
+    #[arg(long = "fcm-credentials-file", env = "OBSCURA_FCM_CREDENTIALS_FILE")]
+    pub credentials_file: Option<String>,
 }
 
 #[cfg(test)]

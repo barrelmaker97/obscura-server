@@ -21,3 +21,16 @@ pub trait PushProvider: Send + Sync + std::fmt::Debug {
     /// Returns `PushError::Unregistered` if the token is invalid and should be deleted.
     async fn send_push(&self, token: &str) -> Result<(), PushError>;
 }
+
+/// A no-op push provider that logs instead of sending real notifications.
+/// Used when FCM credentials are not configured.
+#[derive(Debug)]
+pub struct LoggingPushProvider;
+
+#[async_trait]
+impl PushProvider for LoggingPushProvider {
+    async fn send_push(&self, token: &str) -> Result<(), PushError> {
+        tracing::warn!(token = %token, "Push notification not sent: FCM is not configured");
+        Ok(())
+    }
+}
