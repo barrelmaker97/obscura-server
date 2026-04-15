@@ -162,6 +162,7 @@ impl FcmPushProvider {
     /// Uses a read-biased caching strategy: most callers take a read lock and
     /// get the cached token. Only when the token is missing or near expiry does
     /// a single caller acquire a write lock and refresh.
+    #[tracing::instrument(level = "debug", skip(self), err)]
     async fn get_access_token(&self) -> Result<String, PushError> {
         // Fast path: read lock
         {
@@ -191,6 +192,7 @@ impl FcmPushProvider {
     }
 
     /// Performs the JWT bearer assertion flow to obtain a new access token.
+    #[tracing::instrument(level = "debug", skip(self), err)]
     async fn fetch_access_token(&self) -> Result<CachedToken, PushError> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
 
@@ -227,6 +229,7 @@ impl FcmPushProvider {
     }
 
     /// Sends a data-only push notification via the FCM HTTP v1 API.
+    #[tracing::instrument(level = "debug", skip(self, device_token), err)]
     async fn send_fcm_message(&self, device_token: &str) -> Result<(), PushError> {
         let access_token = self.get_access_token().await?;
 
@@ -295,6 +298,7 @@ impl FcmPushProvider {
 
 #[async_trait]
 impl PushProvider for FcmPushProvider {
+    #[tracing::instrument(level = "debug", skip(self, token), err)]
     async fn send_push(&self, token: &str) -> Result<(), PushError> {
         self.send_fcm_message(token).await
     }
