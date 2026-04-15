@@ -71,6 +71,12 @@ pub struct FcmPushProvider {
     encoding_key: EncodingKey,
     http: reqwest::Client,
     token_cache: Arc<RwLock<Option<CachedToken>>>,
+    /// Base URL for the FCM API. Defaults to `https://fcm.googleapis.com`.
+    /// Overridden in tests to point at a mock server.
+    fcm_base_url: String,
+    /// Token endpoint URL. Defaults to Google's `OAuth2` token endpoint.
+    /// Overridden in tests to point at a mock server.
+    token_endpoint: String,
 }
 
 /// FCM error detail returned in the response body.
@@ -146,6 +152,8 @@ impl FcmPushProvider {
             encoding_key,
             http: reqwest::Client::new(),
             token_cache: Arc::new(RwLock::new(None)),
+            fcm_base_url: "https://fcm.googleapis.com".to_string(),
+            token_endpoint: GOOGLE_TOKEN_URI.to_string(),
         })
     }
 
@@ -189,7 +197,7 @@ impl FcmPushProvider {
         let claims = Claims {
             iss: self.client_email.clone(),
             scope: FCM_SCOPE.to_string(),
-            aud: GOOGLE_TOKEN_URI.to_string(),
+            aud: self.token_endpoint.clone(),
             iat: now,
             exp: now + 3600,
         };
@@ -200,7 +208,7 @@ impl FcmPushProvider {
 
         let resp = self
             .http
-            .post(GOOGLE_TOKEN_URI)
+            .post(&self.token_endpoint)
             .form(&[("grant_type", JWT_BEARER_GRANT_TYPE), ("assertion", &assertion)])
             .send()
             .await
@@ -222,7 +230,7 @@ impl FcmPushProvider {
     async fn send_fcm_message(&self, device_token: &str) -> Result<(), PushError> {
         let access_token = self.get_access_token().await?;
 
-        let url = format!("https://fcm.googleapis.com/v1/projects/{}/messages:send", self.project_id);
+        let url = format!("{}/v1/projects/{}/messages:send", self.fcm_base_url, self.project_id);
 
         let body = FcmRequest {
             message: FcmMessage {
@@ -295,6 +303,73 @@ impl PushProvider for FcmPushProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::Router;
+    use axum::http::StatusCode;
+    use axum::routing::post;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    // Test-only RSA private key (PKCS#1 PEM). NOT a real credential.
+    const TEST_RSA_PEM: &str = "-----BEGIN RSA PRIVATE KEY-----\n\
+MIIEogIBAAKCAQEAwnscBbw1dzfjJFcauXIdZgHu5toKxIOkFNemPMDwPNXPsZxa\n\
+nq5BXzRxcgeAsFLCzGbXgjNNc8Ooiu4YWPqK6IW0g0CA3EKfLc/grfJ2U9Jfpa9k\n\
+ByIDe589zRn3Dh24bSAh7kRVTpv6UAe2JxOFbJ039YNhxysWQr9HLfjBZygGvH95\n\
+Cd54+sgp4ejesqNcyNPHvxd+FhFzJ634OoB9EvUywbXxke3sdSZcywlTX+fliQOc\n\
+gzvshQL95tptdABDKf2fqpzffMjvGX0C3OL9K0NrpDxLeC31r7JAyOGFP1H+N0Jh\n\
+h99D7dZQkuwLzBmDoxCWzuBMhDhVNHRLlxJPxQIDAQABAoIBACpisOCKHJ/zSPic\n\
+WEl29rPK85GSD1s1co8NUeB3T1R+5+FmeXSQd1Rjxl7LBk/HdcedGVZ5zmVOzP6c\n\
+did8UUZsj4M0jXETvwP5xJa8m2/Yz3o5f8QzNE2eztYS1N6ZeR6lbGe0sl/rzDHh\n\
+gGBDV6asnCvQusBw4kzhScbZ6nLL6yIjPl8HAmU9QZw5rCfPvpR8T6RAwzu59nWG\n\
+Xj33wkyiUhzNx8PKNyBqrAHggc+sD2LSakN7BJW/Z+6L5672pZEzx/cAdU+kZpdj\n\
++CE16bZlqCwTdhdtdYT7AmKeBSaiWEaEfyTUAS0u60FuK7atuPAn1iIH/KWqaLVY\n\
+gdcvQIkCgYEA/VplpX3X4RaTeZLu5gCVEcirWqhWK2YeSmikb99WL5OcistEjUPC\n\
+LjFy5OB6O4UjnBUKm80xLzPNNbQ/+mbjhy2Nkke7fX/DKy9N/9HcpC8Szo9/ZOsk\n\
+hlBgzR5wA8T97sNJAYbDZRLxeqRNWGBBr+NNXcjk3bGqO/DiifqITy0CgYEAxINB\n\
+nrRwov2GISOg/WxL5YZgfwmntOfycFzW94EvQPCT6O+lxC8FWVZQNQx92QkPVr2Z\n\
+jUQPOmOF7k2SUAy+TlOL8S3fze2q54uOvkTZMRZVQ9wzm1D2VHmv34G7ly4Q0IXl\n\
+lcSNlDqY1XpPMQLVNCxKe6+quNZvNeMUvUi6ofkCgYB72kMyodB1Ivo5RpEvMz2s\n\
+kfLiwMRPNv671Wf9oKqbW4f9ed0rSeKVfmryZKKckjuUQ90JyUewEZzSEinsmXvF\n\
+S4mX5yVK9rhMVjXFR6ybPr/s5s2aYjFaz9RiseyEizqwDBuWeXDv6lDOaZ++AmBa\n\
+Qb5CiMEJd58G6n10gls8iQKBgCyDQtDtNHpnDQPiqyvcZRC3sJH2IOvkglEbZoIn\n\
+3AlMtWRVLGpU8FQ9LevmSXdpCvVt+yM5oG1sb8D8B0FksZLSb+eQqZpe1JCgVxQY\n\
+Sk5JLcUyUupCm5mk+saY/2IOSDbDra6QGDXUVBw/GUMTzjGEOtbrgrNdt1Ewf9kk\n\
+aUoZAoGAcCvFslTy2JkFimXr0o0vJ2PflUyqP9alCRIEZpISE6H8zxlOdnmDOJJ7\n\
+EK65OGSutSasp2ajzr2/7xgNRmRyIbG1jynwl6R7b2ifjqoKVQlgz/BIjuzRy4Rs\n\
+wxOWCSTHCchvQGrMpJlCSygGPUKmT/nl464SFJsQcyZLhrwKKW8=\n\
+-----END RSA PRIVATE KEY-----\n";
+
+    // ── Helpers ─────────────────────────────────────────────────────────
+
+    /// Creates an `FcmPushProvider` whose HTTP traffic is routed to a local
+    /// mock server and whose token cache is pre-populated so no real OAuth2
+    /// exchange is needed.
+    fn mock_provider(fcm_base_url: &str) -> FcmPushProvider {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        FcmPushProvider {
+            project_id: "test-project".to_string(),
+            client_email: "test@sa.iam.gserviceaccount.com".to_string(),
+            encoding_key: EncodingKey::from_secret(b"unused"),
+            http: reqwest::Client::new(),
+            token_cache: Arc::new(RwLock::new(Some(CachedToken {
+                access_token: "mock_token".to_string(),
+                expires_at: now + 3600,
+            }))),
+            fcm_base_url: fcm_base_url.to_string(),
+            token_endpoint: "http://unused".to_string(),
+        }
+    }
+
+    /// Starts a one-route axum server and returns the `http://host:port` base URL.
+    async fn start_mock_fcm(status: StatusCode, body: &'static str) -> String {
+        let app =
+            Router::new().route("/v1/projects/{project_id}/messages:send", post(move || async move { (status, body) }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(axum::serve(listener, app).into_future());
+        format!("http://{addr}")
+    }
+
+    // ── CachedToken tests ───────────────────────────────────────────────
 
     #[test]
     fn cached_token_needs_refresh_when_expired() {
@@ -316,30 +391,84 @@ mod tests {
         assert!(token.needs_refresh());
     }
 
+    // ── Token cache tests ───────────────────────────────────────────────
+
     #[tokio::test]
     async fn get_access_token_returns_cached_value() {
-        let http = reqwest::Client::new();
-        let provider = FcmPushProvider {
-            project_id: "test-project".to_string(),
-            client_email: "test@test.iam.gserviceaccount.com".to_string(),
-            encoding_key: EncodingKey::from_secret(b"unused"),
-            http,
-            token_cache: Arc::new(RwLock::new(None)),
-        };
+        let provider = mock_provider("http://unused");
 
-        // Pre-populate the cache
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        {
-            let mut cache = provider.token_cache.write().await;
-            *cache = Some(CachedToken { access_token: "cached_token".to_string(), expires_at: now + 3600 });
-        }
-
-        // Multiple calls should return the cached token without hitting any server
         let t1 = provider.get_access_token().await.unwrap();
         let t2 = provider.get_access_token().await.unwrap();
-        assert_eq!(t1, "cached_token");
-        assert_eq!(t2, "cached_token");
+        assert_eq!(t1, "mock_token");
+        assert_eq!(t2, "mock_token");
     }
+
+    #[tokio::test]
+    async fn get_access_token_refreshes_when_expired() {
+        // Start a mock token endpoint that returns a fresh token
+        let app = Router::new().route(
+            "/token",
+            post(|| async {
+                (
+                    StatusCode::OK,
+                    axum::Json(serde_json::json!({
+                        "access_token": "refreshed_token",
+                        "expires_in": 3600
+                    })),
+                )
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(axum::serve(listener, app).into_future());
+        let token_url = format!("http://{addr}/token");
+
+        let encoding_key = EncodingKey::from_rsa_pem(TEST_RSA_PEM.as_bytes()).unwrap();
+
+        let provider = FcmPushProvider {
+            project_id: "test-project".to_string(),
+            client_email: "test@sa.iam.gserviceaccount.com".to_string(),
+            encoding_key,
+            http: reqwest::Client::new(),
+            token_cache: Arc::new(RwLock::new(Some(CachedToken {
+                access_token: "stale_token".to_string(),
+                expires_at: 0, // Already expired
+            }))),
+            fcm_base_url: "http://unused".to_string(),
+            token_endpoint: token_url,
+        };
+
+        let token = provider.get_access_token().await.unwrap();
+        assert_eq!(token, "refreshed_token");
+    }
+
+    #[tokio::test]
+    async fn fetch_access_token_error_on_non_success() {
+        let app = Router::new().route("/token", post(|| async { (StatusCode::UNAUTHORIZED, "invalid_grant") }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(axum::serve(listener, app).into_future());
+        let token_url = format!("http://{addr}/token");
+
+        let encoding_key = EncodingKey::from_rsa_pem(TEST_RSA_PEM.as_bytes()).unwrap();
+
+        let provider = FcmPushProvider {
+            project_id: "test-project".to_string(),
+            client_email: "test@sa.iam.gserviceaccount.com".to_string(),
+            encoding_key,
+            http: reqwest::Client::new(),
+            token_cache: Arc::new(RwLock::new(None)),
+            fcm_base_url: "http://unused".to_string(),
+            token_endpoint: token_url,
+        };
+
+        let result = provider.fetch_access_token().await;
+        assert!(matches!(result, Err(PushError::Other(_))));
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("Token exchange failed"), "Unexpected error: {err_msg}");
+    }
+
+    // ── Deserialization tests ───────────────────────────────────────────
 
     #[test]
     fn parse_fcm_error_with_unregistered_detail() {
@@ -373,5 +502,158 @@ mod tests {
         let key: ServiceAccountKey = serde_json::from_str(json).unwrap();
         assert_eq!(key.client_email, "test@test.iam.gserviceaccount.com");
         assert!(key.private_key.contains("RSA PRIVATE KEY"));
+    }
+
+    // ── send_fcm_message error-mapping tests ────────────────────────────
+
+    #[tokio::test]
+    async fn send_push_success_returns_ok() {
+        let url = start_mock_fcm(StatusCode::OK, r#"{"name":"projects/test/messages/123"}"#).await;
+        let provider = mock_provider(&url);
+        let result = provider.send_push("device_token_abc").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn send_push_429_returns_quota_exceeded() {
+        let url = start_mock_fcm(StatusCode::TOO_MANY_REQUESTS, r#"{"error":{"status":"RESOURCE_EXHAUSTED"}}"#).await;
+        let provider = mock_provider(&url);
+        let result = provider.send_push("device_token_abc").await;
+        assert!(matches!(result, Err(PushError::QuotaExceeded)));
+    }
+
+    #[tokio::test]
+    async fn send_push_404_returns_unregistered() {
+        let url = start_mock_fcm(StatusCode::NOT_FOUND, r#"{"error":{"status":"NOT_FOUND"}}"#).await;
+        let provider = mock_provider(&url);
+        let result = provider.send_push("device_token_abc").await;
+        assert!(matches!(result, Err(PushError::Unregistered)));
+    }
+
+    #[tokio::test]
+    async fn send_push_body_not_found_status_returns_unregistered() {
+        // 400 with NOT_FOUND in the body status field
+        let url = start_mock_fcm(StatusCode::BAD_REQUEST, r#"{"error":{"status":"NOT_FOUND"}}"#).await;
+        let provider = mock_provider(&url);
+        let result = provider.send_push("device_token_abc").await;
+        assert!(matches!(result, Err(PushError::Unregistered)));
+    }
+
+    #[tokio::test]
+    async fn send_push_body_unregistered_status_returns_unregistered() {
+        // 400 with UNREGISTERED in the body status field
+        let url = start_mock_fcm(StatusCode::BAD_REQUEST, r#"{"error":{"status":"UNREGISTERED"}}"#).await;
+        let provider = mock_provider(&url);
+        let result = provider.send_push("device_token_abc").await;
+        assert!(matches!(result, Err(PushError::Unregistered)));
+    }
+
+    #[tokio::test]
+    async fn send_push_body_unregistered_detail_returns_unregistered() {
+        let url = start_mock_fcm(
+            StatusCode::BAD_REQUEST,
+            r#"{"error":{"status":"INVALID_ARGUMENT","details":[{"errorCode":"UNREGISTERED"}]}}"#,
+        )
+        .await;
+        let provider = mock_provider(&url);
+        let result = provider.send_push("device_token_abc").await;
+        assert!(matches!(result, Err(PushError::Unregistered)));
+    }
+
+    #[tokio::test]
+    async fn send_push_500_returns_other_error() {
+        let url = start_mock_fcm(StatusCode::INTERNAL_SERVER_ERROR, r#"{"error":{"status":"INTERNAL"}}"#).await;
+        let provider = mock_provider(&url);
+        let result = provider.send_push("device_token_abc").await;
+        assert!(matches!(result, Err(PushError::Other(_))));
+    }
+
+    #[tokio::test]
+    async fn send_push_unparseable_error_body_returns_other() {
+        let url = start_mock_fcm(StatusCode::BAD_REQUEST, "not json at all").await;
+        let provider = mock_provider(&url);
+        let result = provider.send_push("device_token_abc").await;
+        assert!(matches!(result, Err(PushError::Other(_))));
+    }
+
+    // ── FcmPushProvider::new() constructor tests ────────────────────────
+
+    #[test]
+    fn new_missing_project_id_returns_error() {
+        let config = FcmConfig { project_id: None, credentials_file: Some("/tmp/creds.json".to_string()) };
+        let result = FcmPushProvider::new(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("project ID"));
+    }
+
+    #[test]
+    fn new_missing_credentials_file_returns_error() {
+        let config = FcmConfig { project_id: Some("project".to_string()), credentials_file: None };
+        let result = FcmPushProvider::new(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("credentials file"));
+    }
+
+    #[test]
+    fn new_nonexistent_file_returns_error() {
+        let config = FcmConfig {
+            project_id: Some("project".to_string()),
+            credentials_file: Some("/tmp/does_not_exist_12345.json".to_string()),
+        };
+        let result = FcmPushProvider::new(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Failed to read"));
+    }
+
+    #[test]
+    fn new_invalid_json_returns_error() {
+        let mut file = NamedTempFile::new().unwrap();
+        write!(file, "not valid json").unwrap();
+        let config = FcmConfig {
+            project_id: Some("project".to_string()),
+            credentials_file: Some(file.path().to_string_lossy().to_string()),
+        };
+        let result = FcmPushProvider::new(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("parse FCM service account"));
+    }
+
+    #[test]
+    fn new_invalid_private_key_returns_error() {
+        let mut file = NamedTempFile::new().unwrap();
+        write!(file, r#"{{"client_email":"test@sa.iam.gserviceaccount.com","private_key":"not-a-pem-key"}}"#).unwrap();
+        let config = FcmConfig {
+            project_id: Some("project".to_string()),
+            credentials_file: Some(file.path().to_string_lossy().to_string()),
+        };
+        let result = FcmPushProvider::new(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("RSA private key"));
+    }
+
+    #[test]
+    fn new_valid_credentials_succeeds() {
+        let mut file = NamedTempFile::new().unwrap();
+        let sa_json = serde_json::json!({
+            "client_email": "test@sa.iam.gserviceaccount.com",
+            "private_key": TEST_RSA_PEM,
+        });
+        write!(file, "{sa_json}").unwrap();
+        let config = FcmConfig {
+            project_id: Some("my-project-123".to_string()),
+            credentials_file: Some(file.path().to_string_lossy().to_string()),
+        };
+        let provider = FcmPushProvider::new(&config).unwrap();
+        assert_eq!(provider.project_id, "my-project-123");
+        assert_eq!(provider.client_email, "test@sa.iam.gserviceaccount.com");
+    }
+
+    // ── LoggingPushProvider test ────────────────────────────────────────
+
+    #[tokio::test]
+    async fn logging_provider_returns_ok() {
+        let provider = super::super::LoggingPushProvider;
+        let result = provider.send_push("any_token").await;
+        assert!(result.is_ok());
     }
 }
