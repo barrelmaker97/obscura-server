@@ -1,3 +1,4 @@
+use anyhow::Context;
 use obscura_server::api::MgmtState;
 use obscura_server::config::Config;
 use obscura_server::{AppBuilder, adapters, telemetry};
@@ -38,7 +39,7 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!("FCM credentials configured, using real FCM push provider");
             Arc::new(
                 adapters::push::fcm::FcmPushProvider::new(&config.fcm)
-                    .expect("Failed to initialize FCM push provider. Verify that OBSCURA_FCM_CREDENTIALS_FILE points to a valid service account JSON file"),
+                    .context("Failed to initialize FCM push provider. Verify that OBSCURA_FCM_CREDENTIALS_FILE points to a valid service account JSON file")?,
             )
         } else {
             tracing::warn!("FCM credentials not configured, push notifications will be logged but not sent");

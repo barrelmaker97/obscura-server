@@ -29,8 +29,8 @@ pub struct LoggingPushProvider;
 
 #[async_trait]
 impl PushProvider for LoggingPushProvider {
-    async fn send_push(&self, token: &str) -> Result<(), PushError> {
-        tracing::warn!(token = %token, "Push notification not sent: FCM is not configured");
+    async fn send_push(&self, _token: &str) -> Result<(), PushError> {
+        tracing::warn!("Push notification not sent: FCM is not configured");
         Ok(())
     }
 }
