@@ -202,13 +202,13 @@ impl PushNotificationWorker {
 
                     match provider.send_push(&token).await {
                         Ok(()) => {
-                            tracing::debug!(token = %token, "Push notification sent successfully");
+                            tracing::debug!("Push notification sent successfully");
                             metrics.sent.add(1, &[]);
                             // Success: Remove job from Redis
                             let _ = repo.delete_job(device_id).await;
                         }
                         Err(PushError::Unregistered) => {
-                            tracing::info!(token = %token, "Token unregistered, reporting to invalid token cleanup");
+                            tracing::info!("Token unregistered, reporting to invalid token cleanup");
                             metrics.invalidated_tokens.add(1, &[]);
 
                             // Definitively failed: Remove job from Redis anyway
@@ -223,7 +223,7 @@ impl PushNotificationWorker {
                             // We do NOT delete the job; it will be retried when the lease expires.
                         }
                         Err(PushError::Other(e)) => {
-                            tracing::error!(error = %e, token = %token, "Failed to send push notification, will retry");
+                            tracing::error!(error = %e, "Failed to send push notification, will retry");
                             metrics.errors.add(1, &[KeyValue::new("reason", "other")]);
                             // We do NOT delete the job; it will be retried when the lease expires.
                         }
