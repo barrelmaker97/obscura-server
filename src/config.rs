@@ -813,6 +813,15 @@ pub struct FcmConfig {
     pub credentials_file: Option<String>,
 }
 
+impl FcmConfig {
+    /// Returns `true` if both FCM fields are present and non-empty.
+    #[must_use]
+    pub fn is_configured(&self) -> bool {
+        self.project_id.as_ref().is_some_and(|s| !s.is_empty())
+            && self.credentials_file.as_ref().is_some_and(|s| !s.is_empty())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

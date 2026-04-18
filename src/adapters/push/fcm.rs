@@ -265,7 +265,13 @@ impl FcmPushProvider {
 
         let body = resp.text().await.unwrap_or_default();
 
+        // 404 UNREGISTERED: token is no longer valid
         if status == reqwest::StatusCode::NOT_FOUND {
+            return Err(PushError::Unregistered);
+        }
+
+        // 403 SENDER_ID_MISMATCH: token belongs to a different sender and will never work
+        if status == reqwest::StatusCode::FORBIDDEN {
             return Err(PushError::Unregistered);
         }
 
@@ -273,9 +279,9 @@ impl FcmPushProvider {
         if let Ok(error_resp) = serde_json::from_str::<FcmErrorResponse>(&body)
             && let Some(ref error) = error_resp.error
         {
-            // Check top-level status
+            // Check top-level status for token-is-gone errors
             if let Some(ref s) = error.status
-                && (s == "NOT_FOUND" || s == "UNREGISTERED")
+                && (s == "NOT_FOUND" || s == "UNREGISTERED" || s == "SENDER_ID_MISMATCH")
             {
                 return Err(PushError::Unregistered);
             }
@@ -289,6 +295,16 @@ impl FcmPushProvider {
                         return Err(PushError::Unregistered);
                     }
                 }
+            }
+
+            // 400 INVALID_ARGUMENT without an UNREGISTERED detail: the request is
+            // permanently malformed (bad token format, invalid payload, etc.) and
+            // retrying will never succeed.
+            if status == reqwest::StatusCode::BAD_REQUEST
+                && let Some(ref s) = error.status
+                && s == "INVALID_ARGUMENT"
+            {
+                return Err(PushError::Unregistered);
             }
         }
 
@@ -565,8 +581,49 @@ wxOWCSTHCchvQGrMpJlCSygGPUKmT/nl464SFJsQcyZLhrwKKW8=\n\
     }
 
     #[tokio::test]
+    async fn send_push_403_sender_id_mismatch_returns_unregistered() {
+        let url = start_mock_fcm(StatusCode::FORBIDDEN, r#"{"error":{"status":"SENDER_ID_MISMATCH"}}"#).await;
+        let provider = mock_provider(&url);
+        let result = provider.send_push("device_token_abc").await;
+        assert!(matches!(result, Err(PushError::Unregistered)));
+    }
+
+    #[tokio::test]
+    async fn send_push_body_sender_id_mismatch_status_returns_unregistered() {
+        // 400 with SENDER_ID_MISMATCH in the body status field
+        let url = start_mock_fcm(StatusCode::BAD_REQUEST, r#"{"error":{"status":"SENDER_ID_MISMATCH"}}"#).await;
+        let provider = mock_provider(&url);
+        let result = provider.send_push("device_token_abc").await;
+        assert!(matches!(result, Err(PushError::Unregistered)));
+    }
+
+    #[tokio::test]
+    async fn send_push_400_invalid_argument_returns_unregistered() {
+        let url = start_mock_fcm(StatusCode::BAD_REQUEST, r#"{"error":{"status":"INVALID_ARGUMENT"}}"#).await;
+        let provider = mock_provider(&url);
+        let result = provider.send_push("device_token_abc").await;
+        assert!(matches!(result, Err(PushError::Unregistered)));
+    }
+
+    #[tokio::test]
     async fn send_push_500_returns_other_error() {
         let url = start_mock_fcm(StatusCode::INTERNAL_SERVER_ERROR, r#"{"error":{"status":"INTERNAL"}}"#).await;
+        let provider = mock_provider(&url);
+        let result = provider.send_push("device_token_abc").await;
+        assert!(matches!(result, Err(PushError::Other(_))));
+    }
+
+    #[tokio::test]
+    async fn send_push_503_unavailable_returns_other_error() {
+        let url = start_mock_fcm(StatusCode::SERVICE_UNAVAILABLE, r#"{"error":{"status":"UNAVAILABLE"}}"#).await;
+        let provider = mock_provider(&url);
+        let result = provider.send_push("device_token_abc").await;
+        assert!(matches!(result, Err(PushError::Other(_))));
+    }
+
+    #[tokio::test]
+    async fn send_push_401_third_party_auth_error_returns_other() {
+        let url = start_mock_fcm(StatusCode::UNAUTHORIZED, r#"{"error":{"status":"THIRD_PARTY_AUTH_ERROR"}}"#).await;
         let provider = mock_provider(&url);
         let result = provider.send_push("device_token_abc").await;
         assert!(matches!(result, Err(PushError::Other(_))));
