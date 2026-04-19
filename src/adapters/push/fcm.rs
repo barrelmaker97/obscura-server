@@ -89,6 +89,8 @@ pub struct FcmPushProvider {
     encoding_key: EncodingKey,
     http: reqwest::Client,
     token_cache: Arc<RwLock<Option<CachedToken>>>,
+    /// Time-to-live for push notifications in seconds.
+    ttl_secs: u64,
     /// Base URL for the FCM API. Defaults to `https://fcm.googleapis.com`.
     /// Overridden in tests to point at a mock server.
     fcm_base_url: String,
@@ -135,6 +137,7 @@ struct FcmMessage {
     token: String,
     data: FcmData,
     android: FcmAndroid,
+    apns: FcmApns,
 }
 
 #[derive(Debug, Serialize)]
@@ -147,6 +150,35 @@ struct FcmAndroid {
     #[serde(rename = "collapseKey")]
     collapse_key: String,
     priority: String,
+    ttl: String,
+}
+
+/// APNs configuration for iOS silent push via FCM.
+#[derive(Debug, Serialize)]
+struct FcmApns {
+    headers: FcmApnsHeaders,
+    payload: FcmApnsPayload,
+}
+
+#[derive(Debug, Serialize)]
+struct FcmApnsHeaders {
+    #[serde(rename = "apns-push-type")]
+    push_type: String,
+    #[serde(rename = "apns-priority")]
+    priority: String,
+    #[serde(rename = "apns-collapse-id")]
+    collapse_id: String,
+}
+
+#[derive(Debug, Serialize)]
+struct FcmApnsPayload {
+    aps: FcmAps,
+}
+
+#[derive(Debug, Serialize)]
+struct FcmAps {
+    #[serde(rename = "content-available")]
+    content_available: u8,
 }
 
 impl FcmPushProvider {
@@ -180,6 +212,7 @@ impl FcmPushProvider {
             encoding_key,
             http: reqwest::Client::new(),
             token_cache: Arc::new(RwLock::new(None)),
+            ttl_secs: config.ttl_secs,
             fcm_base_url: "https://fcm.googleapis.com".to_string(),
             token_endpoint: GOOGLE_TOKEN_URI.to_string(),
         })
@@ -263,11 +296,25 @@ impl FcmPushProvider {
 
         let url = format!("{}/v1/projects/{}/messages:send", self.fcm_base_url, self.project_id);
 
+        let ttl_string = format!("{}s", self.ttl_secs);
+
         let body = FcmRequest {
             message: FcmMessage {
                 token: device_token.to_string(),
                 data: FcmData { action: "check".to_string() },
-                android: FcmAndroid { collapse_key: "obscura_check".to_string(), priority: "HIGH".to_string() },
+                android: FcmAndroid {
+                    collapse_key: "obscura_check".to_string(),
+                    priority: "HIGH".to_string(),
+                    ttl: ttl_string,
+                },
+                apns: FcmApns {
+                    headers: FcmApnsHeaders {
+                        push_type: "background".to_string(),
+                        priority: "5".to_string(),
+                        collapse_id: "obscura_check".to_string(),
+                    },
+                    payload: FcmApnsPayload { aps: FcmAps { content_available: 1 } },
+                },
             },
         };
 
@@ -416,6 +463,7 @@ wxOWCSTHCchvQGrMpJlCSygGPUKmT/nl464SFJsQcyZLhrwKKW8=\n\
                 access_token: "mock_token".to_string(),
                 expires_at: now + 3600,
             }))),
+            ttl_secs: 604_800,
             fcm_base_url: fcm_base_url.to_string(),
             token_endpoint: "http://unused".to_string(),
         }
@@ -525,6 +573,7 @@ wxOWCSTHCchvQGrMpJlCSygGPUKmT/nl464SFJsQcyZLhrwKKW8=\n\
                 access_token: "stale_token".to_string(),
                 expires_at: 0, // Already expired
             }))),
+            ttl_secs: 604_800,
             fcm_base_url: "http://unused".to_string(),
             token_endpoint: token_url,
         };
@@ -549,6 +598,7 @@ wxOWCSTHCchvQGrMpJlCSygGPUKmT/nl464SFJsQcyZLhrwKKW8=\n\
             encoding_key,
             http: reqwest::Client::new(),
             token_cache: Arc::new(RwLock::new(None)),
+            ttl_secs: 604_800,
             fcm_base_url: "http://unused".to_string(),
             token_endpoint: token_url,
         };
@@ -612,16 +662,36 @@ wxOWCSTHCchvQGrMpJlCSygGPUKmT/nl464SFJsQcyZLhrwKKW8=\n\
             message: FcmMessage {
                 token: "device_token".to_string(),
                 data: FcmData { action: "check".to_string() },
-                android: FcmAndroid { collapse_key: "obscura_check".to_string(), priority: "HIGH".to_string() },
+                android: FcmAndroid {
+                    collapse_key: "obscura_check".to_string(),
+                    priority: "HIGH".to_string(),
+                    ttl: "604800s".to_string(),
+                },
+                apns: FcmApns {
+                    headers: FcmApnsHeaders {
+                        push_type: "background".to_string(),
+                        priority: "5".to_string(),
+                        collapse_id: "obscura_check".to_string(),
+                    },
+                    payload: FcmApnsPayload { aps: FcmAps { content_available: 1 } },
+                },
             },
         };
         let json = serde_json::to_value(&req).unwrap();
+
+        // Android config
         let android = &json["message"]["android"];
-        // HTTP v1 API requires camelCase field names
         assert_eq!(android["collapseKey"], "obscura_check");
         assert!(android.get("collapse_key").is_none(), "should use camelCase collapseKey, not snake_case");
-        // HTTP v1 API requires uppercase priority
         assert_eq!(android["priority"], "HIGH");
+        assert_eq!(android["ttl"], "604800s");
+
+        // APNs config for iOS silent push
+        let apns = &json["message"]["apns"];
+        assert_eq!(apns["headers"]["apns-push-type"], "background");
+        assert_eq!(apns["headers"]["apns-priority"], "5");
+        assert_eq!(apns["headers"]["apns-collapse-id"], "obscura_check");
+        assert_eq!(apns["payload"]["aps"]["content-available"], 1);
     }
 
     // ── send_fcm_message error-mapping tests ────────────────────────────
@@ -759,7 +829,11 @@ wxOWCSTHCchvQGrMpJlCSygGPUKmT/nl464SFJsQcyZLhrwKKW8=\n\
 
     #[test]
     fn new_missing_project_id_returns_error() {
-        let config = FcmConfig { project_id: None, credentials_file: Some("/tmp/creds.json".to_string()) };
+        let config = FcmConfig {
+            project_id: None,
+            credentials_file: Some("/tmp/creds.json".to_string()),
+            ..FcmConfig::default()
+        };
         let result = FcmPushProvider::new(&config);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("project ID"));
@@ -767,7 +841,8 @@ wxOWCSTHCchvQGrMpJlCSygGPUKmT/nl464SFJsQcyZLhrwKKW8=\n\
 
     #[test]
     fn new_missing_credentials_file_returns_error() {
-        let config = FcmConfig { project_id: Some("project".to_string()), credentials_file: None };
+        let config =
+            FcmConfig { project_id: Some("project".to_string()), credentials_file: None, ..FcmConfig::default() };
         let result = FcmPushProvider::new(&config);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("credentials file"));
@@ -778,6 +853,7 @@ wxOWCSTHCchvQGrMpJlCSygGPUKmT/nl464SFJsQcyZLhrwKKW8=\n\
         let config = FcmConfig {
             project_id: Some("project".to_string()),
             credentials_file: Some("/tmp/does_not_exist_12345.json".to_string()),
+            ..FcmConfig::default()
         };
         let result = FcmPushProvider::new(&config);
         assert!(result.is_err());
@@ -791,6 +867,7 @@ wxOWCSTHCchvQGrMpJlCSygGPUKmT/nl464SFJsQcyZLhrwKKW8=\n\
         let config = FcmConfig {
             project_id: Some("project".to_string()),
             credentials_file: Some(file.path().to_string_lossy().to_string()),
+            ..FcmConfig::default()
         };
         let result = FcmPushProvider::new(&config);
         assert!(result.is_err());
@@ -804,6 +881,7 @@ wxOWCSTHCchvQGrMpJlCSygGPUKmT/nl464SFJsQcyZLhrwKKW8=\n\
         let config = FcmConfig {
             project_id: Some("project".to_string()),
             credentials_file: Some(file.path().to_string_lossy().to_string()),
+            ..FcmConfig::default()
         };
         let result = FcmPushProvider::new(&config);
         assert!(result.is_err());
@@ -821,10 +899,12 @@ wxOWCSTHCchvQGrMpJlCSygGPUKmT/nl464SFJsQcyZLhrwKKW8=\n\
         let config = FcmConfig {
             project_id: Some("my-project-123".to_string()),
             credentials_file: Some(file.path().to_string_lossy().to_string()),
+            ..FcmConfig::default()
         };
         let provider = FcmPushProvider::new(&config).unwrap();
         assert_eq!(provider.project_id, "my-project-123");
         assert_eq!(provider.client_email, "test@sa.iam.gserviceaccount.com");
+        assert_eq!(provider.ttl_secs, 604_800);
     }
 
     // ── LoggingPushProvider test ────────────────────────────────────────

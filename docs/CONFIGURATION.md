@@ -148,6 +148,7 @@ Obscura Server is configured via command-line flags or environment variables usi
 |------|----------------------|---------|-------------|
 | `--fcm-project-id` | `OBSCURA_FCM_PROJECT_ID` | `None` | Google Cloud Project ID for FCM. |
 | `--fcm-credentials-file` | `OBSCURA_FCM_CREDENTIALS_FILE` | `None` | Path to the Google service account JSON credentials file. |
+| `--fcm-ttl-secs` | `OBSCURA_FCM_TTL_SECS` | `604800` | Time-to-live for FCM push notifications in seconds. |
 
 ## Telemetry
 
