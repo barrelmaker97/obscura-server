@@ -176,6 +176,10 @@ async fn test_full_system_flow() {
     let env = ws.receive_envelope().await.expect("Failed to receive fast-path message");
     assert_eq!(env.message, single_msg_content);
 
+    // ACK the message so the server cancels the scheduled push job.
+    // (notify() always schedules a fallback push; the ACK triggers cancel_pending_notifications.)
+    ws.send_ack(env.id).await;
+
     // Ensure NO extra push was sent for this fast-path message
     // Wait a bit to be sure
     tokio::time::sleep(Duration::from_secs(3)).await;
