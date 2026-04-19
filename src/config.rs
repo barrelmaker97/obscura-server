@@ -46,6 +46,9 @@ pub struct Config {
 
     #[command(flatten)]
     pub telemetry: TelemetryConfig,
+
+    #[command(flatten)]
+    pub fcm: FcmConfig,
 }
 
 impl Default for Config {
@@ -65,6 +68,7 @@ impl Default for Config {
             attachment: AttachmentConfig::default(),
             storage: StorageConfig::default(),
             telemetry: TelemetryConfig::default(),
+            fcm: FcmConfig::default(),
         }
     }
 }
@@ -795,6 +799,36 @@ pub struct HealthConfig {
 impl Default for HealthConfig {
     fn default() -> Self {
         Self { db_timeout_ms: 2000, storage_timeout_ms: 2000, pubsub_timeout_ms: 2000 }
+    }
+}
+
+#[derive(Clone, Debug, Args)]
+pub struct FcmConfig {
+    /// Google Cloud Project ID for FCM
+    #[arg(long = "fcm-project-id", env = "OBSCURA_FCM_PROJECT_ID")]
+    pub project_id: Option<String>,
+
+    /// Path to the Google service account JSON credentials file
+    #[arg(long = "fcm-credentials-file", env = "OBSCURA_FCM_CREDENTIALS_FILE")]
+    pub credentials_file: Option<String>,
+
+    /// Time-to-live for FCM push notifications in seconds
+    #[arg(long = "fcm-ttl-secs", env = "OBSCURA_FCM_TTL_SECS", default_value_t = FcmConfig::default().ttl_secs)]
+    pub ttl_secs: u64,
+}
+
+impl Default for FcmConfig {
+    fn default() -> Self {
+        Self { project_id: None, credentials_file: None, ttl_secs: 604_800 }
+    }
+}
+
+impl FcmConfig {
+    /// Returns `true` if both FCM fields are present and non-empty.
+    #[must_use]
+    pub fn is_configured(&self) -> bool {
+        self.project_id.as_ref().is_some_and(|s| !s.is_empty())
+            && self.credentials_file.as_ref().is_some_and(|s| !s.is_empty())
     }
 }
 

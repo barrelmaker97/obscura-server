@@ -5,12 +5,12 @@ While the background worker, Redis-based job leasing, and token management are f
 ## 1. Real FCM Provider Implementation
 The `FcmPushProvider` in `src/adapters/push/fcm.rs` must be updated to communicate with the Google FCM HTTP v1 API.
 
-- [ ] **OAuth2 Authentication**: Implement logic to fetch and cache Google OAuth2 access tokens using a Service Account JSON key.
-- [ ] **Request Logic**: Use `reqwest` to send the "Wake Up" payload to `https://fcm.googleapis.com/v1/projects/{project_id}/messages:send`.
-- [ ] **Payload Construction**: 
+- [x] **OAuth2 Authentication**: Implement logic to fetch and cache Google OAuth2 access tokens using a Service Account JSON key.
+- [x] **Request Logic**: Use `reqwest` to send the "Wake Up" payload to `https://fcm.googleapis.com/v1/projects/{project_id}/messages:send`.
+- [x] **Payload Construction**: 
     - Ensure the message is a "Data Message" (no `notification` object) to trigger background execution on Android.
     - Include the `collapse_key: "obscura_check"` to prevent duplicate wake-up signals for the same user.
-- [ ] **Error Mapping**: Map specific FCM responses to `PushError` variants:
+- [x] **Error Mapping**: Map specific FCM responses to `PushError` variants:
     - `UNREGISTERED` or `NOT_FOUND` -> `PushError::Unregistered`.
     - `429 Too Many Requests` -> `PushError::QuotaExceeded`.
 
@@ -20,7 +20,10 @@ The `Config` struct in `src/config.rs` needs new fields to support the FCM clien
 | Variable | Description |
 | :--- | :--- |
 | `OBSCURA_FCM_PROJECT_ID` | The Google Cloud Project ID. |
-| `OBSCURA_FCM_CREDENTIALS_JSON` | Path to the service account JSON file or the raw JSON string. |
+| `OBSCURA_FCM_CREDENTIALS_FILE` | Path to the service account JSON file. |
+
+- [x] `FcmConfig` added with `project_id` and `credentials_file` as `Option<String>` fields.
+- [x] `LoggingPushProvider` fallback when FCM is not configured.
 
 ## 3. End-to-End Validation
 - [ ] **Mock FCM Server**: Create a mock HTTP server in the test suite to simulate FCM responses.

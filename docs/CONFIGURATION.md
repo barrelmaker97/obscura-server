@@ -142,6 +142,14 @@ Obscura Server is configured via command-line flags or environment variables usi
 | `--health-storage-timeout-ms` | `OBSCURA_HEALTH_STORAGE_TIMEOUT_MS` | `2000` | Timeout for the storage health check in milliseconds. |
 | `--health-pubsub-timeout-ms` | `OBSCURA_HEALTH_PUBSUB_TIMEOUT_MS` | `2000` | Timeout for the PubSub health check in milliseconds. |
 
+## FCM (Firebase Cloud Messaging)
+
+| Flag | Environment Variable | Default | Description |
+|------|----------------------|---------|-------------|
+| `--fcm-project-id` | `OBSCURA_FCM_PROJECT_ID` | `None` | Google Cloud Project ID for FCM. |
+| `--fcm-credentials-file` | `OBSCURA_FCM_CREDENTIALS_FILE` | `None` | Path to the Google service account JSON credentials file. |
+| `--fcm-ttl-secs` | `OBSCURA_FCM_TTL_SECS` | `604800` | Time-to-live for FCM push notifications in seconds. |
+
 ## Telemetry
 
 | Flag | Environment Variable | Default | Description |

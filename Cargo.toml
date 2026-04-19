@@ -33,6 +33,7 @@ ipnetwork = "0.21"
 jsonwebtoken = { version = "10.3", features = ["rust_crypto"] }
 prost = "0.14"
 rand = "0.8"
+reqwest = { version = "0.13.2", features = ["json", "form"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.11"
@@ -62,7 +63,8 @@ prost-build = "0.14.3"
 [dev-dependencies]
 curve25519-dalek = "4.1"
 tokio-tungstenite = "0.29.0"
-reqwest = { version = "0.13.2", features = ["json", "stream"] }
+reqwest = { version = "0.13.2", features = ["stream"] }
+tempfile = "3"
 
 [lints.rust]
 unsafe_code = "forbid"

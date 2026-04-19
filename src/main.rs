@@ -1,3 +1,4 @@
+use anyhow::Context;
 use obscura_server::api::MgmtState;
 use obscura_server::config::Config;
 use obscura_server::{AppBuilder, adapters, telemetry};
@@ -32,7 +33,16 @@ async fn main() -> anyhow::Result<()> {
         let s3_client = obscura_server::initialize_s3_client(&config.storage).await;
 
         // Phase 2: Component Wiring (Pure logic, no side effects)
-        let push_provider = Arc::new(adapters::push::fcm::FcmPushProvider);
+        let push_provider: Arc<dyn adapters::push::PushProvider> = if config.fcm.is_configured() {
+            tracing::info!("FCM credentials configured, using real FCM push provider");
+            Arc::new(
+                adapters::push::fcm::FcmPushProvider::new(&config.fcm)
+                    .context("Failed to initialize FCM push provider. Verify that OBSCURA_FCM_CREDENTIALS_FILE points to a valid service account JSON file")?,
+            )
+        } else {
+            tracing::warn!("FCM credentials not configured, push notifications will be logged but not sent");
+            Arc::new(adapters::push::LoggingPushProvider)
+        };
         let app = AppBuilder::new(config.clone())
             .with_database(pool)
             .with_pubsub(pubsub)
