@@ -113,6 +113,15 @@ struct FcmErrorBody {
 struct FcmErrorDetail {
     #[serde(rename = "errorCode")]
     error_code: Option<String>,
+    /// Field violations from `google.rpc.BadRequest` details.
+    /// Present when `@type` is `type.googleapis.com/google.rpc.BadRequest`.
+    #[serde(rename = "fieldViolations")]
+    field_violations: Option<Vec<FieldViolation>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FieldViolation {
+    field: Option<String>,
 }
 
 /// FCM message payload.
@@ -135,6 +144,7 @@ struct FcmData {
 
 #[derive(Debug, Serialize)]
 struct FcmAndroid {
+    #[serde(rename = "collapseKey")]
     collapse_key: String,
     priority: String,
 }
@@ -257,7 +267,7 @@ impl FcmPushProvider {
             message: FcmMessage {
                 token: device_token.to_string(),
                 data: FcmData { action: "check".to_string() },
-                android: FcmAndroid { collapse_key: "obscura_check".to_string(), priority: "high".to_string() },
+                android: FcmAndroid { collapse_key: "obscura_check".to_string(), priority: "HIGH".to_string() },
             },
         };
 
@@ -315,14 +325,28 @@ impl FcmPushProvider {
                 }
             }
 
-            // 400 INVALID_ARGUMENT without an UNREGISTERED detail: the request is
-            // permanently malformed (bad token format, invalid payload, etc.) and
-            // retrying will never succeed.
+            // 400 INVALID_ARGUMENT: could be a bad token format or a payload
+            // issue (message too big, reserved data key, invalid TTL, etc.).
+            // Parse the google.rpc.BadRequest field violations to distinguish:
+            // a violation on "message.token" means the token itself is invalid
+            // and will never succeed, so treat it as Unregistered.
             if status == reqwest::StatusCode::BAD_REQUEST
                 && let Some(ref s) = error.status
                 && s == "INVALID_ARGUMENT"
             {
-                return Err(PushError::Unregistered);
+                let is_token_violation = error.details.as_ref().is_some_and(|details| {
+                    details.iter().any(|d| {
+                        d.field_violations.as_ref().is_some_and(|fvs| {
+                            fvs.iter().any(|fv| fv.field.as_ref().is_some_and(|f| f == "message.token"))
+                        })
+                    })
+                });
+
+                if is_token_violation {
+                    return Err(PushError::Unregistered);
+                }
+
+                tracing::warn!("FCM returned INVALID_ARGUMENT (not a token issue), check payload: {body}");
             }
         }
 
@@ -564,11 +588,40 @@ wxOWCSTHCchvQGrMpJlCSygGPUKmT/nl464SFJsQcyZLhrwKKW8=\n\
     }
 
     #[test]
+    fn parse_fcm_error_with_field_violations() {
+        let body = r#"{"error":{"status":"INVALID_ARGUMENT","details":[{"@type":"type.googleapis.com/google.rpc.BadRequest","fieldViolations":[{"field":"message.token","description":"Invalid registration token"}]}]}}"#;
+        let error_resp: FcmErrorResponse = serde_json::from_str(body).unwrap();
+        let error = error_resp.error.unwrap();
+        assert_eq!(error.status.as_deref(), Some("INVALID_ARGUMENT"));
+        let details = error.details.unwrap();
+        let fvs = details[0].field_violations.as_ref().unwrap();
+        assert_eq!(fvs[0].field.as_deref(), Some("message.token"));
+    }
+
+    #[test]
     fn parse_service_account_key() {
         let json = r#"{"client_email":"test@test.iam.gserviceaccount.com","private_key":"-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----\n"}"#;
         let key: ServiceAccountKey = serde_json::from_str(json).unwrap();
         assert_eq!(key.client_email, "test@test.iam.gserviceaccount.com");
         assert!(key.private_key.contains("RSA PRIVATE KEY"));
+    }
+
+    #[test]
+    fn fcm_request_serializes_to_v1_format() {
+        let req = FcmRequest {
+            message: FcmMessage {
+                token: "device_token".to_string(),
+                data: FcmData { action: "check".to_string() },
+                android: FcmAndroid { collapse_key: "obscura_check".to_string(), priority: "HIGH".to_string() },
+            },
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        let android = &json["message"]["android"];
+        // HTTP v1 API requires camelCase field names
+        assert_eq!(android["collapseKey"], "obscura_check");
+        assert!(android.get("collapse_key").is_none(), "should use camelCase collapseKey, not snake_case");
+        // HTTP v1 API requires uppercase priority
+        assert_eq!(android["priority"], "HIGH");
     }
 
     // ── send_fcm_message error-mapping tests ────────────────────────────
@@ -645,11 +698,29 @@ wxOWCSTHCchvQGrMpJlCSygGPUKmT/nl464SFJsQcyZLhrwKKW8=\n\
     }
 
     #[tokio::test]
-    async fn send_push_400_invalid_argument_returns_unregistered() {
+    async fn send_push_400_invalid_argument_no_details_returns_other_error() {
         let url = start_mock_fcm(StatusCode::BAD_REQUEST, r#"{"error":{"status":"INVALID_ARGUMENT"}}"#).await;
         let provider = mock_provider(&url);
         let result = provider.send_push("device_token_abc").await;
+        assert!(matches!(result, Err(PushError::Other(_))));
+    }
+
+    #[tokio::test]
+    async fn send_push_400_invalid_argument_token_field_violation_returns_unregistered() {
+        let body = r#"{"error":{"status":"INVALID_ARGUMENT","details":[{"@type":"type.googleapis.com/google.rpc.BadRequest","fieldViolations":[{"field":"message.token","description":"Invalid registration token"}]}]}}"#;
+        let url = start_mock_fcm(StatusCode::BAD_REQUEST, body).await;
+        let provider = mock_provider(&url);
+        let result = provider.send_push("device_token_abc").await;
         assert!(matches!(result, Err(PushError::Unregistered)));
+    }
+
+    #[tokio::test]
+    async fn send_push_400_invalid_argument_non_token_field_violation_returns_other() {
+        let body = r#"{"error":{"status":"INVALID_ARGUMENT","details":[{"@type":"type.googleapis.com/google.rpc.BadRequest","fieldViolations":[{"field":"message.data","description":"Payload too large"}]}]}}"#;
+        let url = start_mock_fcm(StatusCode::BAD_REQUEST, body).await;
+        let provider = mock_provider(&url);
+        let result = provider.send_push("device_token_abc").await;
+        assert!(matches!(result, Err(PushError::Other(_))));
     }
 
     #[tokio::test]
