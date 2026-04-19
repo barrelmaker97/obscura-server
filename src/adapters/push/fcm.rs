@@ -20,10 +20,16 @@ const GOOGLE_TOKEN_URI: &str = "https://oauth2.googleapis.com/token";
 const JWT_BEARER_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 
 /// Fields parsed from a Google service account JSON file.
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct ServiceAccountKey {
     client_email: String,
     private_key: String,
+}
+
+impl std::fmt::Debug for ServiceAccountKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ServiceAccountKey").field("client_email", &self.client_email).finish_non_exhaustive()
+    }
 }
 
 /// JWT claims for the Google `OAuth2` token exchange.
@@ -37,18 +43,30 @@ struct Claims {
 }
 
 /// Response from Google's token endpoint.
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct TokenResponse {
     access_token: String,
     expires_in: u64,
 }
 
+impl std::fmt::Debug for TokenResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TokenResponse").field("expires_in", &self.expires_in).finish_non_exhaustive()
+    }
+}
+
 /// A cached `OAuth2` access token with its expiry.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct CachedToken {
     access_token: String,
     /// Absolute time (seconds since UNIX epoch) when this token expires.
     expires_at: u64,
+}
+
+impl std::fmt::Debug for CachedToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CachedToken").field("expires_at", &self.expires_at).finish_non_exhaustive()
+    }
 }
 
 impl CachedToken {
@@ -387,6 +405,35 @@ wxOWCSTHCchvQGrMpJlCSygGPUKmT/nl464SFJsQcyZLhrwKKW8=\n\
         let addr = listener.local_addr().unwrap();
         tokio::spawn(axum::serve(listener, app).into_future());
         format!("http://{addr}")
+    }
+
+    // ── Debug redaction tests ────────────────────────────────────────────
+
+    #[test]
+    fn service_account_key_debug_is_redacted() {
+        let key = ServiceAccountKey {
+            client_email: "test@sa.iam.gserviceaccount.com".to_string(),
+            private_key: "super-secret-private-key".to_string(),
+        };
+        let debug = format!("{key:?}");
+        assert!(debug.contains("client_email"));
+        assert!(!debug.contains("super-secret-private-key"));
+    }
+
+    #[test]
+    fn cached_token_debug_is_redacted() {
+        let token = CachedToken { access_token: "super-secret-access-token".to_string(), expires_at: 12345 };
+        let debug = format!("{token:?}");
+        assert!(debug.contains("expires_at"));
+        assert!(!debug.contains("super-secret-access-token"));
+    }
+
+    #[test]
+    fn token_response_debug_is_redacted() {
+        let resp = TokenResponse { access_token: "super-secret-access-token".to_string(), expires_in: 3600 };
+        let debug = format!("{resp:?}");
+        assert!(debug.contains("expires_in"));
+        assert!(!debug.contains("super-secret-access-token"));
     }
 
     // ── CachedToken tests ───────────────────────────────────────────────
