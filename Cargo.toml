@@ -51,7 +51,7 @@ opentelemetry_sdk = { version = "0.31", features = ["metrics", "logs"] }
 opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic", "metrics", "logs"] }
 tracing-opentelemetry = "0.32"
 opentelemetry-semantic-conventions = "0.31"
-redis = { version = "1.2.0", features = ["tokio-comp", "connection-manager"] }
+redis = { version = "1.2.1", features = ["tokio-comp", "connection-manager"] }
 async-trait = "0.1.89"
 backon = "1.6.0"
 tokio-stream = { version = "0.1.18", features = ["sync"] }
