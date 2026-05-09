@@ -28,8 +28,7 @@ use obscura_server::{
 };
 
 use prost::Message as ProstMessage;
-use rand::RngCore;
-use rand::rngs::OsRng;
+use rand::Rng;
 use reqwest::Client;
 use serde_json::json;
 use sqlx::PgPool;
@@ -155,8 +154,9 @@ pub fn generate_username(prefix: &str) -> String {
 }
 
 pub fn generate_signing_key() -> [u8; 32] {
+    let mut rng = rand::rng();
     let mut bytes = [0u8; 32];
-    OsRng.fill_bytes(&mut bytes);
+    rng.fill_bytes(&mut bytes);
     bytes
 }
 
@@ -174,7 +174,8 @@ pub fn generate_signed_pre_key(identity_key_bytes: &[u8; 32]) -> (Vec<u8>, Vec<u
 
     // Sign SPK pub key (33-byte wire format) with Identity Key
     let ik_priv = PrivateKey(*identity_key_bytes);
-    let signature: [u8; 64] = ik_priv.sign(&spk_pub_wire, OsRng);
+    let mut rng = rand::rng();
+    let signature: [u8; 64] = ik_priv.sign(&spk_pub_wire, &mut rng);
 
     (spk_pub_wire.to_vec(), signature.to_vec())
 }

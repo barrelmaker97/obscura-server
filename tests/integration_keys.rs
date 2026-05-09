@@ -17,7 +17,6 @@ mod common;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use common::TestApp;
-use rand::rngs::OsRng;
 use serde_json::json;
 use xeddsa::xed25519::PrivateKey;
 use xeddsa::{CalculateKeyPair, Sign};
@@ -55,7 +54,8 @@ async fn test_format_typescript_standard() {
     spk_pub_wire[0] = 0x05;
     spk_pub_wire[1..].copy_from_slice(&spk_pub_mont);
 
-    let signature: [u8; 64] = ik_priv.sign(&spk_pub_wire, OsRng);
+    let mut rng = rand::rng();
+    let signature: [u8; 64] = ik_priv.sign(&spk_pub_wire, &mut rng);
 
     let device_payload = json!({
         "registrationId": 123,
@@ -112,7 +112,8 @@ async fn test_format_pure_math_32_byte() {
     spk_pub_wire[0] = 0x05;
     spk_pub_wire[1..].copy_from_slice(&spk_pub_mont);
 
-    let signature: [u8; 64] = ik_priv.sign(&spk_pub_mont, OsRng);
+    let mut rng = rand::rng();
+    let signature: [u8; 64] = ik_priv.sign(&spk_pub_mont, &mut rng);
 
     let device_payload = json!({
         "registrationId": 123,
