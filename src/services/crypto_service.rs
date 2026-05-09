@@ -53,16 +53,16 @@ mod tests {
     use super::*;
     use crate::domain::crypto::DJB_KEY_PREFIX;
     use curve25519_dalek::edwards::CompressedEdwardsY;
-    use rand::RngCore;
-    use rand::rngs::OsRng;
+    use rand::Rng;
     use xeddsa::xed25519::PrivateKey;
     use xeddsa::{CalculateKeyPair, Sign};
 
     #[test]
     fn test_verify_signature_exhaustive_robustness() {
         let service = CryptoService::new();
+        let mut rng = rand::rng();
         let mut seed = [0u8; 32];
-        OsRng.fill_bytes(&mut seed);
+        rng.fill_bytes(&mut seed);
         let xed_priv = PrivateKey(seed);
 
         // We test both sign bits for the identity key creation
@@ -88,8 +88,8 @@ mod tests {
 
             // 3. Sign using XEdDSA (which uses the private key math)
             // Note: XEdDSA signing math is consistent with its verification math.
-            let sig_32 = Signature::new(xed_priv.sign(&msg_32, OsRng));
-            let sig_33 = Signature::new(xed_priv.sign(&msg_33, OsRng));
+            let sig_32 = Signature::new(xed_priv.sign(&msg_32, &mut rng));
+            let sig_33 = Signature::new(xed_priv.sign(&msg_33, &mut rng));
 
             assert!(
                 service.verify_signature(&ik_pub, &msg_32, &sig_32).is_ok(),

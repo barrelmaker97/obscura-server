@@ -8,12 +8,11 @@ use crate::domain::auth_session::AuthSession;
 use crate::error::{AppError, Result};
 use argon2::{
     Argon2,
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng as PasswordOsRng},
 };
 use base64::Engine;
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use opentelemetry::{global, metrics::Counter};
-use rand::{RngCore, rngs::OsRng};
 use sha2::{Digest, Sha256};
 use sqlx::PgConnection;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -153,7 +152,7 @@ impl AuthService {
     pub(crate) async fn hash_password(&self, password: &str) -> Result<String> {
         let password = password.to_string();
         tokio::task::spawn_blocking(move || {
-            let salt = SaltString::generate(&mut OsRng);
+            let salt = SaltString::generate(&mut PasswordOsRng);
             let argon2 = Argon2::default();
             argon2.hash_password(password.as_bytes(), &salt).map_err(|_| AppError::Internal).map(|h| h.to_string())
         })
@@ -283,8 +282,7 @@ impl AuthService {
     }
 
     fn generate_opaque_token() -> String {
-        let mut bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut bytes);
+        let bytes = rand::random::<[u8; 32]>();
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
     }
 
