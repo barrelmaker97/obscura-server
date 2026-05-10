@@ -46,11 +46,11 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 uuid = { version = "1.23", features = ["v4", "serde"] }
 tower-http = { version = "0.6", features = ["trace", "request-id", "util", "timeout"] }
-opentelemetry = { version = "0.31", features = ["metrics", "logs"] }
-opentelemetry_sdk = { version = "0.31", features = ["metrics", "logs"] }
-opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic", "metrics", "logs"] }
+opentelemetry = { version = "0.32", features = ["metrics", "logs"] }
+opentelemetry_sdk = { version = "0.32", features = ["metrics", "logs"] }
+opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic", "metrics", "logs"] }
 tracing-opentelemetry = "0.32"
-opentelemetry-semantic-conventions = "0.31"
+opentelemetry-semantic-conventions = "0.32"
 redis = { version = "1.2.1", features = ["tokio-comp", "connection-manager"] }
 async-trait = "0.1.89"
 backon = "1.6.0"
