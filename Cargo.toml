@@ -16,7 +16,7 @@ anyhow = "1.0"
 argon2 = "0.5"
 aws-config = { version = "1.8", default-features = false, features = ["default-https-client", "rt-tokio"] }
 aws-credential-types = "1.2"
-aws-sdk-s3 = { version = "1.134", default-features = false, features = ["default-https-client", "http-1x", "rt-tokio"] }
+aws-sdk-s3 = { version = "1.135", default-features = false, features = ["default-https-client", "http-1x", "rt-tokio"] }
 axum = { version = "0.8", features = ["ws"] }
 base64 = "0.22"
 bytes = "1.11"
@@ -58,7 +58,7 @@ tokio-stream = { version = "0.1.18", features = ["sync"] }
 regex = "1.12.3"
 
 [build-dependencies]
-prost-build = "0.14.3"
+prost-build = "0.14.4"
 
 [dev-dependencies]
 tokio-tungstenite = "0.29.0"
