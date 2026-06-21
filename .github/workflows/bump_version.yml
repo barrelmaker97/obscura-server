@@ -19,7 +19,7 @@ jobs:
     permissions:
       contents: write  # Required to push commits and tags
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ssh-key: ${{ secrets.DEPLOY_KEY }}
           submodules: true
