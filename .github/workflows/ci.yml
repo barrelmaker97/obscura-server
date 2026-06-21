@@ -24,7 +24,7 @@ jobs:
       OBSCURA_S3_FORCE_PATH_STYLE: "true"
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: true
 
