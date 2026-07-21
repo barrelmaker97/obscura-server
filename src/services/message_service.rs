@@ -62,9 +62,14 @@ impl MessageService {
     #[tracing::instrument(
         err(level = "warn"),
         skip(self, submissions),
-        fields(sender_id = %sender_id, count = submissions.len())
+        fields(sender_id = %sender_id, sender_device_id = %sender_device_id, count = submissions.len())
     )]
-    pub(crate) async fn send(&self, sender_id: Uuid, submissions: Vec<RawSubmission>) -> Result<SubmissionOutcome> {
+    pub(crate) async fn send(
+        &self,
+        sender_id: Uuid,
+        sender_device_id: Uuid,
+        submissions: Vec<RawSubmission>,
+    ) -> Result<SubmissionOutcome> {
         let mut failed_submissions = Vec::new();
         let mut potential_valid = Vec::with_capacity(submissions.len());
         let mut device_ids_to_check = std::collections::HashSet::new();
@@ -127,7 +132,8 @@ impl MessageService {
 
         // Pass 3: Bulk Insert
         if !to_insert.is_empty() {
-            let inserted = self.repo.create_batch(&mut tx, sender_id, to_insert, self.ttl_days).await?;
+            let inserted =
+                self.repo.create_batch(&mut tx, sender_id, sender_device_id, to_insert, self.ttl_days).await?;
             tx.commit().await?;
 
             self.metrics.sent_total.add(inserted.len() as u64, &[KeyValue::new("status", "success")]);

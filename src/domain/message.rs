@@ -5,6 +5,7 @@ use uuid::Uuid;
 pub(crate) struct Message {
     pub id: Uuid,
     pub sender_id: Uuid,
+    pub sender_device_id: Uuid,
     pub content: Vec<u8>,
     pub created_at: Option<OffsetDateTime>,
 }

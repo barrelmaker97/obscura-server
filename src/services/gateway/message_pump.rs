@@ -121,6 +121,7 @@ impl MessagePump {
                     sender_id: msg.sender_id.as_bytes().to_vec(),
                     timestamp,
                     message: msg.content,
+                    sender_device_id: msg.sender_device_id.as_bytes().to_vec(),
                 }
             })
             .collect();

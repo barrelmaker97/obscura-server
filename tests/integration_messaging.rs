@@ -41,6 +41,15 @@ async fn test_messaging_flow() {
 
     let env = ws.receive_envelope().await.expect("Did not receive message");
     assert_eq!(env.message, content);
+    // Signal-aligned Option B: the envelope carries BOTH the sending user and device.
+    assert_eq!(env.sender_id.len(), 16, "sender_id must be a 16-byte UUID");
+    assert_eq!(env.sender_id, user_a.user_id.as_bytes().to_vec(), "sender_id must be the sending user");
+    assert_eq!(env.sender_device_id.len(), 16, "sender_device_id must be a 16-byte UUID");
+    assert_eq!(
+        env.sender_device_id,
+        user_a.device_id.as_bytes().to_vec(),
+        "sender_device_id must be the sending device"
+    );
 
     ws.send_ack(env.id).await;
 }
