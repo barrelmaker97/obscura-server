@@ -139,6 +139,7 @@ async fn test_full_system_flow() {
     while received_count < 49 && start.elapsed() < Duration::from_secs(10) {
         if let Some(env) = ws.receive_envelope_timeout(Duration::from_millis(500)).await {
             assert_eq!(env.sender_id, sender.user_id.as_bytes().to_vec());
+            assert_eq!(env.sender_device_id, sender.device_id.as_bytes().to_vec());
 
             let content = env.message;
             if expected_content.remove(&content) {

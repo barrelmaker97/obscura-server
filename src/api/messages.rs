@@ -19,7 +19,8 @@ pub(crate) async fn send_messages(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<impl IntoResponse> {
-    let _ = auth_user.device_id.ok_or_else(|| AppError::Forbidden("Device-scoped token required".to_string()))?;
+    let sender_device_id =
+        auth_user.device_id.ok_or_else(|| AppError::Forbidden("Device-scoped token required".to_string()))?;
 
     let idempotency_key = headers
         .get("idempotency-key")
@@ -45,7 +46,7 @@ pub(crate) async fn send_messages(
     let submissions: Vec<RawSubmission> = request.messages.into_iter().map(RawSubmission::from).collect();
 
     // 4. Domain Logic: Call Pure Service
-    let outcome = state.message_service.send(auth_user.user_id, submissions).await?;
+    let outcome = state.message_service.send(auth_user.user_id, sender_device_id, submissions).await?;
 
     // 5. Result Mapping
     let response = proto::SendMessageResponse::from(outcome);

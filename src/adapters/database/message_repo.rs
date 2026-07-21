@@ -35,7 +35,7 @@ impl MessageRepository {
 
     /// Inserts a batch of messages.
     ///
-    /// Ignores duplicate messages (based on `sender_id` and `submission_id`) via `ON CONFLICT DO NOTHING`.
+    /// Ignores duplicate messages (based on `sender_device_id` and `submission_id`) via `ON CONFLICT DO NOTHING`.
     /// Returns the list of `(device_id, submission_id)` that were successfully inserted.
     ///
     /// # Errors
@@ -45,6 +45,7 @@ impl MessageRepository {
         &self,
         conn: &mut PgConnection,
         sender_id: Uuid,
+        sender_device_id: Uuid,
         messages: Vec<(Uuid, Uuid, Vec<u8>)>,
         ttl_days: i64,
     ) -> Result<Vec<(Uuid, Uuid)>> {
@@ -66,14 +67,15 @@ impl MessageRepository {
 
         let inserted = sqlx::query_as::<_, (Uuid, Uuid)>(
             r#"
-            INSERT INTO messages (sender_id, device_id, submission_id, content, expires_at)
-            SELECT $1, u.d_id, u.s_id, u.content, $5
-            FROM UNNEST($2::uuid[], $3::uuid[], $4::bytea[]) AS u(d_id, s_id, content)
-            ON CONFLICT (sender_id, submission_id) DO NOTHING
+            INSERT INTO messages (sender_id, sender_device_id, device_id, submission_id, content, expires_at)
+            SELECT $1, $2, u.d_id, u.s_id, u.content, $6
+            FROM UNNEST($3::uuid[], $4::uuid[], $5::bytea[]) AS u(d_id, s_id, content)
+            ON CONFLICT (sender_device_id, submission_id) DO NOTHING
             RETURNING device_id, submission_id
             "#,
         )
         .bind(sender_id)
+        .bind(sender_device_id)
         .bind(device_ids)
         .bind(submission_ids)
         .bind(contents)
@@ -101,7 +103,7 @@ impl MessageRepository {
             Some((last_ts, last_id)) => {
                 sqlx::query_as::<_, MessageRecord>(
                     r#"
-                    SELECT id, sender_id, content, created_at
+                    SELECT id, sender_id, sender_device_id, content, created_at
                     FROM messages
                     WHERE device_id = $1
                       AND expires_at > NOW()
@@ -120,7 +122,7 @@ impl MessageRepository {
             None => {
                 sqlx::query_as::<_, MessageRecord>(
                     r#"
-                    SELECT id, sender_id, content, created_at
+                    SELECT id, sender_id, sender_device_id, content, created_at
                     FROM messages
                     WHERE device_id = $1
                       AND expires_at > NOW()
