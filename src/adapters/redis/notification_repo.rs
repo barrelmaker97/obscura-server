@@ -54,19 +54,32 @@ impl NotificationRepository {
     #[tracing::instrument(level = "debug", skip(self), err)]
     pub async fn subscribe_realtime(&self) -> anyhow::Result<broadcast::Receiver<RealtimeNotification>> {
         let pattern = format!("{}*", self.channel_prefix);
-        let mut redis_rx = self.redis.subscribe(&pattern).await?;
+        let mut redis_rx = self.redis.subscribe(&pattern)?;
 
         let (tx, rx) = broadcast::channel(self.global_channel_capacity);
         let prefix = self.channel_prefix.clone();
         // Spawn a mapper task to translate technical PubSubMessages into domain RealtimeNotifications
         tokio::spawn(async move {
-            while let Ok(msg) = redis_rx.recv().await {
-                if let Some(device_id_str) = msg.channel.strip_prefix(&prefix)
-                    && let Ok(device_id) = Uuid::parse_str(device_id_str)
-                    && let Some(payload_byte) = msg.payload.first()
-                    && let Ok(event) = UserEvent::try_from(*payload_byte)
-                {
-                    let _ = tx.send(RealtimeNotification { device_id, event });
+            loop {
+                match redis_rx.recv().await {
+                    Ok(msg) => {
+                        if let Some(device_id_str) = msg.channel.strip_prefix(&prefix)
+                            && let Ok(device_id) = Uuid::parse_str(device_id_str)
+                            && let Some(payload_byte) = msg.payload.first()
+                            && let Ok(event) = UserEvent::try_from(*payload_byte)
+                        {
+                            let _ = tx.send(RealtimeNotification { device_id, event });
+                        }
+                    }
+                    // Lagged means we skipped `n` messages, not that the receiver is dead — the
+                    // scheduled push fallback and the reconnect backlog drain cover the gap.
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(missed = n, "Realtime notification mapper lagged; continuing");
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        tracing::info!("Realtime notification source closed; mapper exiting");
+                        break;
+                    }
                 }
             }
         });

@@ -38,6 +38,7 @@ Obscura Server is configured via command-line flags or environment variables usi
 | `--pubsub-url` | `OBSCURA_PUBSUB_URL` | `redis://localhost:6379` | Connection URL for the PubSub and job backend. |
 | `--pubsub-min-backoff-secs` | `OBSCURA_PUBSUB_MIN_BACKOFF_SECS` | `1` | Minimum backoff time for PubSub reconnection in seconds. |
 | `--pubsub-max-backoff-secs` | `OBSCURA_PUBSUB_MAX_BACKOFF_SECS` | `30` | Maximum backoff time for PubSub reconnection in seconds. |
+| `--pubsub-stable-after-secs` | `OBSCURA_PUBSUB_STABLE_AFTER_SECS` | `30` | How long a PubSub subscription must hold before its reconnect backoff resets. |
 
 ## Authentication
 
