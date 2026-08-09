@@ -559,6 +559,14 @@ pub struct WsConfig {
     )]
     pub max_batch_bytes: usize,
 
+    /// How long a delivery notification keeps retrying a failed database read, in milliseconds
+    #[arg(
+        long = "ws-fetch-retry-budget-ms",
+        env = "OBSCURA_WS_FETCH_RETRY_BUDGET_MS",
+        default_value_t = WsConfig::default().fetch_retry_budget_ms
+    )]
+    pub fetch_retry_budget_ms: u64,
+
     /// Time-to-live for WebSocket authentication tickets in seconds
     #[arg(
         long = "ws-ticket-ttl-secs",
@@ -580,6 +588,7 @@ impl Default for WsConfig {
             prekey_debounce_interval_ms: 500,
             message_fetch_batch_size: 50,
             max_batch_bytes: 8 * 1024 * 1024, // 8 MiB
+            fetch_retry_budget_ms: 10_000,
             ticket_ttl_secs: 30,
         }
     }
