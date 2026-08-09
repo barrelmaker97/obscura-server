@@ -91,13 +91,17 @@ impl PushProvider for SharedMockPushProvider {
 }
 
 pub async fn get_test_pool() -> PgPool {
-    setup_tracing();
     let database_url = std::env::var("OBSCURA_DATABASE_URL")
         .unwrap_or_else(|_| "postgres://user:password@localhost/signal_server".to_string());
 
-    let config = obscura_server::config::DatabaseConfig { url: database_url, ..Default::default() };
+    get_test_pool_with(&obscura_server::config::DatabaseConfig { url: database_url, ..Default::default() }).await
+}
 
-    let pool = adapters::database::init_pool(&config).await.expect("Failed to connect to DB. Is Postgres running?");
+/// Builds a pool from `config`, so a test can size it (e.g. to starve a component of connections).
+pub async fn get_test_pool_with(config: &obscura_server::config::DatabaseConfig) -> PgPool {
+    setup_tracing();
+
+    let pool = adapters::database::init_pool(config).await.expect("Failed to connect to DB. Is Postgres running?");
 
     sqlx::migrate!().run(&pool).await.expect("Failed to run migrations");
 
@@ -312,7 +316,7 @@ impl TestApp {
     }
 
     async fn spawn_internal(config: Config, start_workers: bool) -> Self {
-        let pool = get_test_pool().await;
+        let pool = get_test_pool_with(&config.database).await;
         let mut config = config;
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

@@ -69,8 +69,11 @@ impl Session {
             message_service.clone(),
             outbound_tx.clone(),
             metrics.clone(),
-            config.message_fetch_batch_size,
-            config.max_batch_bytes,
+            crate::services::gateway::message_pump::PumpTuning {
+                batch_limit: config.message_fetch_batch_size,
+                max_batch_bytes: config.max_batch_bytes,
+                retry_budget: std::time::Duration::from_millis(config.fetch_retry_budget_ms),
+            },
         );
 
         let prekey_pump =
