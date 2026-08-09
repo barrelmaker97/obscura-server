@@ -40,9 +40,8 @@ impl Metrics {
 
 /// Exponential backoff with jitter for the pubsub reconnect loop.
 ///
-/// Unbounded by design: the listener is a process-lifetime daemon, and one that gives up leaves the
-/// pod serving traffic it cannot deliver notifications for. Jitter decorrelates replicas, which all
-/// watch the same pattern on the same Valkey.
+/// Unbounded by design: the listener is a process-lifetime daemon, and one that gives up cannot deliver
+/// notifications. Jitter decorrelates replicas, which all watch the same pattern on the same Valkey.
 #[derive(Debug)]
 struct Backoff {
     min: Duration,

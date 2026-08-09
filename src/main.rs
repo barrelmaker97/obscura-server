@@ -102,9 +102,7 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    // A worker finishing while we are not shutting down is fatal: each runs for the life of the
-    // process, so an early return leaves the pod half-serving. Exit and let the orchestrator
-    // restart us.
+    // A worker finishing while we are not shutting down is fatal, each runs for the life of the process.
     let mut servers_finished = false;
     let mut worker_fault = None;
     tokio::select! {
