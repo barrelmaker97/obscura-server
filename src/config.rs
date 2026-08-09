@@ -158,11 +158,25 @@ pub struct PubSubConfig {
         default_value_t = PubSubConfig::default().max_backoff_secs
     )]
     pub max_backoff_secs: u64,
+
+    /// How long a `PubSub` subscription must hold before its reconnect backoff resets, in seconds
+    #[arg(
+        long = "pubsub-stable-after-secs",
+        id = "PUBSUB_STABLE_AFTER_SECS",
+        env = "OBSCURA_PUBSUB_STABLE_AFTER_SECS",
+        default_value_t = PubSubConfig::default().stable_after_secs
+    )]
+    pub stable_after_secs: u64,
 }
 
 impl Default for PubSubConfig {
     fn default() -> Self {
-        Self { url: "redis://localhost:6379".to_string(), min_backoff_secs: 1, max_backoff_secs: 30 }
+        Self {
+            url: "redis://localhost:6379".to_string(),
+            min_backoff_secs: 1,
+            max_backoff_secs: 30,
+            stable_after_secs: 30,
+        }
     }
 }
 

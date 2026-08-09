@@ -1,8 +1,11 @@
 use crate::config::PubSubConfig;
-use backon::{ExponentialBuilder, Retryable};
 use dashmap::DashMap;
 use futures::StreamExt;
+use opentelemetry::metrics::Gauge;
+use opentelemetry::{KeyValue, global};
+use rand::RngExt;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, watch};
 use tracing::Instrument;
 
@@ -16,6 +19,56 @@ pub use notification_repo::NotificationRepository;
 pub struct PubSubMessage {
     pub channel: String,
     pub payload: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+struct Metrics {
+    subscription_up: Gauge<i64>,
+}
+
+impl Metrics {
+    fn new() -> Self {
+        let meter = global::meter("obscura-server");
+        Self {
+            subscription_up: meter
+                .i64_gauge("obscura_pubsub_subscription_up")
+                .with_description("1 while this process holds a live PubSub subscription for a pattern, 0 otherwise")
+                .build(),
+        }
+    }
+}
+
+/// Exponential backoff with jitter for the pubsub reconnect loop.
+///
+/// Unbounded by design: the listener is a process-lifetime daemon, and one that gives up cannot deliver
+/// notifications. Jitter decorrelates replicas, which all watch the same pattern on the same Valkey.
+#[derive(Debug)]
+struct Backoff {
+    min: Duration,
+    max: Duration,
+    current: Duration,
+}
+
+impl Backoff {
+    fn new(min_secs: u64, max_secs: u64) -> Self {
+        let min = Duration::from_secs(min_secs.max(1));
+        let max = Duration::from_secs(max_secs).max(min);
+        Self { min, max, current: min }
+    }
+
+    /// Next delay, then double the ceiling for the attempt after this one.
+    fn next_delay(&mut self) -> Duration {
+        // Jitter spans [min, current] rather than [0, current] so `--pubsub-min-backoff-secs` is
+        // actually a minimum.
+        let spread = u64::try_from(self.current.saturating_sub(self.min).as_millis()).unwrap_or(u64::MAX);
+        let delay = self.min + Duration::from_millis(rand::rng().random_range(0..=spread));
+        self.current = self.current.saturating_mul(2).min(self.max);
+        delay
+    }
+
+    const fn reset(&mut self) {
+        self.current = self.min;
+    }
 }
 
 #[derive(Debug)]
@@ -60,7 +113,7 @@ impl RedisClient {
     ///
     /// # Errors
     /// Returns an error if the subscription fails.
-    pub async fn subscribe(&self, pattern: &str) -> anyhow::Result<broadcast::Receiver<PubSubMessage>> {
+    pub fn subscribe(&self, pattern: &str) -> anyhow::Result<broadcast::Receiver<PubSubMessage>> {
         if let Some(tx) = self.subscriptions.get(pattern) {
             return Ok(tx.subscribe());
         }
@@ -76,18 +129,15 @@ impl RedisClient {
         let subscriptions = Arc::clone(&self.subscriptions);
         let config = self.config.clone();
 
-        // We use a channel to wait for the first successful subscription
-        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-
+        // Returns before the listener has necessarily subscribed. The receiver is valid either
+        // way — it yields nothing until the subscription is live, then starts delivering — and
+        // waiting would only block the caller for the length of an outage.
         tokio::spawn(
             async move {
-                Self::run_pattern_listener(client, pattern_str, tx, shutdown, subscriptions, config, ready_tx).await;
+                Self::run_pattern_listener(client, pattern_str, tx, shutdown, subscriptions, config).await;
             }
             .instrument(tracing::debug_span!("pubsub_listener", pattern = %pattern)),
         );
-
-        // Wait for the listener to be ready (psubscribed)
-        let _ = ready_rx.await;
 
         Ok(rx)
     }
@@ -99,48 +149,57 @@ impl RedisClient {
         mut shutdown: watch::Receiver<bool>,
         subscriptions: Arc<DashMap<String, broadcast::Sender<PubSubMessage>>>,
         config: PubSubConfig,
-        ready_tx: tokio::sync::oneshot::Sender<()>,
     ) {
-        let retry_strategy = ExponentialBuilder::default()
-            .with_min_delay(std::time::Duration::from_secs(config.min_backoff_secs))
-            .with_max_delay(std::time::Duration::from_secs(config.max_backoff_secs));
+        // Connect failure and stream loss are the same event — no subscription — so one loop, one
+        // backoff.
+        let metrics = Metrics::new();
+        let attrs = [KeyValue::new("pattern", pattern.clone())];
 
-        let mut ready_tx = Some(ready_tx);
+        let mut backoff = Backoff::new(config.min_backoff_secs, config.max_backoff_secs);
+        // Reset only after a subscription proves stable, not merely established: a flapping Valkey
+        // would otherwise pull the delay back to the minimum on every cycle.
+        let stable_after = Duration::from_secs(config.stable_after_secs);
+        let mut first_attempt = true;
+        metrics.subscription_up.record(0, &attrs);
 
-        loop {
-            let pubsub_result = (|| async {
-                let mut pubsub = client.get_async_pubsub().await?;
-                pubsub.psubscribe(&pattern).await?;
-                Ok::<redis::aio::PubSub, redis::RedisError>(pubsub)
-            })
-            .retry(&retry_strategy)
-            .when(|e| {
-                tracing::warn!(error = %e, "Failed to subscribe to pubsub, retrying...");
-                true
-            })
-            .notify(|e, duration| {
-                tracing::debug!("Pubsub subscription retry in {:?} due to error: {:?}", duration, e);
-            })
-            .await;
+        'reconnect: loop {
+            if *shutdown.borrow() {
+                break;
+            }
 
-            let pubsub: redis::aio::PubSub = match pubsub_result {
+            // Every path back to the top of this loop is a lost subscription, whether the connect
+            // failed or an established stream ended, so the delay belongs here rather than in the
+            // connect-failure arm. A Valkey that accepts and immediately drops (a pubsub
+            // output-buffer kill, a failover resetting the connection) would otherwise spin.
+            if !first_attempt {
+                let delay = backoff.next_delay();
+                tracing::debug!(pattern = %pattern, retry_in_ms = %delay.as_millis(), "Reconnecting to pubsub");
+                tokio::select! {
+                    _ = shutdown.changed() => break 'reconnect,
+                    () = tokio::time::sleep(delay) => {}
+                }
+            }
+            first_attempt = false;
+
+            let pubsub = match Self::connect_and_subscribe(&client, &pattern).await {
                 Ok(ps) => ps,
                 Err(e) => {
-                    tracing::error!(error = %e, "Pubsub subscription failed after retries");
-                    break;
+                    tracing::warn!(pattern = %pattern, error = %e, "Failed to subscribe to pubsub, retrying");
+                    continue 'reconnect;
                 }
             };
 
             tracing::info!(pattern = %pattern, "Successfully subscribed to pubsub");
-            if let Some(rtx) = ready_tx.take() {
-                let _ = rtx.send(());
-            }
-
+            metrics.subscription_up.record(1, &attrs);
+            let connected_at = Instant::now();
             let mut message_stream = pubsub.into_on_message();
 
             loop {
                 tokio::select! {
-                    _ = shutdown.changed() => return,
+                    _ = shutdown.changed() => {
+                        metrics.subscription_up.record(0, &attrs);
+                        break 'reconnect;
+                    }
                     msg = message_stream.next() => {
                         if let Some(msg) = msg {
                             let channel = msg.get_channel_name().to_string();
@@ -150,24 +209,31 @@ impl RedisClient {
                                 channel,
                                 payload: msg.get_payload().unwrap_or_default(),
                             });
-                            if tx.send(pubsub_msg).is_err() {
-                                // If no one is listening, we could potentially stop the listener,
-                                // but for simplicity we'll keep it running until shutdown.
-                            }
+                            // Send fails only when nobody is subscribed right now; the listener
+                            // outlives its receivers.
+                            let _ = tx.send(pubsub_msg);
                         } else {
-                            tracing::warn!(pattern = %pattern, "Pubsub connection lost, reconnecting...");
+                            tracing::warn!(pattern = %pattern, "Pubsub connection lost, reconnecting");
                             break;
                         }
                     }
                 }
             }
 
-            if *shutdown.borrow() {
-                break;
+            metrics.subscription_up.record(0, &attrs);
+            if connected_at.elapsed() >= stable_after {
+                backoff.reset();
             }
         }
 
+        metrics.subscription_up.record(0, &attrs);
         subscriptions.remove(&pattern);
+    }
+
+    async fn connect_and_subscribe(client: &redis::Client, pattern: &str) -> redis::RedisResult<redis::aio::PubSub> {
+        let mut pubsub = client.get_async_pubsub().await?;
+        pubsub.psubscribe(pattern).await?;
+        Ok(pubsub)
     }
 
     /// Pings the Redis server to check connectivity.

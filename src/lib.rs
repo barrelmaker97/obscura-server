@@ -112,44 +112,52 @@ pub struct Workers {
 }
 
 impl Workers {
+    /// Spawns every background worker into a [`JoinSet`] so the caller can supervise them: a worker
+    /// returning before shutdown is a fault, and `main` needs to see it. Each task yields its name.
     #[must_use]
-    pub fn spawn_all(self, shutdown_rx: watch::Receiver<bool>) -> Vec<tokio::task::JoinHandle<()>> {
-        let mut tasks = Vec::new();
+    pub fn spawn_all(self, shutdown_rx: watch::Receiver<bool>) -> tokio::task::JoinSet<&'static str> {
+        let mut tasks = tokio::task::JoinSet::new();
 
         let message_worker = self.message_worker;
         let message_rx = shutdown_rx.clone();
-        tasks.push(tokio::spawn(async move {
+        tasks.spawn(async move {
             message_worker.run(message_rx).await;
-        }));
+            "message_cleanup"
+        });
 
         let attachment_worker = self.attachment_worker;
         let attachment_rx = shutdown_rx.clone();
-        tasks.push(tokio::spawn(async move {
+        tasks.spawn(async move {
             attachment_worker.run(attachment_rx).await;
-        }));
+            "attachment_cleanup"
+        });
 
         let backup_worker = self.backup_worker;
         let backup_rx = shutdown_rx.clone();
-        tasks.push(tokio::spawn(async move {
+        tasks.spawn(async move {
             backup_worker.run(backup_rx).await;
-        }));
+            "backup_cleanup"
+        });
 
         let push_worker = self.push_worker;
         let push_rx = shutdown_rx.clone();
-        tasks.push(tokio::spawn(async move {
+        tasks.spawn(async move {
             push_worker.run(push_rx).await;
-        }));
+            "push_notification"
+        });
 
         let notification_worker = self.notification_worker;
         let notification_rx = shutdown_rx.clone();
-        tasks.push(tokio::spawn(async move {
+        tasks.spawn(async move {
             notification_worker.run(notification_rx).await;
-        }));
+            "notification"
+        });
 
         let refresh_token_worker = self.refresh_token_worker;
-        tasks.push(tokio::spawn(async move {
+        tasks.spawn(async move {
             refresh_token_worker.run(shutdown_rx).await;
-        }));
+            "refresh_token_cleanup"
+        });
 
         tasks
     }

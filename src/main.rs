@@ -82,7 +82,7 @@ async fn main() -> anyhow::Result<()> {
     .await?;
 
     // Phase 4: Start Runtime (Explicit Spawning and Listening)
-    let worker_tasks = workers.spawn_all(shutdown_rx.clone());
+    let mut worker_tasks = workers.spawn_all(shutdown_rx.clone());
 
     let mut api_rx = shutdown_rx.clone();
     let api_server = axum::serve(api_listener, app_router.into_make_service_with_connect_info::<SocketAddr>())
@@ -96,23 +96,74 @@ async fn main() -> anyhow::Result<()> {
             let _ = mgmt_rx.wait_for(|&s| s).await;
         });
 
-    if let Err(e) = tokio::try_join!(api_server, mgmt_server) {
-        tracing::error!(error = %e, "Server error");
+    let mut server_task = tokio::spawn(async move {
+        if let Err(e) = tokio::try_join!(api_server, mgmt_server) {
+            tracing::error!(error = %e, "Server error");
+        }
+    });
+
+    // A worker finishing while we are not shutting down is fatal, each runs for the life of the process.
+    let mut servers_finished = false;
+    let mut worker_fault = None;
+    tokio::select! {
+        res = &mut server_task => {
+            servers_finished = true;
+            if let Err(e) = res {
+                tracing::error!(error = %e, "Server task panicked");
+            }
+        }
+        Some(res) = worker_tasks.join_next() => match res {
+            Ok(name) if *shutdown_rx.borrow() => tracing::info!(worker = %name, "Worker finished during shutdown"),
+            Ok(name) => {
+                tracing::error!(worker = %name, "Worker exited unexpectedly; shutting down");
+                worker_fault = Some(format!("background worker {name} exited unexpectedly"));
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "Worker panicked; shutting down");
+                worker_fault = Some(format!("background worker panicked: {e}"));
+            }
+        },
     }
 
     // Phase 5: Graceful Shutdown Orchestration
     let _ = shutdown_tx.send(true);
+
+    let shutdown_timeout = std::time::Duration::from_secs(config.server.shutdown_timeout_secs);
+    let running_server = (!servers_finished).then_some(server_task);
+    drain(running_server, &mut worker_tasks, shutdown_timeout).await;
+
+    telemetry_guard.shutdown();
+
+    // Exit non-zero so the fault is visible to anything reading the exit code, not just the logs.
+    worker_fault.map_or(Ok(()), |reason| Err(anyhow::anyhow!(reason)))
+}
+
+/// Waits for the HTTP servers, then the background workers, within one shared `timeout`.
+///
+/// Servers drain first so in-flight requests finish against workers that are still alive. The
+/// deadline is shared rather than applied twice, so the whole shutdown stays inside the window a
+/// `terminationGracePeriodSeconds` is tuned against.
+async fn drain(
+    server_task: Option<tokio::task::JoinHandle<()>>,
+    workers: &mut tokio::task::JoinSet<&'static str>,
+    timeout: std::time::Duration,
+) {
+    let deadline = tokio::time::Instant::now() + timeout;
+
+    if let Some(task) = server_task
+        && tokio::time::timeout_at(deadline, task).await.is_err()
+    {
+        tracing::warn!("Timeout waiting for HTTP servers to finish.");
+    }
+
     tokio::select! {
         () = async {
-            futures::future::join_all(worker_tasks).await;
+            while workers.join_next().await.is_some() {}
         } => {
             tracing::info!("Background tasks finished.");
         }
-        () = tokio::time::sleep(std::time::Duration::from_secs(config.server.shutdown_timeout_secs)) => {
+        () = tokio::time::sleep_until(deadline) => {
             tracing::warn!("Timeout waiting for background tasks to finish.");
         }
     }
-
-    telemetry_guard.shutdown();
-    Ok(())
 }

@@ -293,6 +293,9 @@ pub struct TestApp {
     pub s3_client: aws_sdk_s3::Client,
     pub notifier: NotificationService,
     pub shutdown_tx: tokio::sync::watch::Sender<bool>,
+    /// Keeps spawned workers alive: dropping a `JoinSet` aborts every task in it. Binding it to a
+    /// local in `spawn_internal` would kill the workers when that function returns.
+    _worker_tasks: Option<tokio::task::JoinSet<&'static str>>,
 }
 
 impl TestApp {
@@ -344,9 +347,7 @@ impl TestApp {
             .expect("Failed to build application for tests");
 
         // Spawn workers explicitly in tests only if requested
-        if start_workers {
-            let _worker_tasks = app.workers.spawn_all(shutdown_rx.clone());
-        }
+        let worker_tasks = start_workers.then(|| app.workers.spawn_all(shutdown_rx.clone()));
 
         let notifier = app.services.notification_service.clone();
         let app_router = app_router(&config, app.services, shutdown_rx.clone());
@@ -380,6 +381,7 @@ impl TestApp {
             s3_client,
             notifier,
             shutdown_tx,
+            _worker_tasks: worker_tasks,
         }
     }
 
