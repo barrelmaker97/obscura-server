@@ -13,7 +13,7 @@ strip = "symbols"
 
 [dependencies]
 anyhow = "1.0"
-argon2 = "0.5"
+argon2 = "0.6"
 aws-config = { version = "1.8", default-features = false, features = ["default-https-client", "rt-tokio"] }
 aws-credential-types = "1.2"
 aws-sdk-s3 = { version = "1.135", default-features = false, features = ["default-https-client", "http-1x", "rt-tokio"] }
