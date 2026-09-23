@@ -8,7 +8,7 @@ info:
     - **Protocol:** Protocol Buffers (application/x-protobuf) are used for message bodies to minimize metadata leakage and binary bloat.
 
     **Protobuf Definitions:**
-    The WebSocket and Message schemas are defined in the [obscura-proto](https://github.com/barrelmaker97/obscura-proto/blob/main/obscura/v1/obscura.proto) repository.
+    The WebSocket and Message schemas are defined in the [obscura-proto](https://github.com/obscura-messaging/obscura-proto/blob/main/obscura/v1/obscura.proto) repository.
   version: 0.0.0
   license:
     name: GPL-3.0-or-later
