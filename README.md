@@ -3,7 +3,7 @@
 **Obscura Server** is a minimalist, secure relay server for the Signal Protocol. It facilitates end-to-end encrypted asynchronous messaging while maintaining a zero-knowledge architecture.
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![CI](https://github.com/barrelmaker97/obscura-server/actions/workflows/ci.yml/badge.svg)](https://github.com/barrelmaker97/obscura-server/actions/workflows/ci.yml)
+[![CI](https://github.com/obscura-messaging/obscura-server/actions/workflows/ci.yml/badge.svg)](https://github.com/obscura-messaging/obscura-server/actions/workflows/ci.yml)
 
 ## Features
 
