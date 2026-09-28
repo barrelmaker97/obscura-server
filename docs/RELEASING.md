@@ -46,6 +46,10 @@ Release** manually with the tag as its ref.
 The first image published under the organization creates a new GHCR package.
 New packages default to **private**, even for public repositories. An
 organization owner must set the package visibility to **Public** in GitHub's
-package settings and verify the versioned and `latest` images are anonymously
-pullable before updating unauthenticated consumers such as the Helm chart and
-native integration CI. The old personal-account image does not move or redirect.
+package settings. If GitHub says public visibility is disabled by organization
+administrators, the owner must first enable **Public** under organization
+**Settings > Packages > Package creation**. That policy permits members to
+create other public packages too. Verify the versioned and `latest` images are
+anonymously pullable before updating unauthenticated consumers such as the Helm
+chart and native integration CI. The old personal-account image does not move
+or redirect.
