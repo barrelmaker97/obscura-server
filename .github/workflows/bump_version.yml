@@ -13,11 +13,17 @@ on:
         required: true
         default: 'patch'
 
+concurrency:
+  group: server-release
+  cancel-in-progress: false
+
 jobs:
   bump-and-tag:
     runs-on: ubuntu-latest
+    timeout-minutes: 50
     permissions:
-      contents: write  # Required to push commits and tags
+      contents: write
+      checks: read
     steps:
       - uses: actions/checkout@v7
         with:
@@ -40,29 +46,65 @@ jobs:
 
       - name: Update Version
         id: version
+        env:
+          BUMP_TYPE: ${{ inputs.bump_type }}
         run: |
-          cargo set-version --bump ${{ inputs.bump_type }}
+          cargo set-version --bump "$BUMP_TYPE"
           # Extract the new version and update Cargo.lock
           NEW_VER=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "obscura-server") | .version')
-          echo "new_version=$NEW_VER" >> $GITHUB_OUTPUT
+          echo "new_version=$NEW_VER" >> "$GITHUB_OUTPUT"
 
-          # Ensure Cargo.lock is updated
-          cargo check --locked > /dev/null 2>&1 || cargo check > /dev/null 2>&1
+          cargo check
+          cargo check --locked
 
-      - name: Commit and Push Tag
+      - name: Commit, check, and push release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_CANDIDATE: release-candidate/${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           NEW_VER=${{ steps.version.outputs.new_version }}
           TAG_NAME="v$NEW_VER"
 
-          # Check if tag exists
-          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
-             echo "::error::Tag $TAG_NAME already exists!"
-             exit 1
+          existing_tag=$(git ls-remote origin "refs/tags/$TAG_NAME")
+          if [ -n "$existing_tag" ]; then
+            echo "::error::Tag $TAG_NAME already exists"
+            exit 1
           fi
 
           git add Cargo.toml Cargo.lock
-          git commit -m "chore: release $TAG_NAME"
+          git commit -m "chore: release $TAG_NAME" \
+            -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
           git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
 
-          # Push commit and tag
-          git push origin main --follow-tags
+          base_sha=$(git rev-parse HEAD^)
+          release_sha=$(git rev-parse HEAD)
+          git push origin "HEAD:refs/heads/$RELEASE_CANDIDATE"
+
+          # The main ruleset requires this exact commit to pass CI before it can be pushed.
+          passed=false
+          attempt=0
+          while [ "$attempt" -lt 90 ]; do
+            attempt=$((attempt + 1))
+            check_state=$(gh api "repos/$GITHUB_REPOSITORY/commits/$release_sha/check-runs" \
+              --jq '[.check_runs[] | select(.name == "Test & Check" and .app.slug == "github-actions")] | last | (.conclusion // .status // "queued")')
+            case "$check_state" in
+              success) passed=true; break ;;
+              queued|in_progress|pending) sleep 20 ;;
+              *) echo "::error::Release candidate CI ended with $check_state"; exit 1 ;;
+            esac
+          done
+          if [ "$passed" != true ]; then
+            echo "::error::Timed out waiting for release candidate CI"
+            exit 1
+          fi
+
+          current_main=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ "$current_main" != "$base_sha" ]; then
+            echo "::error::main advanced while release candidate CI ran"
+            exit 1
+          fi
+
+          git push --atomic origin "HEAD:refs/heads/main" "refs/tags/$TAG_NAME:refs/tags/$TAG_NAME"
+          if ! git push origin --delete "$RELEASE_CANDIDATE"; then
+            echo "::warning::Release pushed, but candidate branch $RELEASE_CANDIDATE needs cleanup"
+          fi
