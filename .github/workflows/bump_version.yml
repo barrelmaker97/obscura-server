@@ -24,10 +24,10 @@ jobs:
     permissions:
       contents: write
       checks: read
+      actions: write
     steps:
       - uses: actions/checkout@v7
         with:
-          ssh-key: ${{ secrets.DEPLOY_KEY }}
           submodules: true
 
       - name: Install Protoc
@@ -79,6 +79,8 @@ jobs:
           base_sha=$(git rev-parse HEAD^)
           release_sha=$(git rev-parse HEAD)
           git push origin "HEAD:refs/heads/$RELEASE_CANDIDATE"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/dispatches" \
+            -f ref="$RELEASE_CANDIDATE" --silent
 
           # The main ruleset requires this exact commit to pass CI before it can be pushed.
           passed=false
@@ -105,6 +107,11 @@ jobs:
           fi
 
           git push --atomic origin "HEAD:refs/heads/main" "refs/tags/$TAG_NAME:refs/tags/$TAG_NAME"
+          # GITHUB_TOKEN pushes do not trigger other workflows, but dispatch events do.
+          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/publish.yml/dispatches" \
+            -f ref="$TAG_NAME" --silent
+          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/dispatches" \
+            -f ref=main --silent
           if ! git push origin --delete "$RELEASE_CANDIDATE"; then
             echo "::warning::Release pushed, but candidate branch $RELEASE_CANDIDATE needs cleanup"
           fi
